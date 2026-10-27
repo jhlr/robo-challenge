@@ -1,0 +1,9 @@
+.DS_Store
+.scratch/
+# plotter tem repo proprio (jhlr/plotter)
+plotter/
+.pio/
+__pycache__/
+*.pyc
+# regulamento da competicao (documento de terceiros)
+Regras_Challenge_2026_Portugues-V1.0.pdf

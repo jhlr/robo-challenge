@@ -1,0 +1,1 @@
+chapa 1 (300 x 200 mm, ~26% ocupada pelas caixas): {'bar': 4, 'base': 1, 'servoplate': 1}

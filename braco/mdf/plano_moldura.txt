@@ -1,0 +1,1 @@
+chapa 1 (300 x 200 mm, ~16% ocupada pelas caixas): {'rear': 1, 'bridge': 1, 'cshelf': 1, 'stop': 1}

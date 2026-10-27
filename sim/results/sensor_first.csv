@@ -1,0 +1,11 @@
+policy,score_mean,score_sem,delivered,identified,lost,wasted,miss_events
+RandomWalk (sem memoria),781.6,31.7,3.75,8.22,0.41,84.1,0.0
+"Nearest, memoria decide",1035.8,47.4,6.3,8.26,0.72,50.6,0.2
+"Nearest, sensor decide",970.7,40.8,5.87,7.81,0.7,22.2,0.1
+"Planner tau=INF, memoria decide",824.1,44.1,4.71,7.17,0.55,64.4,0.1
+"Planner tau=INF, sensor decide",763.3,39.7,4.31,6.74,0.51,38.3,0.0
+"Planner tau=60, memoria decide",991.0,46.8,5.69,8.59,0.7,69.3,0.1
+"Planner tau=60, sensor decide",952.3,44.2,5.38,8.4,0.57,37.3,0.1
+"Planner tau=30, sensor decide",940.4,42.9,5.45,8.05,0.73,36.0,0.1
+"Planner tau=60, memoria decide, 30% crenca errada",826.1,37.5,4.63,7.37,0.55,72.1,0.1
+"Planner tau=60, sensor decide, 30% crenca errada",785.7,35.6,4.33,7.16,0.57,41.3,0.1

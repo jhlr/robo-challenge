@@ -1,0 +1,2 @@
+chapa 1 (300 x 200 mm, ~53% ocupada pelas caixas): {'side': 2, 'front': 1, 'bar': 4, 'tower': 2, 'back': 1, 'rear': 1, 'base': 1, 'stop': 1, 'bridge': 1}
+chapa 2 (300 x 200 mm, ~13% ocupada pelas caixas): {'cshelf': 1, 'coupon': 1, 'shelf': 1, 'cheek': 2}

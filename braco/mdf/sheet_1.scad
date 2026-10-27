@@ -1,0 +1,14 @@
+translate([17.000, 64.000]) import("parts/side.dxf");
+translate([46.000, 64.000]) import("parts/side.dxf");
+translate([81.000, 64.000]) import("parts/front.dxf");
+translate([108.000, 11.000]) import("parts/bar.dxf");
+translate([123.000, 11.000]) import("parts/bar.dxf");
+translate([138.000, 11.000]) import("parts/bar.dxf");
+translate([153.000, 11.000]) import("parts/bar.dxf");
+translate([174.000, -63.000]) import("parts/tower.dxf");
+translate([201.000, -63.000]) import("parts/tower.dxf");
+translate([229.150, -63.000]) import("parts/back.dxf");
+translate([41.000, 125.300]) import("parts/rear.dxf");
+translate([133.000, 142.000]) import("parts/base.dxf");
+translate([180.000, 125.300]) import("parts/stop.dxf");
+translate([243.000, 144.000]) import("parts/bridge.dxf");

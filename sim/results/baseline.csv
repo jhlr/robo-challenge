@@ -1,0 +1,8 @@
+policy,score_mean,score_sem,delivered,identified,lost,wasted,miss_events
+RandomWalk (sem memoria),781.6,31.7,3.75,8.22,0.41,84.1,0.0
+"Nearest, DR",1028.3,46.7,6.32,8.07,0.7,48.6,1.7
+"Nearest, gated",1035.8,47.4,6.3,8.26,0.72,50.6,0.2
+"Planner, DR, sem decaimento",820.9,43.8,4.72,7.08,0.51,63.2,1.5
+"Planner, gated, sem decaimento",824.1,44.1,4.71,7.17,0.55,64.4,0.1
+"Planner, gated, tau=60 s",996.9,47.1,5.73,8.63,0.71,69.1,0.1
+"Planner, gated, tau=30 s",1022.9,45.5,5.93,8.72,0.58,71.1,0.1

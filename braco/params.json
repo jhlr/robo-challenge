@@ -1,0 +1,56 @@
+{
+  "chassis": {
+    "half_l": 78,
+    "half_w": 47,
+    "z_deck_top": 68,
+    "pivot_y": 10,
+    "wheel_outer_half": 91,
+    "upper_deck_half": 89.5
+  },
+  "rule_box_mm": 300,
+  "arm": {
+    "L1": 100,
+    "h_v": 45,
+    "carrier_below": 56,
+    "cube": 50,
+    "finger_bottom_pick": 20,
+    "platform_h": 50,
+    "place_clearance": 10,
+    "cube_grip_offset": 20,
+    "carrier_front": 14,
+    "base_t": 3,
+    "shoulder_above_base": 22,
+    "shoulder_ratio": 4
+  },
+  "mass_g": {
+    "claw_group": 90,
+    "cube": 40,
+    "carrier_bars": 45
+  },
+  "servo_kgcm": {
+    "STS3215 (7.4 V)": 19.5,
+    "MG996R (6 V)": 10.0,
+    "MG90S (6 V)": 2.4,
+    "SG90 (5 V)": 1.8
+  },
+  "claw": {
+    "gm": 1.5,
+    "gz": 35,
+    "jaw_t": 4,
+    "jaw_len": 70,
+    "jaw_back": 6,
+    "jaw_h": 30,
+    "psi_open": 20,
+    "gear_z0": 31,
+    "gear_t": 4,
+    "bridge_z0": 36,
+    "bridge_t": 3,
+    "stop_y": 8,
+    "stop_t": 5,
+    "rear_gap": 24,
+    "bl": 0.15,
+    "friction": 0.5,
+    "clamp_arm_mm": 30,
+    "hook_dy": 30
+  }
+}
