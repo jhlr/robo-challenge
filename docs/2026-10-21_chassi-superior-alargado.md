@@ -23,4 +23,4 @@ Os 4 entalhes laterais dos motores (22,7 x 23 mm, antes abertos até a borda nov
 
 ## Porca espaçadora: mantida (2026-10-24)
 
-Os parafusos dos postes ficam 10 mm abaixo do topo das rodas e o convés precisa de 2 mm de folga sobre elas, então o espaçador (~12 mm) continua. Testei um convés baixo com a largura extra por fora das rodas (largura total 260 mm, pontes no vão entre as rodas) e foi descartado pelo usuário; arquivos em `arquivo/chassi_baixo_descartado/`.
+Os parafusos dos postes ficam 10 mm abaixo do topo das rodas e o convés precisa de 2 mm de folga sobre elas, então o espaçador (~12 mm) continua. Testei um convés baixo com a largura extra por fora das rodas (largura total 260 mm, pontes no vão entre as rodas) e foi descartado pelo usuário; arquivos em `old/chassi_baixo_descartado/`.

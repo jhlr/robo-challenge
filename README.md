@@ -12,7 +12,7 @@ cad/                      modelos e pecas
   modelo_robo/              modelo do robo completo, garra de mastro, lista de materiais
 sim/                      simulador da pista e das estrategias
 docs/                     decisoes, estado atual, checklist de bancada, imagens
-arquivo/                  versoes descartadas (ombro SG90, MG996R direto, conves baixo) e pecas soltas do plotter
+old/                  versoes descartadas (ombro SG90, MG996R direto, conves baixo) e pecas soltas do plotter
 ```
 
 Comecar por `docs/2026-10-24_braco-opcao2-estado-atual.md` e `docs/2026-10-24_checklist-bancada.md`.

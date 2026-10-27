@@ -1,4 +1,4 @@
-// Ombro com servo MG996R (TowerPro) e reducao 4:1 (antes SG90/MG90S: arquivo/ombro_sg90_berco): pinhao z12 no servo + setor z48 preso a barra de baixo (lado -x), mesmo modulo m1,25.
+// Ombro com servo MG996R (TowerPro) e reducao 4:1 (antes SG90/MG90S: old/ombro_sg90_berco): pinhao z12 no servo + setor z48 preso a barra de baixo (lado -x), mesmo modulo m1,25.
 // O servo fica ATRAS das torres (a sr_D do pivo, na direcao -y) porque o torque do ombro (4,2 kg.cm com folga 2x) e ~2x o de um SG90/MG90S direto.
 // Reusa cr_tooth / cr_sector_2d de claw_rot.scad (mesmo dente da pinca). O pinhao NAO tem bolso estriado: parafusa no horn redondo do servo.
 // Eixo do servo = x, apontando para -x (servo atras das torres, dentro da largura do prato); pivo das barras em (y = 0, z = z_s). Pecas locais usam (u, v, w) = (y, z, x) via rotate([90,0,90]).
