@@ -1,6 +1,6 @@
 # Robo Challenge 2026
 
-Robo autonomo para o desafio (regras: 300 x 300 mm com tudo estendido, totalmente autonomo). Chassi com 2 deques, braco paralelogramo em MDF com ombro 4:1 e garra rotativa, sensores de linha, cor e ultrassom.
+Robo autonomo para o desafio (regras: 300 x 300 mm com tudo estendido, totalmente autonomo). Chassi com 2 conveses, braco paralelogramo em MDF com ombro 4:1 e garra rotativa, sensores de linha, cor e ultrassom.
 
 | Pasta | O que tem |
 |---|---|
