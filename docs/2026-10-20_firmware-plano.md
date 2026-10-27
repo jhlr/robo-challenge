@@ -23,14 +23,14 @@ firmware/
   src/behaviors/          # search, approach, pick, carry, place, signal
   src/debug/              # telemetria BT, so fora de COMPETITION
   test/                   # testes nativos (core/)
-  config/params.h         # gerado de braco/params.json por script (nunca copiar a mao)
+  config/params.h         # gerado de cad/braco/params.json por script (nunca copiar a mao)
 ```
 
 ## Marcos
 
 1. M1 bring-up: um sketch de teste por sensor/atuador, confirma pinos, IDs STS (1 a 3), leituras sanas.
 2. M2 locomocao: 2 STS em modo roda (um por lado), seguidor de linha (array IR + PID), classificacao de cor do chao.
-3. M3 braco: ombro STS3215 com presets de `braco/cinematica.py` (pega -9,8 graus, solta +25,5 graus), SG90 da garra, sequencia pegar/soltar.
+3. M3 braco: ombro STS3215 com presets de `cad/braco/cinematica.py` (pega -9,8 graus, solta +25,5 graus), SG90 da garra, sequencia pegar/soltar.
 4. M4 estrategia: portar `sensor_first` e o mapa de crencas do `sim/` para `core/`, validar contra o simulador.
 
 ## Pendente

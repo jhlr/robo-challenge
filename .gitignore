@@ -7,3 +7,5 @@ __pycache__/
 *.pyc
 # regulamento da competicao (documento de terceiros)
 Regras_Challenge_2026_Portugues-V1.0.pdf
+# frames temporarios da animacao do braco (gerados por cad/braco/animar.py)
+docs/anim_frames/

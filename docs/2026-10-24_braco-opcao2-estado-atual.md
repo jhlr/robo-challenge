@@ -2,19 +2,19 @@
 
 Consolida `2026-10-20_braco-opcao2.md`, `2026-10-21_chassi-superior-alargado.md` e `2026-10-22_ombro-mg996r.md` (esta última é uma decisão descartada, mantida como histórico). Onde houver conflito, vale este documento. Nada abaixo foi testado em hardware.
 
-Eixos: x lateral, y para frente, z para cima; pivô das barras em (y = 0, z = 93). Fonte única dos números: `braco/params.json` → `python3 braco/cinematica.py` (relatório + `params_gen.scad`).
+Eixos: x lateral, y para frente, z para cima; pivô das barras em (y = 0, z = 93). Fonte única dos números: `cad/braco/params.json` → `python3 cad/braco/cinematica.py` (relatório + `params_gen.scad`).
 
 ## 1. Mecanismo
 
 1. **Braço:** paralelogramo fixo à frente do robô, sem giro (quem mira é o chassi). Barras de 100 mm (`L1`), 4 barras de MDF 2,3 mm, carrier vertical (a pinça sobe e desce nivelada). Pegar: -9,8°; erguer: -16°; soltar na plataforma: +25,5°.
-2. **Ombro: SG90 ou MG90S (TowerPro) com redução 4:1.** Pinhão z12 no servo, setor z48 preso à barra de baixo do lado -x, módulo 1,25, 37,5 mm entre centros, servo atrás das torres a 165° do pivô. Fonte: `braco/ombro_reducao.scad`. O MG996R direto no pivô foi modelado e descartado em 2026-10-22 (usuário: o TowerPro não aguenta direto); arquivos em `backup/ombro_mg996r_direto/`.
+2. **Ombro: SG90 ou MG90S (TowerPro) com redução 4:1.** Pinhão z12 no servo, setor z48 preso à barra de baixo do lado -x, módulo 1,25, 37,5 mm entre centros, servo atrás das torres a 165° do pivô. Fonte: `cad/braco/ombro_reducao.scad`. O MG996R direto no pivô foi modelado e descartado em 2026-10-22 (usuário: o TowerPro não aguenta direto); arquivos em `arquivo/ombro_mg996r_direto/`.
 3. **Pinhão parafusado no horn redondo do servo** (em vez do bolso estriado impresso): horn de 20 mm, disco de 2 mm, cubo de 3 mm virado para o servo (total 5 mm), plano para o pinhão. Flange de 22 x 2 mm no pinhão, 4 pinos impressos de 1,1 mm entram nos 4 furos do horn a 8 mm do centro, a 90°; M2 do eixo prende. O servo fica recuado (`sr_sv_top` = -27,15) e a prateleira do berço acaba antes do horn (`m_cx` = [-48,5; -27,55]).
-4. **Extensor do eixo** (opcional): `braco/stl/part_ext_eixo.stl`, Ø8 mm, 14 mm no total (10 mm de corpo, com 5 mm de estria fêmea de 21 dentes e 4 mm de macho). O modelo do ombro ainda não conta o extensor.
+4. **Extensor do eixo** (opcional): `cad/braco/stl/part_ext_eixo.stl`, Ø8 mm, 14 mm no total (10 mm de corpo, com 5 mm de estria fêmea de 21 dentes e 4 mm de macho). O modelo do ombro ainda não conta o extensor.
 5. **Pinça rotativa:** SG90 de cabeça para baixo na mandíbula esquerda por `part_coupler.stl` (impresso e encaixado, servo preso); setores iguais (m1,5, 35 dentes) giram a outra mandíbula ao contrário; mandíbulas impressas com a engrenagem embaixo, dentes do lado do cubo cortados (gabarito `docs/2026-10-21_gabarito-corte-1a1.svg`); arco concêntrico ao cubo (raio 35,4 mm) que toca as 4 quinas; pino M3 x 30 por baixo no pivô da esquerda. Regra de MDF: só janelas fechadas, nunca entalhe aberto.
 
 ## 2. Chassi
 
-1. **Deck de baixo (Esboço30):** 156 x 99 mm. **Convés de cima:** `chassi/alargar_superior.py` gera `chassi_superior_alargado.dxf` (99 mm) e **`chassi_superior_asas.dxf`** (asas de 40 mm por lado, 179 mm; entalhes abertos até a borda nova). Modelo: `wing = 40` em `garra_challenge/robot_completo.scad`.
+1. **Deck de baixo (Esboço30):** 156 x 99 mm. **Convés de cima:** `cad/chassi/alargar_superior.py` gera `chassi_superior_alargado.dxf` (99 mm) e **`chassi_superior_asas.dxf`** (asas de 40 mm por lado, 179 mm; entalhes abertos até a borda nova). Modelo: `wing = 40` em `cad/modelo_robo/robot_completo.scad`.
 2. **Largura total do robô: 182 mm** (as rodas externas ficam a 91 mm do centro; as asas chegam a 89,5 mm e não aumentam). Pinça aberta: 108 mm.
 3. **Folga sobre as rodas: 2 mm** (convés a z = 68, topo das rodas a 66).
 4. Eletrônica: ESP32 DevKit deitado na faixa de trás do convés; Mega/Uno não cabem ali.

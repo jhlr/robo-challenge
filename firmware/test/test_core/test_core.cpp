@@ -68,7 +68,7 @@ void test_color_classes() {
 
 void test_shoulder_mapping() {
   using namespace params;
-  // arm angles from braco/params.json: pick -9.788, mid -16, place +25.468 -> servo 148 / 173 / 7 deg
+  // arm angles from cad/braco/params.json: pick -9.788, mid -16, place +25.468 -> servo 148 / 173 / 7 deg
   TEST_ASSERT_FLOAT_WITHIN(0.5f, 148.0f, core::shoulderServoDeg(-9.788f, kShoulderCenterDeg, kShoulderSign, kShoulderRatio));
   TEST_ASSERT_FLOAT_WITHIN(0.5f, 173.0f, core::shoulderServoDeg(-16.0f, kShoulderCenterDeg, kShoulderSign, kShoulderRatio));
   TEST_ASSERT_FLOAT_WITHIN(0.5f, 7.0f, core::shoulderServoDeg(25.468f, kShoulderCenterDeg, kShoulderSign, kShoulderRatio));

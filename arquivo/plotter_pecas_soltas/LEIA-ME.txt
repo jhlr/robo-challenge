@@ -1,0 +1,1 @@
+Pecas do plotter (suporte de lapis, base, elos) que estavam soltas em garra/. Pertencem ao projeto jhlr/plotter; aqui so como arquivo.

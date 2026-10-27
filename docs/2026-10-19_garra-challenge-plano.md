@@ -55,7 +55,7 @@ A garra antiga está em `garra/` (STLs). É um braço articulado, então serve d
 
 ## Modelo 3D v2, leve, com engrenagens (2026-10-19)
 
-Fonte: `garra_challenge/garra_challenge.scad` (OpenSCAD, parametrico). STLs em `garra_challenge/stl/`; previa em `garra_challenge/preview_assembly.png`. A v1 (correia GT2) foi descartada a pedido; a impressora 3D da equipe cobre as engrenagens.
+Fonte: `cad/modelo_robo/garra_challenge.scad` (OpenSCAD, parametrico). STLs em `cad/modelo_robo/stl/`; previa em `cad/modelo_robo/preview_assembly.png`. A v1 (correia GT2) foi descartada a pedido; a impressora 3D da equipe cobre as engrenagens.
 
 - Peso impresso (PLA maciço, sem infill): ver `mass.py`; a v0 pesava 196 g. O que mudou: mastro e carriage em moldura fina com janelas de alívio, mancais finos no lugar do bloco, dedos e sliders em moldura de 3 mm, módulo 1.25 no lugar de 1.5.
 - Elevador: N20 na carriage, pinhão evolvente (m1.25, 12 dentes, 8 mm de largura) engrenado na cremalheira fixa no mastro; duas hastes de aço Ø4 x ~100 mm; curso 62 mm; 2 fins de curso.
@@ -68,7 +68,7 @@ Fonte: `garra_challenge/garra_challenge.scad` (OpenSCAD, parametrico). STLs em `
 
 ## Chassi novo (2026-10-19)
 
-Lista de compras com fotos: `docs/2026-10-19_lista-de-materiais.pdf` (gerada por `garra_challenge/materiais_pdf.py`).
+Lista de compras com fotos: `docs/2026-10-19_lista-de-materiais.pdf` (gerada por `cad/modelo_robo/materiais_pdf.py`).
 
 
 - Substitui o carro de 170 x 160 mm. Um servo de barramento STS3215 (Feetech) por lado, cada um ligado a 2 rodas.
@@ -90,7 +90,7 @@ Lista de compras com fotos: `docs/2026-10-19_lista-de-materiais.pdf` (gerada por
 ## Sensor decide, memória só guia (2026-10-19)
 
 - Decisão do usuário: a memória é só guia; os sensores são decisivos. No simulador isso virou o modo `sensor_first`: a rua lembrada como bloqueada só custa +40 s e o ToF confere antes de entrar. Custo: ~4% de pontos (dentro do ruído) e quase metade das aproximações desperdiçadas. Detalhes em `sim/README.md`.
-- Ilustração do robô completo: `docs/2026-10-19_robo-completo.png` (gerada por `garra_challenge/robo_ilustracao.py` a partir de `robot_completo.scad`). Chassi, eletrônica e sensores estimados; a garra é o modelo real. Tamanho ~230 x 168 x 123 mm.
+- Ilustração do robô completo: `docs/2026-10-19_robo-completo.png` (gerada por `cad/modelo_robo/robo_ilustracao.py` a partir de `robot_completo.scad`). Chassi, eletrônica e sensores estimados; a garra é o modelo real. Tamanho ~230 x 168 x 123 mm.
 - Os sensores (linha de IR, sensor de cor do chão, IMU, buzzer, LED) já existem no inventário da liga; o PDF de compras não foi atualizado.
 
 ## Elevador com STS3215 (2026-10-19, substitui o N20)
