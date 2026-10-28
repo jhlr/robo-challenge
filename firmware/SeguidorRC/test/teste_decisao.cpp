@@ -156,7 +156,8 @@ int main() {
     assert(c.esq == -ae.velBuscaExterna && !c.parar);    // recomeca o giro: nunca para
     // o trecho reto cresce a cada volta (x2 na segunda), ate buscaAvancoMaxFator
     const unsigned long volta1 = buscaGiroMs(ae) + ae.buscaEspiralMs + ae.buscaAvancoMs + buscaViradaMs(ae);
-    c = passo(m, ae, "........", t0 + volta1 + buscaGiroMs(ae) + ae.buscaEspiralMs + ae.buscaAvancoMs + 10);
+    // a segunda volta nao gira uma volta inteira (buscaGiraSoNaPrimeira): vai direto para a espiral e o trecho reto, que agora dura 2x
+    c = passo(m, ae, "........", t0 + volta1 + ae.buscaEspiralMs + ae.buscaAvancoMs + 10);
     assert(c.esq == ae.velBuscaExterna && c.dir == ae.velBuscaExterna);              // ainda reto: o trecho agora dura 2x
     c = passo(m, ae, "...##...", 99999);                 // linha voltou: anda reto
     assert(c.esq == ae.velReto && !c.parar); }

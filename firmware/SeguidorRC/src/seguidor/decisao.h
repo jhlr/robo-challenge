@@ -53,10 +53,11 @@ struct Ajustes {
   float grausPorSegundoBusca = 110.0f;  // CHUTE: velocidade desse giro com velBuscaExterna; cronometre uma volta e corrija
   // Depois do giro e da espiral, anda reto e vira 90 graus, e recomeca: a linha pode estar alem do alcance da barra (48 mm do eixo do giro no lugar).
   // O trecho reto cresce a cada volta (buscaAvancoMs x 1, x 2, ... ate buscaAvancoMaxFator), varrendo para fora em quadrado.
+  bool buscaGiraSoNaPrimeira = true;   // o giro de uma volta so na primeira volta da busca: as seguintes sao so trecho reto + virada (quadrado crescente), bem mais rapido
   unsigned long buscaAvancoMs = 500;
   int buscaAvancoMaxFator = 3;
   unsigned long buscaEspiralMs = 0;     // espiral entre o giro e o trecho reto (0 = sem). No simulador a espiral PIORA a busca: o trecho reto cresce a partir do rumo do giro, e a espiral o desvia  // depois abre em espiral por esse tempo; ai recomeca o giro
-  int velBuscaExterna = 70;             // roda de fora na busca (constante)
+  int velBuscaExterna = 70;             // roda de fora na busca (constante). Com o MPU a calibracao a troca por uma velocidade maior (AjustesCalibracao::velMedida) e mede os graus por segundo nela
   float bitolaMm = 140.0f;              // CHUTE: distancia entre as rodas esquerda e direita; meca e corrija
   float raioMaxEspiralMm = 125.0f;      // a espiral NUNCA passa desse raio de curva (folga entre a rua e os cubos marrons dos quarteiroes)
   int velBuscaContrariaMin = 10;        // e a roda de dentro NUNCA chega a zero nem passa: fica sempre pelo menos assim para tras (sentidos opostos)

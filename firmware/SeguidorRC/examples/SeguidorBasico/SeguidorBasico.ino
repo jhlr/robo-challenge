@@ -272,7 +272,7 @@ void setup() {
   if (kCalibrarMotores) {   // gira no eixo ate o giroscopio acusar: zona morta e graus por segundo de verdade
     Calibracao cal;
     AjustesCalibracao ac;
-    ac.velMedida = ajustes.velBuscaExterna;   // mede os graus por segundo NA velocidade em que vai procurar
+    // mede os graus por segundo numa velocidade RAPIDA (ac.velMedida, 140): e a que passa a ser a da busca, e procurar mais rapido acha mais e antes
     ComandoCalibracao k;
     do {
       lerImu();

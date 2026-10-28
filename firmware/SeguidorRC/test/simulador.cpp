@@ -121,6 +121,7 @@ class Carro {
     return m;
   }
   void levantar(bool sim) { levantado_ = sim; if (sim) { vE_ = vD_ = 0; vMmS_ = wRadS_ = aMmS2_ = 0; } }
+  void limparRastro() { rastro_.clear(); bits_.clear(); grava(); }   // o que vem depois e o que interessa mostrar
   void colocarEm(Estado e) { e_ = e; vE_ = vD_ = 0; grava(); }   // solto no chao em outro lugar
   void bater(double g, int ticks) { impulsoG_ = g; impulsoTicks_ = ticks; }   // pancada horizontal de g por `ticks` ciclos
   bool levantado() const { return levantado_; }
@@ -489,12 +490,12 @@ static void placar(const Carro& c) {
 }
 
 // Tudo o que cada cenario percorreu, para a pagina de visualizacao (--html=arquivo).
-struct Viz { std::string nome; std::vector<Seg> segs; std::vector<Ret> decor; double largura; std::vector<Estado> rastro; std::vector<uint8_t> bits; };
+struct Viz { std::string nome; int achou; std::vector<Seg> segs; std::vector<Ret> decor; double largura; std::vector<Estado> rastro; std::vector<uint8_t> bits; };
 static std::vector<Viz> gViz;
 static const char* gHtmlPath = nullptr;
 
-static void svg(const std::string& nome, const Pista& p, const Carro& c) {
-  if (gHtmlPath) gViz.push_back({nome, p.segs, p.decor, p.largura, c.rastro(), c.bits()});
+static void svg(const std::string& nome, const Pista& p, const Carro& c, int achou = -1) {
+  if (gHtmlPath) gViz.push_back({nome, achou, p.segs, p.decor, p.largura, c.rastro(), c.bits()});
   if (!gSvgDir) return;
   double x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   auto acha = [&](double x, double y) { x0 = std::min(x0, x); y0 = std::min(y0, y); x1 = std::max(x1, x); y1 = std::max(y1, y); };
@@ -514,14 +515,27 @@ static void svg(const std::string& nome, const Pista& p, const Carro& c) {
   fclose(f);
 }
 
-// Roda o firmware ate `fim` ser verdadeiro ou estourar maxMs.
+// Roda o firmware ate `fim` ser verdadeiro. SEM limite de tempo por cenario: o unico teto e o de seguranca contra laco infinito (10 min simulados),
+// que da "nao chegou" como qualquer outro fracasso.
+constexpr unsigned long kTetoSegurancaMs = 600000;
+
 template <class Fim>
-static bool rodar(Firmware& fw, Carro& c, unsigned long maxMs, Fim fim) {
-  while (c.agoraMs() < maxMs) {
+static bool rodar(Firmware& fw, Carro& c, Fim fim) {
+  const unsigned long inicio = c.agoraMs();
+  while (c.agoraMs() - inicio < kTetoSegurancaMs) {
     fw.passo(c);
     if (fim(c)) return true;
   }
   return false;
+}
+
+// Deixa o tempo correr ate `ateMs` (instante absoluto da simulacao): para montar situacoes (esperar, levantar, bater), nao e limite de teste.
+template <class Fim>
+static void avancarAte(Firmware& fw, Carro& c, unsigned long ateMs, Fim fim) {
+  while (c.agoraMs() < ateMs) {
+    fw.passo(c);
+    if (fim(c)) return;
+  }
 }
 
 static Estado norte(double x, double y, double desvioGraus = 0) { return {x, y, M_PI / 2 + desvioGraus * M_PI / 180.0}; }
@@ -532,7 +546,7 @@ static Resultado cenarioReta(const char* nome, double off, double ang, bool salv
   p.reta(0, 0, 0, 1000);
   Carro c(p, norte(off, 100, ang));
   Firmware fw;
-  const bool chegou = rodar(fw, c, 12000, [](const Carro& k) { return k.estado().y > 900; });
+  const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; });
   placar(c);
   const bool ok = chegou && c.erroBarra() < 6.0 && fw.ticksBuscando == 0;
   if (salva) svg(nome, p, c);
@@ -549,7 +563,7 @@ static Resultado cenarioCanto(bool paraEsquerda) {
   Carro c(p, norte(0, 50));
   Firmware fw;
   fw.paraNoCruzamento = true;
-  const bool chegou = rodar(fw, c, 15000, [&](const Carro& k) { return fabs(k.estado().x) > 450; });
+  const bool chegou = rodar(fw, c, [&](const Carro& k) { return fabs(k.estado().x) > 450; });
   placar(c);
   const bool ok = chegou && c.erroBarra() < 6.0;
   svg(paraEsquerda ? "canto_esquerda" : "canto_direita", p, c);
@@ -565,7 +579,7 @@ static Resultado cenarioArco(double raio) {
   p.reta(raio, 200 + raio, raio + 400, 200 + raio);
   Carro c(p, norte(0, 50));
   Firmware fw;
-  const bool chegou = rodar(fw, c, 15000, [&](const Carro& k) { return k.estado().x > raio + 300; });
+  const bool chegou = rodar(fw, c, [&](const Carro& k) { return k.estado().x > raio + 300; });
   placar(c);
   const bool ok = chegou && c.erroBarra() < 6.0;
   svg(fmt("arco_%.0f", raio), p, c);
@@ -579,7 +593,7 @@ static Resultado cenarioCruzamento(double off, double ang) {
   p.reta(-400, 500, 400, 500);   // rua que cruza
   Carro c(p, norte(off, 100, ang));
   Firmware fw;
-  rodar(fw, c, 15000, [&](const Carro&) { return fw.fimDeBeco; });
+  rodar(fw, c, [&](const Carro&) { return fw.fimDeBeco; });
   const bool ok = fw.cruzamentos == 1 && fw.falsosAlarmes == 0 && fw.fimDeBeco && fw.ruaEsq == 1 && fw.ruaDir == 1;
   svg(fmt("cruzamento_off%+.0f_ang%+.0f", off, ang), p, c);
   return {fmt("cruzamento (off %+.0f, ang %+.0f)", off, ang), ok,
@@ -597,7 +611,7 @@ static Resultado cenarioBorda(int cor, bool cubo) {
   Firmware fw;
   fw.temCubo = cubo;
   bool voltou = false;
-  rodar(fw, c, 20000, [&](const Carro& k) {
+  rodar(fw, c, [&](const Carro& k) {
     if (cubo) return fw.parado;
     voltou = k.estado().y < 300 && fw.meiasVoltas > 0;
     return voltou;
@@ -623,7 +637,7 @@ static Resultado cenarioCruzamentoImu() {
   Carro c(p, norte(0, 100));
   Firmware fw;
   fw.ligarImu(c);
-  rodar(fw, c, 15000, [&](const Carro&) { return fw.fimDeBeco; });
+  rodar(fw, c, [&](const Carro&) { return fw.fimDeBeco; });
   const bool ok = fw.cruzamentos == 1 && fw.falsosAlarmes == 0 && fabs(fw.giroDriftGraus) < 2.0;
   svg("cruzamento_giroscopio", p, c);
   return {"cruzamento com giro pelo giroscopio", ok, fmt("confirmados %d, falsos %d, ruas %d %d | o giro deixou o rumo %+.1f graus fora (por tempo, sem giroscopio, passava de 4)", fw.cruzamentos, fw.falsosAlarmes, fw.ruaEsq, fw.ruaDir, fw.giroDriftGraus)};
@@ -641,7 +655,7 @@ static Resultado cenarioAncora() {
     Firmware fw;
     fw.usaAncora = com == 1;
     fw.ligarImu(c);
-    rodar(fw, c, 20000, [](const Carro& k) { return k.estado().y > 2200; });
+    rodar(fw, c, [](const Carro& k) { return k.estado().y > 2200; });
     erro[com] = fabs(fw.rumo - rumoVerdadeGraus(c, M_PI / 2));   // rumo estimado contra o real
     if (com == 1) svg("ancora_grade", p, c);
   }
@@ -655,16 +669,16 @@ static Resultado cenarioLevantado() {
   Carro c(p, norte(15, 100, 10));
   Firmware fw;
   fw.ligarImu(c);
-  rodar(fw, c, 1500, [](const Carro&) { return false; });
+  avancarAte(fw, c, 1500, [](const Carro&) { return false; });
   c.levantar(true);
-  rodar(fw, c, 3500, [](const Carro&) { return false; });   // 2 s no ar
+  avancarAte(fw, c, 3500, [](const Carro&) { return false; });   // 2 s no ar
   const int motoresNoAr = fw.ticksMotorLevantado;
   c.colocarEm(norte(-12, 700, -10));                         // solto em outro lugar, apontando para a frente
   c.levantar(false);
   const unsigned long solto = c.agoraMs();
   bool andouAntes = false;
-  rodar(fw, c, solto + 1300, [&](const Carro& k) { andouAntes |= k.estado().y > 700.5; return false; });   // ainda estabilizando: nao anda
-  const bool chegou = rodar(fw, c, 20000, [](const Carro& k) { return k.estado().y > 1300; });
+  avancarAte(fw, c, solto + 1300, [&](const Carro& k) { andouAntes |= k.estado().y > 700.5; return false; });   // ainda estabilizando: nao anda
+  const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 1300; });
   const bool ok = fw.levantados == 1 && fw.reposicionados == 1 && motoresNoAr == 0 && !andouAntes && chegou;
   svg("levantado", p, c);
   return {"levantado, solto de frente em outro lugar", ok, fmt("levantou %d, reposicionou %d, ciclos com motor ligado no ar %d, andou antes de estabilizar: %s, %s", fw.levantados, fw.reposicionados, motoresNoAr, andouAntes ? "SIM" : "nao", chegou ? "chegou ao fim" : "NAO chegou")};
@@ -684,7 +698,7 @@ static Resultado cenarioTravado() {
     fw.ajustes.zonaMortaPwm = 65;   // a decisao nao sabe da zona real
     fw.ajustes = normalizar(fw.ajustes);
     if (com) fw.ligarImu(c);
-    chegou[com] = rodar(fw, c, 15000, [](const Carro& k) { return k.estado().y > 900; }) && c.erroBarra() < 8.0;
+    chegou[com] = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; }) && c.erroBarra() < 8.0;
     if (com) { reforcos = fw.reforcos; svg("travado_reforco", p, c); }
   }
   return {"andando menos que o esperado: reforca o PWM", chegou[1], fmt("zona real 95, decisao 65: sem MPU %s; com MPU %s (%d reforcos)", chegou[0] ? "chegou" : "NAO chegou", chegou[1] ? "chegou" : "NAO chegou", reforcos)};
@@ -697,11 +711,11 @@ static Resultado cenarioColisao() {
   Carro c(p, norte(0, 100));
   Firmware fw;
   fw.ligarImu(c);
-  rodar(fw, c, 1000, [](const Carro&) { return false; });
+  avancarAte(fw, c, 1000, [](const Carro&) { return false; });
   c.bater(2.5, 4);
-  rodar(fw, c, 2000, [](const Carro&) { return false; });
+  avancarAte(fw, c, 2000, [](const Carro&) { return false; });
   c.bater(0.4, 4);
-  rodar(fw, c, 3000, [](const Carro&) { return false; });
+  avancarAte(fw, c, 3000, [](const Carro&) { return false; });
   return {"colisao: oponente conta, cubo nao", fw.colisoes == 1, fmt("colisoes detectadas %d (pancada forte 2,5 g e leve 0,4 g); pico visto %.2f g", fw.colisoes, fw.colisao.picoG)};
 }
 
@@ -736,7 +750,7 @@ static Resultado cenarioLacunaImu(double lacunaMm) {
   Carro c(p, norte(0, 100, 6));
   Firmware fw;
   fw.ligarImu(c);
-  const bool chegou = rodar(fw, c, 12000, [](const Carro& k) { return k.estado().y > 900; });
+  const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; });
   svg(fmt("lacuna_giroscopio_%.0f", lacunaMm), p, c);
   return {fmt("lacuna de %.0f mm segurando o rumo", lacunaMm), chegou && c.erroBarra() < 6.0, fmt("%s em %lu ms, erro final %.1f mm, buscando %d ciclos", chegou ? "chegou" : "NAO chegou", c.agoraMs(), c.erroBarra(), fw.ticksBuscando)};
 }
@@ -776,7 +790,7 @@ static Resultado cenarioTabuleiro() {
   fw.ligarImu(c);
   fw.portaoPendente = true;
   fw.rota = "SLSSSS";
-  const bool desceu = rodar(fw, c, 90000, [&](const Carro& k) { return fw.meiasVoltas > 0 && k.estado().y < kBeco + 2 * kPasso + 50; });
+  const bool desceu = rodar(fw, c, [&](const Carro& k) { return fw.meiasVoltas > 0 && k.estado().y < kBeco + 2 * kPasso + 50; });
   const bool ok = desceu && fw.portoes == 1 && fw.meiasVoltas == 1 && fw.bordas == 1 && fw.falsosAlarmes == 0 && c.erroBarra() < 8.0;
   svg("tabuleiro_inteiro", p, c);
   return {"tabuleiro inteiro: portao, cruzamentos, curva para o norte, borda", ok,
@@ -792,9 +806,9 @@ static Resultado cenarioEndireitar(bool imu) {
   Carro c(p, {-150, 300, 0.0});   // longe da linha, perdido
   Firmware fw;
   if (imu) fw.ligarImu(c);
-  rodar(fw, c, c.agoraMs() + 700, [](const Carro&) { return false; });   // procura um pouco: perdeuEm e a lacuna ja passaram
+  avancarAte(fw, c, c.agoraMs() + 700, [](const Carro&) { return false; });   // procura um pouco: perdeuEm e a lacuna ja passaram
   c.colocarEm({-30, 500, 0.0});   // a busca o deixou de lado em cima da linha: a barra inteira sobre ela
-  const bool chegou = rodar(fw, c, c.agoraMs() + 25000, [](const Carro& k) { return k.estado().y > 1000; });
+  const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 1000; });
   svg(imu ? "endireitar_na_linha" : "endireitar_na_linha_sem_mpu", p, c);
   return {imu ? "perdido de lado na linha: vira 90 e se endireita (com MPU)" : "perdido de lado na linha: vira 90 e se endireita (sem MPU)", chegou && fw.endireitou >= 1 && fw.cruzamentos == 0,
           fmt("%s | endireitou %d vez(es), cruzamentos %d, falsos alarmes %d | fim em (%.0f, %.0f), erro %.1f mm", chegou ? "chegou ao fim da linha" : "NAO chegou", fw.endireitou, fw.cruzamentos, fw.falsosAlarmes, c.estado().x, c.estado().y, c.erroBarra())};
@@ -807,7 +821,7 @@ static Resultado cenarioAtravessa() {
   p.reta(-400, 500, 400, 500);
   Carro c(p, norte(0, 100));
   Firmware fw;
-  const bool chegou = rodar(fw, c, 20000, [](const Carro& k) { return k.estado().y > 900; });
+  const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; });
   const bool ok = chegou && fw.cruzamentos == 1 && c.erroBarra() < 6.0;
   svg("atravessa_cruzamento", p, c);
   return {"atravessa o cruzamento e segue", ok, fmt("%s em %lu ms, cruzamentos %d, falsos %d, erro final %.1f mm, giro deixou rumo %+.1f graus, buscando %d ciclos", chegou ? "chegou" : "NAO chegou",
@@ -821,7 +835,7 @@ static Resultado cenarioLacuna(double lacunaMm) {
   p.reta(0, 300 + lacunaMm, 0, 1000);
   Carro c(p, norte(0, 100));
   Firmware fw;
-  const bool chegou = rodar(fw, c, 12000, [](const Carro& k) { return k.estado().y > 900; });
+  const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; });
   const bool ok = chegou && c.erroBarra() < 6.0;
   svg(fmt("lacuna_%.0f", lacunaMm), p, c);
   return {fmt("lacuna de %.0f mm", lacunaMm), ok, fmt("%s em %lu ms, erro final %.1f mm, buscando %d ciclos", chegou ? "chegou" : "NAO chegou", c.agoraMs(), c.erroBarra(), fw.ticksBuscando)};
@@ -840,7 +854,6 @@ static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms
     fw.ligarImu(*c);
     Calibracao cal;
     AjustesCalibracao ac;
-    ac.velMedida = fw.ajustes.velBuscaExterna;   // mede os graus por segundo NA velocidade em que vai procurar
     bool fim = false;
     for (int i = 0; i < 6000 && !fim; i++) {
       const ComandoCalibracao k = passoCalibracao(cal, fw.ultimoImu.gzRadS - fw.vies, c->agoraMs(), ac);
@@ -856,10 +869,11 @@ static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms
       fw.ajustes = normalizar(fw.ajustes);
     }
     c->colocarEm(origem);
+    c->limparRastro();   // a animacao mostra so a busca, nao a calibracao
     if (getenv("SEM_IMU_NA_BUSCA")) fw.usaImu = false;
   }
   const unsigned long t0 = c->agoraMs();
-  const bool achou = rodar(fw, *c, t0 + 15000, [&](const Carro& k) {
+  const bool achou = rodar(fw, *c, [&](const Carro& k) {
     return k.erroBarra() < 8.0 && fw.memoria.perdeuEm == 0;   // de novo em cima da linha (ao largar, a barra esta a >= 30 mm dela)
   });
   ms = c->agoraMs() - t0;
@@ -878,7 +892,7 @@ static Resultado cenarioBusca(double dist, double rumoGraus) {
   const bool sem = buscar(dist, rumoGraus, false, msSem, cSem, p);
   Carro* c = nullptr;
   const bool com = buscar(dist, rumoGraus, true, msCom, cCom, p, &c);
-  svg(fmt("busca_d%.0f_r%.0f_com_mpu", dist, rumoGraus), p, *c);
+  svg(fmt("busca_d%.0f_r%.0f %s", dist, rumoGraus, com ? fmt("OK em %.1f s", msCom / 1000.0).c_str() : "NAO ACHOU"), p, *c, com ? 1 : 0);
   return {fmt("busca a %.0f mm, rumo %.0f", dist, rumoGraus), com,
           fmt("com MPU (calibra o giro antes): %s em %lu ms | sem MPU (chute de 110 graus/s): %s", com ? "achou" : "NAO achou", msCom, sem ? fmt("achou em %lu ms", msSem).c_str() : "NAO achou")};
 }
@@ -903,7 +917,7 @@ const D=)HTML",f);
   fputs("[", f);
   for (size_t v = 0; v < gViz.size(); v++) {
     const Viz& z = gViz[v];
-    fprintf(f, "%s{n:\"%s\",w:%.0f,s:[", v ? "," : "", z.nome.c_str(), z.largura);
+    fprintf(f, "%s{n:\"%s\",a:%d,w:%.0f,s:[", v ? "," : "", z.nome.c_str(), z.achou, z.largura);
     for (size_t i = 0; i < z.segs.size(); i++) fprintf(f, "%s[%.1f,%.1f,%.1f,%.1f,%d]", i ? "," : "", z.segs[i].x0, z.segs[i].y0, z.segs[i].x1, z.segs[i].y1, z.segs[i].cor);
     fputs("],r:[", f);
     for (size_t i = 0; i < z.decor.size(); i++) fprintf(f, "%s[%.0f,%.0f,%.0f,%.0f,%d]", i ? "," : "", z.decor[i].x0, z.decor[i].y0, z.decor[i].x1, z.decor[i].y1, z.decor[i].cor);
@@ -927,6 +941,7 @@ cx.strokeStyle='#e02424';cx.lineWidth=1.5;cx.beginPath();for(let i=0;i<=fr;i++){
 const f=d.f[fr],th=f[2]*Math.PI/180,c=Math.cos(th),s=Math.sin(th);const W=(fx,fy)=>P(t,f[0]+fx*c-fy*s,f[1]+fx*s+fy*c);
 cx.fillStyle=dark()?'rgba(110,160,255,.35)':'rgba(42,109,244,.25)';cx.strokeStyle='#2a6df4';cx.lineWidth=2;cx.beginPath();[[-100,-85],[100,-85],[100,85],[-100,85]].forEach((q,i)=>{const p=W(q[0],q[1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])});cx.closePath();cx.fill();cx.stroke();
 const fr0=W(100,0),to=W(60,0);cx.beginPath();cx.moveTo(to[0],to[1]);cx.lineTo(fr0[0],fr0[1]);cx.stroke();
+if(d.a>=0&&fr>=d.f.length-1){const q=W(0,0);cx.lineWidth=4;cx.strokeStyle=d.a?'#1a9a3a':'#e02424';cx.beginPath();cx.arc(q[0],q[1],46*t.k*2.2,0,7);cx.stroke();cx.fillStyle=d.a?'#1a9a3a':'#e02424';cx.font='bold 18px system-ui';cx.fillText(d.a?'ACHOU A LINHA':'NAO ACHOU',q[0]+30,q[1]-40)}
 const e=W(0,0);cx.fillStyle='#2a6df4';cx.beginPath();cx.arc(e[0],e[1],4,0,7);cx.fill();
 for(let i=0;i<8;i++){const lat=37.5-i*75/7,p=W(30,lat),on=(f[3]>>i)&1;cx.fillStyle=on?'#ffb000':(dark()?'#555':'#ddd');cx.strokeStyle=on?'#a06000':'#888';cx.lineWidth=1;cx.beginPath();cx.arc(p[0],p[1],Math.max(3,5*t.k*2),0,7);cx.fill();cx.stroke()}
 [...sens.children].forEach((s,i)=>s.classList.toggle('on',((f[3]>>i)&1)==1));document.getElementById('tt').textContent=(fr*0.02).toFixed(2)+' s / '+((d.f.length-1)*0.02).toFixed(2)+' s'}
@@ -970,6 +985,7 @@ int main(int argc, char** argv) {
     else if (k == "grausbusca") gAjustes.grausPorSegundoBusca = static_cast<float>(v);
     else if (k == "maxfator") gAjustes.buscaAvancoMaxFator = static_cast<int>(v);
     else if (k == "lacuna") gAjustes.lacunaMs = static_cast<unsigned long>(v);
+    else if (k == "velbusca") gAjustes.velBuscaExterna = static_cast<int>(v);
     else if (k == "velreto") gAjustes.velReto = static_cast<int>(v);
     else { fprintf(stderr, "parametro desconhecido: %s\n", k.c_str()); return 2; }
   }

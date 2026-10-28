@@ -16,7 +16,7 @@ struct AjustesCalibracao {
   float giroDetectadoGrauS = 8.0f;
   int amostrasDetectar = 3;      // leituras seguidas acima do limiar
   int folgaAbaixo = 2;           // a zona e um pouco abaixo do PWM em que comecou a girar (o giro ja estava vencendo o atrito)
-  int velMedida = 80;            // velocidade em que mede os graus por segundo (a de busca, ja fora da zona)
+  int velMedida = 140;           // velocidade em que mede os graus por segundo, e que passa a ser a da busca (mais rapido acha mais e antes: simulador)
   unsigned long descartaMs = 300;   // aceleracao inicial, nao conta
   unsigned long mediaMs = 500;
 };
