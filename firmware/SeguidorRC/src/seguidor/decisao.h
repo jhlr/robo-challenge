@@ -51,7 +51,11 @@ struct Ajustes {
   unsigned long lacunaMs = 120;         // falha curta na fita ou cruzamento: segue o ultimo comando
   float buscaGiroGraus = 360.0f;        // ANTES de espiralar, sempre gira no proprio eixo uma volta inteira (a linha pode estar de qualquer lado)
   float grausPorSegundoBusca = 110.0f;  // CHUTE: velocidade desse giro com velBuscaExterna; cronometre uma volta e corrija
-  unsigned long buscaEspiralMs = 4000;  // depois abre em espiral por esse tempo; ai recomeca o giro
+  // Depois do giro e da espiral, anda reto e vira 90 graus, e recomeca: a linha pode estar alem do alcance da barra (48 mm do eixo do giro no lugar).
+  // O trecho reto cresce a cada volta (buscaAvancoMs x 1, x 2, ... ate buscaAvancoMaxFator), varrendo para fora em quadrado.
+  unsigned long buscaAvancoMs = 500;
+  int buscaAvancoMaxFator = 3;
+  unsigned long buscaEspiralMs = 0;     // espiral entre o giro e o trecho reto (0 = sem). No simulador a espiral PIORA a busca: o trecho reto cresce a partir do rumo do giro, e a espiral o desvia  // depois abre em espiral por esse tempo; ai recomeca o giro
   int velBuscaExterna = 70;             // roda de fora na busca (constante)
   float bitolaMm = 140.0f;              // CHUTE: distancia entre as rodas esquerda e direita; meca e corrija
   float raioMaxEspiralMm = 125.0f;      // a espiral NUNCA passa desse raio de curva (folga entre a rua e os cubos marrons dos quarteiroes)
@@ -81,6 +85,11 @@ inline int velBuscaInternaFim(const Ajustes& aj) {
   const int porRaio = static_cast<int>(aj.velBuscaExterna * (k - 1.0f) / (k + 1.0f));
   const int porSentido = -aj.velBuscaContrariaMin;
   return porRaio < porSentido ? porRaio : porSentido;
+}
+
+// Quanto tempo dura a virada de 90 graus entre um trecho reto e o proximo giro.
+inline unsigned long buscaViradaMs(const Ajustes& aj) {
+  return static_cast<unsigned long>(90.0f / aj.grausPorSegundoBusca * 1000.0f + 0.5f);
 }
 
 // Quanto tempo dura o giro no eixo da busca (uma volta inteira, antes da espiral).

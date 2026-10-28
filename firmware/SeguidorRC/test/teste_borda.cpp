@@ -14,6 +14,10 @@ int main() {
   assert(acaoNaPonta(CorLinha::Vermelho, true) == AcaoCruzamento::Navegador);
   assert(acaoNaPonta(CorLinha::Azul, true) == AcaoCruzamento::Navegador);
 
+  assert(acaoNaPonta(CorLinha::Azul, false, true) == AcaoCruzamento::Portao);     // primeira azul: nosso portao
+  assert(acaoNaPonta(CorLinha::Azul, false, false) == AcaoCruzamento::MeiaVolta); // azul depois do portao: do adversario
+  assert(acaoNaPonta(CorLinha::Vermelho, false, true) == AcaoCruzamento::MeiaVolta);   // vermelho nunca e portao
+  assert(acaoNaPonta(CorLinha::Outra, false, true) == AcaoCruzamento::Cruzamento);
   const CorLinha igual[3] = {CorLinha::Vermelho, CorLinha::Vermelho, CorLinha::Vermelho};
   const CorLinha mistura[3] = {CorLinha::Vermelho, CorLinha::Outra, CorLinha::Vermelho};
   assert(corConfirmada(igual, 3) == CorLinha::Vermelho);

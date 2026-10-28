@@ -137,27 +137,38 @@ int main() {
     Memoria m;
     const Comando c = passo(m, aj, "..####..", 1);
     assert(c.largo && c.esq >= aj.velMinima && c.esq == c.dir); }
+  Ajustes ae;
+  ae.buscaEspiralMs = 4000;   // a espiral e opcional (padrao 0): estes dois blocos testam a espiral ligada
   { Memoria m;  // perdeu a linha: lacuna mantem, depois gira no eixo, depois abre em espiral
-    passo(m, aj, ".#......", 0);                         // vira para a esquerda (ultimoLado = -1)
-    Comando c = passo(m, aj, "........", 10);
-    assert(c.esq == -aj.velCorrecaoForte && c.dir == aj.velCorrecaoForte);   // lacuna: mantem o ultimo comando (S2 = forte)
-    c = passo(m, aj, "........", 10 + aj.lacunaMs);
-    assert(c.esq == -aj.velBuscaExterna && c.dir == aj.velBuscaExterna && !c.parar);   // gira no eixo para a esquerda
-    c = passo(m, aj, "........", 10 + aj.lacunaMs + buscaGiroMs(aj) + aj.buscaEspiralMs / 2);
-    assert(c.esq > -aj.velBuscaExterna && c.esq < aj.velBuscaExterna && c.dir == aj.velBuscaExterna);   // espiral: roda de dentro acelerando
-    c = passo(m, aj, "........", 10 + aj.lacunaMs + buscaGiroMs(aj) + aj.buscaEspiralMs);
-    assert(c.esq == -aj.velBuscaExterna && !c.parar);    // recomeca o giro: nunca para
-    c = passo(m, aj, "...##...", 99999);                 // linha voltou: anda reto
-    assert(c.esq == aj.velReto && !c.parar); }
+    passo(m, ae, ".#......", 0);                         // vira para a esquerda (ultimoLado = -1)
+    Comando c = passo(m, ae, "........", 10);
+    assert(c.esq == -ae.velCorrecaoForte && c.dir == ae.velCorrecaoForte);   // lacuna: mantem o ultimo comando (S2 = forte)
+    c = passo(m, ae, "........", 10 + ae.lacunaMs);
+    assert(c.esq == -ae.velBuscaExterna && c.dir == ae.velBuscaExterna && !c.parar);   // gira no eixo para a esquerda
+    c = passo(m, ae, "........", 10 + ae.lacunaMs + buscaGiroMs(ae) + ae.buscaEspiralMs / 2);
+    assert(c.esq > -ae.velBuscaExterna && c.esq < ae.velBuscaExterna && c.dir == ae.velBuscaExterna);   // espiral: roda de dentro acelerando
+    const unsigned long t0 = 10 + ae.lacunaMs;
+    c = passo(m, ae, "........", t0 + buscaGiroMs(ae) + ae.buscaEspiralMs);
+    assert(c.esq == ae.velBuscaExterna && c.dir == ae.velBuscaExterna && !c.parar);   // trecho reto: varre para frente, fora do alcance do giro no lugar
+    c = passo(m, ae, "........", t0 + buscaGiroMs(ae) + ae.buscaEspiralMs + ae.buscaAvancoMs);
+    assert(c.esq == -ae.velBuscaExterna && c.dir == ae.velBuscaExterna);              // vira 90 graus (para o lado onde a linha sumiu)
+    c = passo(m, ae, "........", t0 + buscaGiroMs(ae) + ae.buscaEspiralMs + ae.buscaAvancoMs + buscaViradaMs(ae));
+    assert(c.esq == -ae.velBuscaExterna && !c.parar);    // recomeca o giro: nunca para
+    // o trecho reto cresce a cada volta (x2 na segunda), ate buscaAvancoMaxFator
+    const unsigned long volta1 = buscaGiroMs(ae) + ae.buscaEspiralMs + ae.buscaAvancoMs + buscaViradaMs(ae);
+    c = passo(m, ae, "........", t0 + volta1 + buscaGiroMs(ae) + ae.buscaEspiralMs + ae.buscaAvancoMs + 10);
+    assert(c.esq == ae.velBuscaExterna && c.dir == ae.velBuscaExterna);              // ainda reto: o trecho agora dura 2x
+    c = passo(m, ae, "...##...", 99999);                 // linha voltou: anda reto
+    assert(c.esq == ae.velReto && !c.parar); }
   { // o giro no eixo e SEMPRE uma volta inteira antes da espiral, e comeca ao fim da lacuna
     Memoria m;
-    passo(m, aj, ".#......", 0);
-    passo(m, aj, "........", 10);
-    assert(buscaGiroMs(aj) == 3273);                        // 360 graus a 110 graus/s
-    Comando c = passo(m, aj, "........", 10 + aj.lacunaMs + buscaGiroMs(aj) - 1);
-    assert(c.esq == -aj.velBuscaExterna);                   // ainda girando no eixo, nada de espiral
-    c = passo(m, aj, "........", 10 + aj.lacunaMs + buscaGiroMs(aj) + 1000);
-    assert(c.esq > -aj.velBuscaExterna); }                  // agora sim: espiral (roda de dentro acelerando)
+    passo(m, ae, ".#......", 0);
+    passo(m, ae, "........", 10);
+    assert(buscaGiroMs(ae) == 3273);                        // 360 graus a 110 graus/s
+    Comando c = passo(m, ae, "........", 10 + ae.lacunaMs + buscaGiroMs(ae) - 1);
+    assert(c.esq == -ae.velBuscaExterna);                   // ainda girando no eixo, nada de espiral
+    c = passo(m, ae, "........", 10 + ae.lacunaMs + buscaGiroMs(ae) + 1000);
+    assert(c.esq > -ae.velBuscaExterna); }                  // agora sim: espiral (roda de dentro acelerando)
   { // a espiral nunca passa do raio maximo: a roda de dentro, no fim, da no maximo raioMaxEspiralMm
     const Ajustes a;
     const int vi = velBuscaInternaFim(a);
@@ -168,11 +179,12 @@ int main() {
     assert(vi > -a.velBuscaExterna && vi < a.velBuscaExterna); }
   { // durante a espiral inteira, nenhuma amostra passa do raio maximo
     Memoria m;
-    const Ajustes a;
+    Ajustes a;
+    a.buscaEspiralMs = 4000;   // espiral ligada
     passo(m, a, ".#......", 0);
     passo(m, a, "........", 10);
     const unsigned long inicio = 10 + a.lacunaMs + buscaGiroMs(a);
-    for (unsigned long t = 0; t <= a.buscaEspiralMs; t += 50) {
+    for (unsigned long t = 0; t < a.buscaEspiralMs; t += 50) {
       const Comando c = passo(m, a, "........", inicio + t);
       const float vi = c.esq, vo = c.dir;                       // ultimoLado = esquerda: a roda esquerda e a de dentro
       assert(vi <= velBuscaInternaFim(a) && vo == a.velBuscaExterna && vi < 0);   // sempre sentidos opostos

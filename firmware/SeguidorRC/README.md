@@ -66,3 +66,12 @@ As ruas terminam numa linha vermelha (cima e baixo) ou azul (laterais) que acend
 ## Calibracao das velocidades
 
 `Ajustes::zonaMortaPwm` (PWM abaixo do qual a roda nao anda) e a unica calibracao de hardware: `normalizar(ajustes)` levanta toda velocidade de giro, correcao e busca para fora dela. No simulador, com a zona real em 80 e a decisao achando 65, 52 cenarios falham (o robo nao gira); com a zona calibrada, 2. Meca a zona antes de ajustar o resto. Os valores de correcao (`velCorrecaoLeve` 90, `fracaoGiroLeve` 0,7, `fracaoGiroForte` 0,95) vieram de uma varredura no simulador (`python` + `test/simulador.cpp -q chave=valor`), nao da pista.
+
+## MPU6050, calibracao e o mapa completo
+
+`inercial.h` e `calibracao.h` (puros) + `USA_IMU` no sketch: rumo ancorado na grade (multiplo de 90 numa reta, corrige tambem o vies do giroscopio), levantado -> motores parados -> espera estabilizar 1,5 s -> reposicionado (rumo 0, SEMPRE de frente; pose volta para "no verde", mapa de cubos fica), travado -> reforca o PWM e recua, colisao forte (oponente; cubo e leve e fica abaixo de 1,2 g), lacuna segurando o rumo, e calibracao automatica da zona morta e dos graus por segundo girando no eixo. Todos os limiares de `AjustesInercial` sao chutes: grave os picos reais (`colisao.picoG`) e corrija.
+
+O simulador (`test/simulador.cpp`, `--html=arquivo` gera uma pagina que anima cada cenario) inclui o TABULEIRO INTEIRO (6 x 5 cruzamentos a 302 mm, becos de 127 mm, azul nas laterais, vermelho em cima e embaixo, verde e amarelo nas pontas). A primeira azul lida e o nosso portao (`AcaoCruzamento::Portao`); a do outro lado e borda.
+
+**Busca da linha:** gira uma volta no eixo, anda reto (trecho cresce a cada volta, `buscaAvancoMs` ate x`buscaAvancoMaxFator`), vira 90 graus e repete; se a barra acender inteira durante o trecho reto, bateu de frente numa linha: gira no eixo ate a linha cruzar a barra. Depende de `grausPorSegundoBusca` certo: com o chute de 110 (real ~103) erra o rumo e acha 4 de 12 posicoes de partida; calibrado pelo giroscopio acha 9 de 12.
+**Limite conhecido (virar para uma rua escolhida):** a barra para na borda da rua, com o eixo ~40 mm antes do centro. Antes de girar 90 graus para outra rua, avance ate as duas pontas apagarem (nao depende da largura da linha); o simulador faz isso em `virarParaRua`. O navegador real ainda nao esta ligado ao sketch.

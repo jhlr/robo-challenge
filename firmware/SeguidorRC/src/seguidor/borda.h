@@ -14,11 +14,14 @@ enum class AcaoCruzamento : uint8_t {
   Cruzamento,   // cor normal: confirma girando 90 graus como sempre
   MeiaVolta,    // vermelho ou azul sem cubo na mao: gira 180 e volta para dentro do mapa (para longe do verde / da borda)
   Navegador,    // vermelho ou azul COM cubo: nao da meia-volta sozinho, quem decide a rota e o navegador (leva o cubo ao verde)
+  Portao,       // a PRIMEIRA azul depois de comecar (ou de ser reposicionado) e o nosso portao: segue em frente, nao e borda nem cruzamento
 };
 
-// `temCubo` = esta carregando um cubo para guardar.
-inline AcaoCruzamento acaoNaPonta(CorLinha cor, bool temCubo) {
+// `temCubo` = esta carregando um cubo para guardar. `portaoPendente` = ainda nao passou pelo nosso portao azul (verdadeiro ao ligar e depois de reposicionado):
+// a primeira azul lida e a nossa (o robo comeca no verde, entre o amarelo e essa azul); a azul do outro lado e do adversario e vira borda.
+inline AcaoCruzamento acaoNaPonta(CorLinha cor, bool temCubo, bool portaoPendente = false) {
   if (cor == CorLinha::Outra) return AcaoCruzamento::Cruzamento;
+  if (cor == CorLinha::Azul && portaoPendente && !temCubo) return AcaoCruzamento::Portao;
   return temCubo ? AcaoCruzamento::Navegador : AcaoCruzamento::MeiaVolta;
 }
 

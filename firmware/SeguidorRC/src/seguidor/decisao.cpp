@@ -19,22 +19,39 @@ Comando mover(Memoria& m, int esq, int dir, const char* acao) {
 
 // Sem linha nenhuma: segue o ultimo comando por uma lacuna curta; depois gira no eixo uma volta inteira e abre em espiral LIMITADA
 // (o raio nunca passa de raioMaxEspiralMm), e volta a girar no eixo; repete o ciclo ate a linha voltar.
-Comando linhaPerdida(unsigned long agora, const Ajustes& aj, Memoria& m) {
+Comando linhaPerdida(unsigned long agora, const Ajustes& aj, Memoria& m, bool bateuDeFrente = false) {
   if (m.perdeuEm == 0) m.perdeuEm = agora;
   const unsigned long perdido = agora - m.perdeuEm;
 
   if (perdido < aj.lacunaMs) return mover(m, m.ultimoEsq, m.ultimoDir, "PERDEU -> lacuna (mantem)");
 
-  // Onde esta no ciclo "gira no eixo + espiral"
-  const unsigned long noCiclo = (perdido - aj.lacunaMs) % (buscaGiroMs(aj) + aj.buscaEspiralMs);
-
-  // A roda de fora gira sempre igual. A de dentro comeca para tras (giro no eixo) e sobe ate quase a de fora:
-  // o raio do circulo cresce e vira espiral.
+  // Onde esta no percurso da busca. Cada volta k: gira no eixo (uma volta inteira) -> espiral limitada -> trecho reto (cresce com k) -> vira 90 graus.
+  // O trecho reto e a virada levam a busca para fora do alcance da barra (o giro no lugar so alcanca ~48 mm).
+  unsigned long t = perdido - aj.lacunaMs;
+  unsigned long leg = aj.buscaAvancoMs;
+  const unsigned long giro = buscaGiroMs(aj), esp = aj.buscaEspiralMs, vira = buscaViradaMs(aj);
+  for (int k = 0;; k++) {
+    const int fator = k + 1 < aj.buscaAvancoMaxFator ? k + 1 : aj.buscaAvancoMaxFator;
+    leg = aj.buscaAvancoMs * static_cast<unsigned long>(fator);
+    const unsigned long total = giro + esp + leg + vira;
+    if (t < total || fator == aj.buscaAvancoMaxFator) { t %= total; break; }
+    t -= total;
+  }
+  const int ladoGiro = m.ultimoLado < 0 ? -1 : 1;   // sem ter visto a linha, comeca pela direita
   const int fora = aj.velBuscaExterna;
+  // trecho reto
+  if (t >= giro + esp && t < giro + esp + leg) {
+    // Barra acesa inteira no meio do trecho reto: bateu de frente numa linha (a barra ficou paralela a ela). Nao atravessa: gira no eixo ate a linha cruzar a barra (padrao estreito).
+    if (bateuDeFrente) return ladoGiro < 0 ? mover(m, -fora, fora, "PERDEU -> bateu na linha de frente: gira") : mover(m, fora, -fora, "PERDEU -> bateu na linha de frente: gira");
+    return mover(m, fora, fora, "PERDEU -> avanca reto (busca)");
+  }
+  // virada de 90 graus
+  if (t >= giro + esp + leg) return ladoGiro < 0 ? mover(m, -fora, fora, "PERDEU -> vira 90 (busca)") : mover(m, fora, -fora, "PERDEU -> vira 90 (busca)");
+  // giro no eixo, e depois a espiral: a roda de fora gira sempre igual, a de dentro comeca para tras e sobe ate quase a de fora (o raio cresce)
   int dentro = -aj.velBuscaExterna;
   const char* texto = "PERDEU -> gira no eixo";
-  if (noCiclo >= buscaGiroMs(aj)) {
-    const float progresso = float(noCiclo - buscaGiroMs(aj)) / float(aj.buscaEspiralMs);   // 0 a 1
+  if (t >= giro) {
+    const float progresso = float(t - giro) / float(esp > 0 ? esp : 1);   // 0 a 1
     dentro = -aj.velBuscaExterna + progresso * (velBuscaInternaFim(aj) + aj.velBuscaExterna);
     texto = "PERDEU -> espiral";
   }
@@ -107,7 +124,7 @@ Comando decidir(const bool preto[kSensores], unsigned long agoraMs, const Ajuste
   } else if (buscando && acesos >= aj.larguraAviso) {
     // Girando para achar a linha, a barra acende inteira ao ficar PARALELA a ela (o robo de lado): nao e linha para seguir. Continua a busca
     // ate a linha cruzar a barra (padrao estreito).
-    c = linhaPerdida(agoraMs, aj, m);
+    c = linhaPerdida(agoraMs, aj, m, true);
   } else {
     m.perdeuEm = 0;
     const float pos = soma / n;
