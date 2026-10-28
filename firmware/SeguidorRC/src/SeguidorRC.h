@@ -2,10 +2,14 @@
 // SeguidorRC: seguidor de linha preta sem PID.
 //   sensores_rc.h  le a barra de 8 sensores RC e calibra       (usa pinos)
 //   decisao.h      escolhe a velocidade das rodas              (so conta, nao usa pinos nem millis())
-//   cruzamento.h   detecta o cruzamento (8 sensores no preto)     (so conta, nao usa pinos nem millis())
+//   giro_cruzamento.h confirma o cruzamento girando ~25 graus e olhando S1 e S8 (so conta)
+//   cruzamento.h   detecta o cruzamento (S1 e S8 no preto)     (so conta, nao usa pinos nem millis())
+//   saude.h        marca sensor preto por tempo demais           (so conta, nao usa pinos nem millis())
 //   ponte_h.h      manda a velocidade para a ponte TB6612FNG   (usa pinos)
 // Cada peca funciona sozinha; o sketch liga uma na outra (veja examples/SeguidorBasico).
 #include "seguidor/cruzamento.h"
 #include "seguidor/decisao.h"
+#include "seguidor/giro_cruzamento.h"
 #include "seguidor/ponte_h.h"
+#include "seguidor/saude.h"
 #include "seguidor/sensores_rc.h"

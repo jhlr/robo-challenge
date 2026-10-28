@@ -144,44 +144,35 @@ struct Firmware {
   int cruzamentos = 0, falsosAlarmes = 0, ticksBuscando = 0, ticksPerdido = 0;
   bool fimDeBeco = false, fimDeBecoAvisado = false;
   unsigned long tUltimoCruzamento = 0;
-  float escalaGiro = 1.0f;
   // relatorio do ultimo giro
-  float giroSaidaVerdade[4] = {}, giroSaidaEstimada[4] = {}, giroDriftGraus = 0;
-  int ruaEsq = -1, ruaDir = -1;
+  float giroDriftGraus = 0;
+  int ruaEsq = -1, ruaDir = -1, ruaEsqVerdade = -1, ruaDirVerdade = -1;
   bool girou = false;
   Estado paradaEm = {0, 0, 0};   // onde o eixo estava quando o cruzamento foi confirmado
   bool paraNoCruzamento = true;
 
   static void apaga(int& v, float x) { v = static_cast<int>(x); }
 
-  // Gira no eixo ate o angulo ESTIMADO chegar em alvo (espelho de girarAte do .ino). Guarda tambem o angulo VERDADEIRO de cada amostra.
-  float girarAte(Carro& c, float agora, float alvo, std::vector<AmostraGiro>& est, std::vector<AmostraGiro>& ver, double& thRef, bool calibrar) {
+  static int acesos(const bool p[kSensores]) {
+    int n = 0;
+    for (int i = 0; i < kSensores; i++) n += p[i] ? 1 : 0;
+    return n;
+  }
+
+  // Gira no eixo ate o angulo ESTIMADO (por tempo) chegar em alvo (espelho de girarAte do .ino). Guarda tambem o angulo VERDADEIRO de cada amostra.
+  float girarAte(Carro& c, float agora, float alvo, std::vector<AmostraGiro>& est, std::vector<AmostraGiro>& ver, double thRef) {
     const bool esq = alvo > agora;
     const int v = ajustes.velBuscaExterna;
     c.comandar(esq ? -v : v, esq ? v : -v);
     const unsigned long inicio = c.agoraMs();
-    bool s1 = false, s8 = false, calibrado = false;
-    float sa1 = 0, sa8 = 0;
     while ((esq ? agora < alvo : agora > alvo) && c.agoraMs() - inicio < 3000) {
       c.avancar();
       bool p[kSensores];
       c.ler(p);
-      agora += (esq ? 1 : -1) * ajustes.grausPorSegundoBusca * escalaGiro * 0.005f;
-      if (calibrar && !calibrado) {
-        if (!p[0] && !s1) { s1 = true; sa1 = agora; }
-        if (!p[7] && !s8) { s8 = true; sa8 = agora; }
-        if (s1 && s8) {
-          const float medio = (sa1 + sa8) / 2.0f, esperado = anguloSaidaGraus(ajG);
-          if (medio > 3.0f) {
-            escalaGiro = std::min(2.5f, std::max(0.4f, escalaGiro * esperado / medio));
-            agora = esperado;
-          }
-          calibrado = true;
-        }
-      }
+      agora += (esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;
       const float verdade = static_cast<float>((c.estado().th - thRef) * 180.0 / M_PI);
-      est.push_back({agora, p[0], p[7], p[3] || p[4]});
-      ver.push_back({verdade, p[0], p[7], p[3] || p[4]});
+      est.push_back({agora, p[0], p[7], acesos(p)});
+      ver.push_back({verdade, p[0], p[7], acesos(p)});
     }
     c.parar();
     return agora;
@@ -191,20 +182,19 @@ struct Firmware {
     c.parar();
     paradaEm = c.estado();
     std::vector<AmostraGiro> est, ver;
-    const double th0 = c.estado().th;
-    est.push_back({0, preto[0], preto[7], preto[3] || preto[4]});
-    ver.push_back({0, preto[0], preto[7], preto[3] || preto[4]});
-    double thRef = th0;   // angulo verdadeiro medido a partir de como chegou
-    float g = girarAte(c, 0.0f, ajG.giroGraus, est, ver, thRef, true);
-    g = girarAte(c, g, -ajG.giroGraus, est, ver, thRef, false);
-    girarAte(c, g, 0.0f, est, ver, thRef, false);
+    const double th0 = c.estado().th;   // angulo verdadeiro medido a partir de como chegou
+    est.push_back({0, preto[0], preto[7], acesos(preto)});
+    ver.push_back({0, preto[0], preto[7], acesos(preto)});
+    float g = girarAte(c, 0.0f, ajG.giroGraus, est, ver, th0);
+    g = girarAte(c, g, -ajG.giroGraus, est, ver, th0);
+    girarAte(c, g, 0.0f, est, ver, th0);
     const ResultadoGiro r = avaliarGiro(est.data(), static_cast<int>(est.size()), ajG);
-    const ResultadoGiro rv = avaliarGiro(ver.data(), static_cast<int>(ver.size()), ajG);
-    giroSaidaEstimada[0] = r.saidaS1Esq; giroSaidaEstimada[1] = r.saidaS8Esq; giroSaidaEstimada[2] = r.saidaS1Dir; giroSaidaEstimada[3] = r.saidaS8Dir;
-    giroSaidaVerdade[0] = rv.saidaS1Esq; giroSaidaVerdade[1] = rv.saidaS8Esq; giroSaidaVerdade[2] = rv.saidaS1Dir; giroSaidaVerdade[3] = rv.saidaS8Dir;
+    const ResultadoGiro rv = avaliarGiro(ver.data(), static_cast<int>(ver.size()), ajG);   // oracula: com o angulo verdadeiro
     giroDriftGraus = static_cast<float>(remainder(c.estado().th - th0, 2 * M_PI) * 180.0 / M_PI);
     ruaEsq = r.ruaEsquerda;
     ruaDir = r.ruaDireita;
+    ruaEsqVerdade = rv.ruaEsquerda;
+    ruaDirVerdade = rv.ruaDireita;
     girou = true;
     if (r.cruzamento) cruzamentos++; else falsosAlarmes++;
     esquecerUltimoComando(memoria);
@@ -343,11 +333,8 @@ static Resultado cenarioCruzamento(double off, double ang) {
   const bool ok = fw.cruzamentos == 1 && fw.falsosAlarmes == 0 && fw.fimDeBeco && fw.ruaEsq == 1 && fw.ruaDir == 1;
   svg(fmt("cruzamento_off%+.0f_ang%+.0f", off, ang), p, c);
   return {fmt("cruzamento (off %+.0f, ang %+.0f)", off, ang), ok,
-          fmt("confirmados %d, falsos %d, fim de beco %s | ruas esq %d dir %d | saidas estimadas S1e %.1f S8e %.1f S1d %.1f S8d %.1f | VERDADE S1e %.1f S8e %.1f S1d %.1f S8d %.1f (esperado %.1f) | "
-              "giro deixou o rumo %+.1f graus fora | escala %.2f | eixo parou %.0f mm antes do centro da rua",
-              fw.cruzamentos, fw.falsosAlarmes, fw.fimDeBeco ? "SIM" : "nao", fw.ruaEsq, fw.ruaDir, fw.giroSaidaEstimada[0], fw.giroSaidaEstimada[1], fw.giroSaidaEstimada[2],
-              fw.giroSaidaEstimada[3], fw.giroSaidaVerdade[0], fw.giroSaidaVerdade[1], fw.giroSaidaVerdade[2], fw.giroSaidaVerdade[3], anguloSaidaGraus(fw.ajG), fw.giroDriftGraus,
-              fw.escalaGiro, 500.0 - fw.paradaEm.y)};
+          fmt("confirmados %d, falsos %d, fim de beco %s | ruas esq %d dir %d (com o angulo verdadeiro: %d %d) | giro deixou o rumo %+.1f graus fora | eixo parou %.0f mm antes do centro da rua",
+              fw.cruzamentos, fw.falsosAlarmes, fw.fimDeBeco ? "SIM" : "nao", fw.ruaEsq, fw.ruaDir, fw.ruaEsqVerdade, fw.ruaDirVerdade, fw.giroDriftGraus, 500.0 - fw.paradaEm.y)};
 }
 
 // 3b. Depois do cruzamento o carro tem de seguir a linha do outro lado (rua e beco longos).

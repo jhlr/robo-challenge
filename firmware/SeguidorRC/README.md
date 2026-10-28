@@ -24,13 +24,37 @@ aplicar(ponte, c);
 - Teste da decisao no PC: `g++ -std=c++17 -Isrc test/teste_decisao.cpp src/seguidor/decisao.cpp -o /tmp/teste && /tmp/teste`
 
 ## Ajustar na pista
-Tudo em `Ajustes` (valores de partida em `decisao.h`): `velReto`, `velGiro`, `confirmaPonta`, `lacunaMs`, `buscaGiroMs`, `buscaEspiralMs`, `velBuscaExterna`, `velBuscaInternaFim`. Os tempos e velocidades sao chutes razoaveis, **nao testados em hardware** (so compila para ESP32-S3, core 3.3.12). Com `kModoTeste = true` no exemplo os motores ficam desligados e so o Monitor Serial mostra a decisao.
+Tudo em `Ajustes` (valores de partida em `decisao.h`): `velReto`, `velCorrecaoLeve`, `velCorrecaoForte`, `lacunaMs`, `buscaGiroGraus`, `grausPorSegundoBusca`, `buscaEspiralMs`, `velBuscaExterna`, `bitolaMm`, `raioMaxEspiralMm`. Os tempos e velocidades sao chutes razoaveis, **nao testados em hardware** (so compila para ESP32-S3, core 3.3.12). Com `kModoTeste = true` no exemplo os motores ficam desligados e so o Monitor Serial mostra a decisao.
+
+**Toda curva move as rodas em sentidos opostos** (gira no eixo), nunca uma roda parada ou mais lenta arrastando. So girar nao sai do lugar (gira, passa do ponto, gira de volta e trava), entao cada correcao **intercala giro e avanco reto** dentro de `periodoCorrecaoMs` (`fracaoGiroLeve` / `fracaoGiroForte` dizem a parte do ciclo girando). Os TT amarelos nao andam abaixo de ~65 de PWM, entao `velCorrecaoLeve` e `velBuscaExterna` ficam acima disso.
+
+## O que cada sensor significa (S1 = ponta esquerda ... S8 = ponta direita)
+| Acionados | Faz |
+|---|---|
+| S4 e/ou S5, sem os outros | em cima da linha: **reto** |
+| S3 ou S6 tambem | correcao **leve**: gira no eixo para esse lado (`velCorrecaoLeve`) |
+| S2 ou S7 | correcao **forte**: gira no eixo, mais rapido (`velCorrecaoForte`) |
+| S1 e S8 **juntos** | **cruzamento** (`cruzamento.h`: 2 leituras seguidas) |
+| S1 **ou** S8 sozinho, **com** sensores do meio | **estranho**: nao vira a favor dele; `Comando.estranho = true` e o debug avisa |
+| S1 **ou** S8 sozinho, **sem** o meio | a linha esta na ponta: correcao **forte** para esse lado, com avanco intercalado (so girar no lugar nao leva a linha ao centro: o eixo fica quase embaixo da barra) |
+
+## O que mais a leitura parcial dos sensores diz
+- **Posicao proporcional:** media dos acesos de S2 a S7 (S2 = -2,5 ... S7 = +2,5). Ate `posReto` reto, ate `posLeve` giro leve, de `posLeve` a `posForte` a velocidade sobe em rampa ate o giro forte.
+- **Padrao largo:** 4 ou mais acesos sem ser cruzamento (`larguraAviso`): chegando num cruzamento, ou torto sobre a linha. Anda a `fatorLargura` da velocidade.
+- **Oscilacao:** correcoes que trocam de lado `trocasOscilacao` vezes nas ultimas `janelaOscilacao`: ganho alto. Anda a `fatorOscilacao`. Nunca abaixo de `velMinima` (zona morta dos TT).
+- **Chegou torto no cruzamento:** a diferenca de tempo entre S1 e S8 (`inclinacaoGraus`, com `velMmS` e `larguraBarraMm` do `AjustesCruzamento`, que sao chutes) diz o quanto; o sketch alinha antes de girar os 90 graus.
+- **Fim de beco** (`classificarPerda`): a linha some ~`becoMm` (127 mm) depois do ultimo cruzamento: borda do mapa. Falha curta e lacuna; sumir em outro ponto e perdida.
+- **A rua segue adiante?** (`ruaSegueAdiante`): depois de andar um pouco no cruzamento, S4 ou S5 acesos = ha rua.
+- **Sensor travado** (`saude.h`): preto por mais de 30 s seguidos e sujeira ou defeito; o sensor e marcado `ok = false` e ignorado.
+
+## Achar a linha de novo sem ficar de lado
+Girando no eixo para procurar, a barra acende **inteira** ao ficar *paralela* a linha: o robo esta de lado, nao em cima dela. Durante a busca (`estaBuscando`), um padrao largo (`larguraAviso` ou mais acesos) **nao** e aceito como linha: ele continua girando ate a linha cruzar a barra (padrao estreito) e so entao segue. O sketch tambem **nao** detecta cruzamento enquanto busca.
 
 ## Linha perdida
-Segue o ultimo comando por `lacunaMs` (falha na fita); depois gira no proprio eixo para o ultimo lado, abre em espiral (roda de fora constante, roda de dentro acelerando) e **repete ate achar a linha**. Se nunca viu a linha, comeca pela direita.
+Segue o ultimo comando por `lacunaMs` (falha na fita); depois **sempre** gira no proprio eixo uma volta inteira (`buscaGiroGraus`, para o ultimo lado) antes de espiralar, e so entao abre em espiral **limitada** (o raio da curva nunca passa de `raioMaxEspiralMm`, 125 mm, a folga ate os cubos dos quarteiroes) e volta a girar no eixo (roda de fora constante, roda de dentro acelerando) e **repete ate achar a linha**. Se nunca viu a linha, comeca pela direita.
 
 ## O que estava fazendo o robo rodopiar (codigo original do colega)
 1. Linha perdida = giro no lugar para sempre, a PWM 100, sem limite. Agora ha lacuna, giro e espiral controlados.
-2. Ponta (S1/S8) dava giro com uma unica leitura: agora precisa de 2 seguidas.
+2. Ponta (S1/S8) dava giro com uma unica leitura: agora as pontas nao guiam, so avisam quando uma acende sozinha.
 3. Calibracao ruim passava batida: com menos de 6 sensores validos ela e recusada e repetida.
 4. Os 8 pinos sao lidos de uma vez no registrador `GPIO_IN_REG` e a leitura espera so ate o maior limiar da calibracao.
