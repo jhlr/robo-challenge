@@ -42,6 +42,49 @@ int main() {
     for (float g = -25; g <= 25; g += 0.5f) v.push_back({g, std::fabs(g) < 1.0f, std::fabs(g) < 1.0f, 8});
     const ResultadoGiro r = avaliarGiro(v.data(), (int)v.size(), aj);
     assert(!r.cruzamento && r.ruaEsquerda == -1 && r.ruaDireita == -1); }
+  { // classificacao: vinha seguindo -> cruzamento so com rua dos dois lados; perdido -> endireitou se ficou estreito e centrado depois de virar
+    auto v = simular(true, true, 5);   // ruas largas a 90 graus (5 acesos), nada estreito
+    const ResultadoGiro cruz = avaliarGiro(v.data(), (int)v.size(), aj);
+    assert(classificarOito(true, cruz) == Oito::Cruzamento);
+    assert(classificarOito(false, cruz) == Oito::FalsoAlarme);   // perdido e SEM estreito: nao endireitou
+    for (auto& s : v) if (s.graus > 70.0f) s.acesos = 2;   // a 90 graus a esquerda: 2 acesos (uma linha cruzando a barra)
+    const ResultadoGiro lado = avaliarGiro(v.data(), (int)v.size(), aj);
+    assert(lado.estreitoEsq && !lado.estreitoDir);
+    assert(classificarOito(false, lado) == Oito::Endireitou);
+    assert(classificarOito(true, lado) == Oito::Cruzamento);     // vinha seguindo: o que vale e a rua dos dois lados
+    assert(!padraoEstreito(8, aj) && !padraoEstreito(0, aj) && padraoEstreito(2, aj)); }
+  { // a varredura passo a passo, com um robo ficticio que gira a 100 graus/s
+    AjustesGiroCruzamento a;
+    auto rodar = [&](bool vinha, int lado, bool ruaEsq, bool ruaDir, bool estreitoEsq, bool estreitoDir, Varredura& v) {
+      static AmostraGiro buf[2000];
+      iniciarVarredura(v, lado, vinha);
+      float graus = 0.0f;
+      for (unsigned long t = 0; t < 20000; t += 5) {
+        AmostraGiro l{graus, std::fabs(graus) < 1.0f, std::fabs(graus) < 1.0f, 0};
+        if (std::fabs(graus) < 1.0f) l.acesos = 8;
+        else if (graus > 70.0f) l.acesos = estreitoEsq ? 2 : (ruaEsq ? 5 : 0);   // rua sem estreito: 5 acesos (uma rua larga, nao uma linha cruzando)
+        else if (graus < -70.0f) l.acesos = estreitoDir ? 2 : (ruaDir ? 5 : 0);
+        const ComandoVarredura c = passoVarredura(v, l, t, 80, a, buf, 2000);
+        if (c.terminou) return graus;
+        graus += (c.dir > 0 ? 1.0f : -1.0f) * 100.0f * 0.005f;   // dir > esq (e dir > 0) = gira para a esquerda
+      }
+      return 9999.0f;
+    };
+    Varredura v;
+    float fim = rodar(true, 1, true, true, false, false, v);              // vinha seguindo, ruas dos dois lados
+    assert(v.resultado == Oito::Cruzamento && std::fabs(fim) < 2.0f);     // voltou ao rumo de chegada
+    fim = rodar(true, -1, true, true, false, false, v);                   // comecando pela direita: o mesmo resultado, tambem volta a 0
+    assert(v.resultado == Oito::Cruzamento && std::fabs(fim) < 2.0f);
+    fim = rodar(true, 1, false, false, false, false, v);                  // mancha
+    assert(v.resultado == Oito::FalsoAlarme && std::fabs(fim) < 2.0f);
+    fim = rodar(false, 1, false, false, true, false, v);                  // perdido: estreito ja no 1o lado -> PARA ali
+    assert(v.resultado == Oito::Endireitou && v.ladoEndireitou == 1 && fim > 80.0f && fim < 100.0f);
+    fim = rodar(false, 1, false, false, false, true, v);                  // so no outro lado
+    assert(v.resultado == Oito::Endireitou && v.ladoEndireitou == -1 && fim < -80.0f);
+    fim = rodar(false, -1, false, false, true, false, v);                 // comecando pela direita: o lado esquerdo e o "outro"
+    assert(v.resultado == Oito::Endireitou && v.ladoEndireitou == 1 && fim > 80.0f);
+    fim = rodar(false, 1, true, true, false, false, v);                   // perdido, ruas mas nada estreito: falso alarme, volta a 0
+    assert(v.resultado == Oito::FalsoAlarme && std::fabs(fim) < 2.0f); }
   std::puts("teste_giro_cruzamento: ok");
   return 0;
 }

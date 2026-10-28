@@ -75,3 +75,10 @@ O simulador (`test/simulador.cpp`, `--html=arquivo` gera uma pagina que anima ca
 
 **Busca da linha:** gira uma volta no eixo, anda reto (trecho cresce a cada volta, `buscaAvancoMs` ate x`buscaAvancoMaxFator`), vira 90 graus e repete; se a barra acender inteira durante o trecho reto, bateu de frente numa linha: gira no eixo ate a linha cruzar a barra. Depende de `grausPorSegundoBusca` certo: com o chute de 110 (real ~103) erra o rumo e acha 4 de 12 posicoes de partida; calibrado pelo giroscopio acha 9 de 12.
 **Limite conhecido (virar para uma rua escolhida):** a barra para na borda da rua, com o eixo ~40 mm antes do centro. Antes de girar 90 graus para outra rua, avance ate as duas pontas apagarem (nao depende da largura da linha); o simulador faz isso em `virarParaRua`. O navegador real ainda nao esta ligado ao sketch.
+
+## Regra das duas pontas acesas (acima de todas as outras)
+
+S1 e S8 no preto juntos, em QUALQUER situacao (seguindo, perdido, buscando), tem prioridade sobre a decisao, a busca e o resto (so levantado/motores parados vem antes). Para e roda `passoVarredura` (`giro_cruzamento.h`, maquina de estados pura; o sketch e o simulador so alimentam leituras e motores): vira 90 graus comecando pelo lado MENOS EXPLORADO (`exploracao.h`: rumo do MPU + cruzamentos ja visitados; sem MPU, o lado da ultima correcao) e decide por historico + padrao:
+- vinha seguindo a linha: **cruzamento** se ha rua dos dois lados; senao falso alarme.
+- estava perdido/buscando: se depois de virar o padrao fica **estreito** (1 a 3 acesos), era ele de lado em cima da linha: **endireitou** e segue por ela; senao vira para o outro lado; senao falso alarme.
+O padrao estreito nao exige o centro: com a barra sobre a linha o eixo fica ~30 mm ao lado dela (o simulador mostrou).

@@ -80,7 +80,7 @@ const PinosPonteH ponte = {.ain1 = 12, .ain2 = 11, .pwma = 13, .bin1 = 14, .bin2
 
 constexpr bool kDebug = true;        // mostra sensores e decisao no Monitor Serial
 constexpr bool kModoTeste = false;   // true = motores desligados, so mostra a decisao
-constexpr bool kParaNoCruzamento = true;   // S1 e S8 no preto juntos: para, gira 90 graus para cada lado lendo S1, S8 e o centro, e confirma se e cruzamento
+constexpr bool kParaNoCruzamento = true;   // S1 e S8 no preto juntos (acima das outras regras, ate perdido): para e varre 90 graus para cada lado
 SaudeSensores saude;                              // sensor preto por mais de 30 s e marcado como ruim
 unsigned long tUltimoCruzamento = 0;              // quando o ultimo cruzamento foi confirmado (para saber se a linha sumida e fim de beco)
 bool fimDeBecoAvisado = false;
@@ -91,6 +91,7 @@ Memoria memoria;
 AjustesCruzamento ajustesCruzamento;   // confirma, saidaMs
 AjustesGiroCruzamento ajustesGiro;     // giro de 90 graus para cada lado
 MemoriaCruzamento cruzamento;
+Exploracao exploracao;   // cruzamentos ja visitados (relativos a partida): vira para o lado menos explorado
 int cruzamentos = 0;
 
 #if USA_IMU
@@ -113,10 +114,10 @@ void mostrarDebug(const Comando& c) {
                 c.oscilando ? "  [OSCILANDO]" : "");
 }
 
-// Giro de confirmacao e de olhar as ruas: 90 graus para a esquerda, 90 para a direita, e volta. A velocidade e a da busca (velBuscaExterna) e o
+// Varredura das duas pontas acesas: 90 graus para um lado, 90 para o outro, e volta. A velocidade e a da busca (velBuscaExterna) e o
 // angulo e ESTIMADO por tempo (grausPorSegundoBusca): nao ha referencia na pista, entao a janela de "90 graus" e larga (giro_cruzamento.h).
 // A 90 graus a barra fica ao longo da rua do lado: algum sensor aceso = a rua existe. Nao depende da largura da linha.
-constexpr int kMaxAmostras = 1800;
+constexpr int kMaxAmostras = 2400;
 AmostraGiro amostras[kMaxAmostras];
 
 int acesos() {
@@ -152,18 +153,37 @@ float girarAte(float agora, float alvo, int& n) {
   return agora;
 }
 
-// Gira 90 graus para a esquerda, 90 para a direita e volta. Cruzamento = ha rua dos dois lados.
-bool confirmarGirando(ResultadoGiro& r) {
-  int n = 0;
-  amostras[n++] = {0.0f, barra.preto[0], barra.preto[kSensores - 1], acesos()};   // como chegou
-  float g = girarAte(0.0f, ajustesGiro.giroGraus, n);
-  g = girarAte(g, -ajustesGiro.giroGraus, n);
-  girarAte(g, 0.0f, n);   // volta ao centro
-
-  r = avaliarGiro(amostras, n, ajustesGiro);
-  auto rua = [](int v) { return v < 0 ? "?" : (v ? "SIM" : "nao"); };
-  Serial.printf("    rua a esquerda: %s | rua a direita: %s | %d amostras\n", rua(r.ruaEsquerda), rua(r.ruaDireita), n);
-  return r.cruzamento;
+// Rege a varredura de 90 graus (giro_cruzamento.h, a maquina de estados e da biblioteca; aqui so se alimentam leituras e motores).
+// Devolve o que as duas pontas acesas eram: Cruzamento, Endireitou (estava perdido de lado em cima da linha) ou FalsoAlarme.
+Oito varrer(bool vinhaSeguindo, int lado) {
+  Varredura v;
+  iniciarVarredura(v, lado, vinhaSeguindo);
+  float estimado = 0.0f;
+#if USA_IMU
+  const float rumo0 = rumo;
+#endif
+  AmostraGiro leitura = {0.0f, barra.preto[0], barra.preto[kSensores - 1], acesos()};   // como chegou
+  unsigned long t0 = micros();
+  const unsigned long inicio = millis();
+  while (millis() - inicio < 20000) {
+    const ComandoVarredura k = passoVarredura(v, leitura, millis(), ajustes.velBuscaExterna, ajustesGiro, amostras, kMaxAmostras);
+    if (k.terminou) break;
+    mover(ponte, k.esq, k.dir);
+    ler(barra);
+    const unsigned long t1 = micros();
+#if USA_IMU
+    lerImu();
+    estimado = rumo - rumo0;   // angulo pelo giroscopio
+#else
+    estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * (t1 - t0) * 1e-6f;   // angulo estimado por tempo
+#endif
+    t0 = t1;
+    leitura = {estimado, barra.preto[0], barra.preto[kSensores - 1], acesos()};
+  }
+  parar(ponte);
+  auto rua = [](int x) { return x < 0 ? "?" : (x ? "SIM" : "nao"); };
+  Serial.printf("    1o lado: %s | rua a esquerda: %s | rua a direita: %s | %d amostras\n", lado > 0 ? "esquerda" : "direita", rua(v.ruas.ruaEsquerda), rua(v.ruas.ruaDireita), v.n);
+  return v.resultado;
 }
 
 // S1 e S8 no preto numa linha vermelha ou azul: borda do mapa, nao cruzamento (nada para confirmar girando).
@@ -192,22 +212,36 @@ void bordaDoMapa(AcaoCruzamento acao) {
   comecarASair(cruzamento, millis());
 }
 
-// Achou "cruzamento" (S1 e S8 no preto): para e confirma girando 90 graus para cada lado. A decisao de qual rua seguir sera do navegador (ainda nao ligado
-// aqui): por enquanto, depois de confirmar, segue reto.
+// As duas pontas acesas (S1 e S8), ACIMA DE TODAS AS OUTRAS REGRAS, em qualquer situacao (inclusive perdido/buscando): para e varre 90 graus, comecando pelo
+// lado MENOS EXPLORADO do mapa (rumo do MPU + cruzamentos ja visitados). Seguindo a linha: cruzamento se ha rua dos dois lados. Perdido: era ele de lado em cima da
+// linha; se ficou estreito depois de virar, endireitou e segue por ela. A decisao de qual rua seguir sera do navegador (ainda nao ligado aqui).
 void pararNoCruzamento() {
   parar(ponte);
   const AcaoCruzamento acao = acaoNaPonta(corRecente(memCor, millis(), kJanelaCorMs), temCubo, portaoPendente);
   if (acao != AcaoCruzamento::Cruzamento) { bordaDoMapa(acao); return; }
   if (kModoTeste) { Serial.println(">>> S1 e S8 no preto (modo teste: nao gira)"); comecarASair(cruzamento, millis()); return; }
 
-  ResultadoGiro giro;
-  if (confirmarGirando(giro)) {
+  const bool vinhaSeguindo = !estaBuscando(memoria, millis(), ajustes);
+#if USA_IMU
+  const int lado = ladoMenosExplorado(exploracao, rumo, true, memoria.ultimoLado);
+#else
+  const int lado = ladoMenosExplorado(exploracao, 0.0f, false, memoria.ultimoLado);   // sem MPU nao ha bussola: lado da ultima correcao
+#endif
+  const Oito oito = varrer(vinhaSeguindo, lado);
+  if (oito == Oito::Cruzamento) {
     cruzamentos++;
+#if USA_IMU
+    registrarCruzamento(exploracao, rumo);
+#endif
     Serial.printf(">>> CRUZAMENTO %d CONFIRMADO\n", cruzamentos);
+  } else if (oito == Oito::Endireitou) {
+    Serial.println(">>> ENDIREITOU: estava de lado em cima da linha, agora segue por ela");
+    memoria.perdeuEm = 0;
   } else {
-    Serial.println("    falso alarme: nao ha rua dos dois lados");
+    Serial.println("    falso alarme");
   }
   esquecerUltimoComando(memoria);
+  if (oito == Oito::Endireitou) memoria.perdeuEm = 0;
   tUltimoCruzamento = millis();
   fimDeBecoAvisado = false;
   comecarASair(cruzamento, millis());   // o relogio de saida comeca agora, quando volta a andar
@@ -284,6 +318,7 @@ void loop() {
     rumo = 0.0f;
     memoria = Memoria{};
     cruzamento = MemoriaCruzamento{};
+    exploracao = Exploracao{};
     ancora = Ancora{};
     tracao = Tracao{};
     esquecerCor(memCor);
@@ -297,7 +332,8 @@ void loop() {
   const int travados = atualizarSaude(barra.preto, millis(), saude, barra.ok);
   if (travados > 0) Serial.printf("!!! %d sensor(es) no preto ha mais de 30 s: marcado(s) como ruim(ns) e ignorado(s)\n", travados);
   // Procurando a linha, S1 e S8 acesos nao sao cruzamento: a barra acende inteira ao ficar paralela a linha (robo de lado)
-  if (kParaNoCruzamento && !estaBuscando(memoria, millis(), ajustes) && cruzamentoConfirmado(barra.preto, millis(), ajustesCruzamento, cruzamento)) {
+  // Acima de todas as outras regras: as duas pontas acesas valem ate perdido/buscando
+  if (kParaNoCruzamento && cruzamentoConfirmado(barra.preto, millis(), ajustesCruzamento, cruzamento)) {
     pararNoCruzamento();
     return;
   }

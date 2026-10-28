@@ -24,6 +24,7 @@
 #include "seguidor/inercial.h"
 #include "seguidor/cruzamento.h"
 #include "seguidor/decisao.h"
+#include "seguidor/exploracao.h"
 #include "seguidor/giro_cruzamento.h"
 
 using namespace seguidor;
@@ -229,7 +230,12 @@ struct Firmware {
   bool temCubo = false;
   MemoriaCor memCor;
   static constexpr unsigned long kJanelaCorMs = 400;
-  int bordas = 0, meiasVoltas = 0, paradasNavegador = 0, portoes = 0;
+  int bordas = 0, meiasVoltas = 0, paradasNavegador = 0, portoes = 0, endireitou = 0;
+  Exploracao expl;
+  Varredura varr;
+  static constexpr int kBufVarr = 2400;
+  AmostraGiro bufVarr[kBufVarr];
+  Oito ultimoOito = Oito::FalsoAlarme;
   bool portaoPendente = false;   // o cenario do tabuleiro liga: a primeira azul e o nosso portao
   std::string rota;              // o que fazer em cada cruzamento confirmado: S (reto), L, R (virar para a rua do lado). O navegador de verdade ainda nao esta ligado.
   size_t rotaI = 0;
@@ -325,34 +331,43 @@ struct Firmware {
       tUltimoCruzamento = c.agoraMs();
       return;
     }
-    std::vector<AmostraGiro> est, ver;
+    // As duas pontas acesas, em QUALQUER situacao (inclusive perdido/buscando): varredura de 90 graus a partir do lado menos explorado
+    const bool vinhaSeguindo = !estaBuscando(memoria, c.agoraMs(), ajustes);
+    const int lado = ladoMenosExplorado(expl, rumo, usaImu, memoria.ultimoLado);
     const double th0 = c.estado().th;   // angulo verdadeiro medido a partir de como chegou
-    est.push_back({0, preto[0], preto[7], acesos(preto)});
-    ver.push_back({0, preto[0], preto[7], acesos(preto)});
     const float rumo0 = rumo;
-    float g = girarAte(c, 0.0f, ajG.giroGraus, est, ver, th0, rumo0);
-    g = girarAte(c, g, -ajG.giroGraus, est, ver, th0, rumo0);
-    girarAte(c, g, 0.0f, est, ver, th0, rumo0);
-    const ResultadoGiro r = avaliarGiro(est.data(), static_cast<int>(est.size()), ajG);
-    const ResultadoGiro rv = avaliarGiro(ver.data(), static_cast<int>(ver.size()), ajG);   // oracula: com o angulo verdadeiro
+    iniciarVarredura(varr, lado, vinhaSeguindo);
+    float estimado = 0.0f;   // sem MPU: angulo estimado por tempo girando
+    AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto)};
+    for (int i = 0; i < 4000; i++) {   // 20 s no maximo
+      const ComandoVarredura k = passoVarredura(varr, leitura, c.agoraMs(), ajustes.velBuscaExterna, ajG, bufVarr, kBufVarr);
+      c.comandar(k.esq, k.dir);
+      if (k.terminou) break;
+      tick(c);
+      bool p[kSensores];
+      c.ler(p);
+      if (usaImu) estimado = rumo - rumo0;
+      else estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;
+      leitura = {estimado, p[0], p[7], acesos(p)};
+    }
+    c.parar();
     giroDriftGraus = static_cast<float>(remainder(c.estado().th - th0, 2 * M_PI) * 180.0 / M_PI);
+    const ResultadoGiro& r = varr.ruas;
     ruaEsq = r.ruaEsquerda;
     ruaDir = r.ruaDireita;
-    ruaEsqVerdade = rv.ruaEsquerda;
-    ruaDirVerdade = rv.ruaDireita;
+    ruaEsqVerdade = ruaDirVerdade = -1;
     girou = true;
-    if (getenv("SIM_DEBUG")) fprintf(stderr, "  [t=%.1fs] parou em (%.0f, %.0f) rumo %.0f: ruas esq %d dir %d -> %s\n", c.agoraMs() / 1000.0, paradaEm.x, paradaEm.y, paradaEm.th * 57.29578, r.ruaEsquerda, r.ruaDireita, r.cruzamento ? "CRUZAMENTO" : "falso alarme");
-    if (getenv("SIM_DEBUG")) {
-      float mx = -999, mn = 999, vx = -999, vn = 999;
-      for (const auto& a : est) { mx = std::max(mx, a.graus); mn = std::min(mn, a.graus); }
-      for (const auto& a : ver) { vx = std::max(vx, a.graus); vn = std::min(vn, a.graus); }
-      fprintf(stderr, "     angulo estimado %.0f..%.0f, verdadeiro %.0f..%.0f, %zu amostras\n", mn, mx, vn, vx, est.size());
-    }
-    if (r.cruzamento) cruzamentos++; else falsosAlarmes++;
+    ultimoOito = varr.resultado;
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "  [t=%.1fs] parou em (%.0f, %.0f) rumo %.0f, %s, 1o lado %s: ruas esq %d dir %d -> %s\n", c.agoraMs() / 1000.0, paradaEm.x, paradaEm.y, paradaEm.th * 57.29578, vinhaSeguindo ? "seguindo" : "PERDIDO", lado > 0 ? "esq" : "dir", r.ruaEsquerda, r.ruaDireita,
+                                       varr.resultado == Oito::Cruzamento ? "CRUZAMENTO" : (varr.resultado == Oito::Endireitou ? "ENDIREITOU" : "falso alarme"));
+    if (varr.resultado == Oito::Cruzamento) { cruzamentos++; registrarCruzamento(expl, rumo); }
+    else if (varr.resultado == Oito::Endireitou) endireitou++;
+    else falsosAlarmes++;
     esquecerUltimoComando(memoria);
+    if (varr.resultado == Oito::Endireitou) memoria.perdeuEm = 0;   // estava de lado em cima da linha e agora esta alinhado: volta a seguir
     tUltimoCruzamento = c.agoraMs();
     fimDeBecoAvisado = false;
-    if (r.cruzamento) {
+    if (varr.resultado == Oito::Cruzamento) {
       const char a = rotaI < rota.size() ? rota[rotaI++] : 'S';
       if (a == 'L' || a == 'R') virarParaRua(c, a == 'L');
     }
@@ -406,7 +421,7 @@ struct Firmware {
     const unsigned long agora = c.agoraMs();
     const int corChao = c.corChao();
     anotarCor(memCor, corChao == kVermelha ? CorLinha::Vermelho : (corChao == kAzul ? CorLinha::Azul : CorLinha::Outra), agora);
-    if (paraNoCruzamento && !estaBuscando(memoria, agora, ajustes) && cruzamentoConfirmado(p, agora, ajC, cruz)) {
+    if (paraNoCruzamento && cruzamentoConfirmado(p, agora, ajC, cruz)) {   // acima de todas as outras regras: vale ate perdido/buscando
       pararNoCruzamento(c, p);
       return;
     }
@@ -769,6 +784,22 @@ static Resultado cenarioTabuleiro() {
               fw.portoes, fw.cruzamentos, fw.falsosAlarmes, fw.bordas, fw.meiasVoltas, c.estado().x, c.estado().y, c.erroBarra())};
 }
 
+// Perdido e de lado em cima da linha (barra paralela a ela: os 8 sensores acesos): vira 90 graus, ve que ficou estreito e centrado, e segue por ela.
+// Tambem vale quando o MPU nao esta ligado (angulo por tempo).
+static Resultado cenarioEndireitar(bool imu) {
+  Pista p;
+  p.reta(0, 0, 0, 1200);
+  Carro c(p, {-150, 300, 0.0});   // longe da linha, perdido
+  Firmware fw;
+  if (imu) fw.ligarImu(c);
+  rodar(fw, c, c.agoraMs() + 700, [](const Carro&) { return false; });   // procura um pouco: perdeuEm e a lacuna ja passaram
+  c.colocarEm({-30, 500, 0.0});   // a busca o deixou de lado em cima da linha: a barra inteira sobre ela
+  const bool chegou = rodar(fw, c, c.agoraMs() + 25000, [](const Carro& k) { return k.estado().y > 1000; });
+  svg(imu ? "endireitar_na_linha" : "endireitar_na_linha_sem_mpu", p, c);
+  return {imu ? "perdido de lado na linha: vira 90 e se endireita (com MPU)" : "perdido de lado na linha: vira 90 e se endireita (sem MPU)", chegou && fw.endireitou >= 1 && fw.cruzamentos == 0,
+          fmt("%s | endireitou %d vez(es), cruzamentos %d, falsos alarmes %d | fim em (%.0f, %.0f), erro %.1f mm", chegou ? "chegou ao fim da linha" : "NAO chegou", fw.endireitou, fw.cruzamentos, fw.falsosAlarmes, c.estado().x, c.estado().y, c.erroBarra())};
+}
+
 // 3b. Depois do cruzamento o carro tem de seguir a linha do outro lado (rua e beco longos).
 static Resultado cenarioAtravessa() {
   Pista p;
@@ -969,6 +1000,8 @@ int main(int argc, char** argv) {
     rs.back().informativo = l > 100.0;
   }
   rs.push_back(cenarioTabuleiro());
+  rs.push_back(cenarioEndireitar(true));
+  rs.push_back(cenarioEndireitar(false));
   rs.push_back(cenarioBorda(kVermelha, false));
   rs.push_back(cenarioBorda(kAzul, false));
   rs.push_back(cenarioBorda(kVermelha, true));
