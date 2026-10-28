@@ -878,6 +878,7 @@ static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms
   });
   ms = c->agoraMs() - t0;
   ciclos = fw.ticksBuscando;
+  if (achou) avancarAte(fw, *c, c->agoraMs() + 8000, [](const Carro&) { return false; });   // continua andando na linha depois de achar: e o que a animacao mostra
   if (getenv("SIM_DEBUG") && comMpu) fprintf(stderr, "  busca d%.0f r%.0f com MPU: achou=%d recuos %d reforcos %d levantados %d colisoes %d fim (%.0f,%.0f)\n", dist, rumoGraus, achou, fw.recuos, fw.reforcos, fw.levantados, fw.colisoes, c->estado().x, c->estado().y);
   if (getenv("SIM_DEBUG2") && comMpu && dist == 30 && rumoGraus == 90) { for (size_t i = c->rastro().size() > 800 ? c->rastro().size() - 800 : 0; i < c->rastro().size() && i < 800 + 100000; i += 20) fprintf(stderr, "   (%.0f,%.0f,%.0f|%02x)", c->rastro()[i].x, c->rastro()[i].y, c->rastro()[i].th * 57.29578, c->bits()[i]); fprintf(stderr, "\n   rumo[0..]\n"); }
   if (saida) *saida = c;
@@ -909,9 +910,9 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-seri
 button{cursor:pointer}canvas{width:100%;background:var(--card);border:1px solid var(--bd);border-radius:8px;display:block}
 #sens{display:flex;gap:6px;align-items:center;margin:10px 0}#sens span{width:26px;height:26px;border-radius:50%;border:2px solid var(--bd);display:inline-flex;align-items:center;justify-content:center;font-size:11px}#sens span.on{background:#111;color:#fff;border-color:#111}
 @media(prefers-color-scheme:dark){#sens span.on{background:#fff;color:#111;border-color:#fff}}small{opacity:.7}</style></head><body><main>
-<div class="bar"><select id="sel"></select><button id="pp">Pausar</button><label>velocidade <select id="vel"><option value="0.25">0,25x</option><option value="0.5">0,5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option></select></label><input id="t" type="range" min="0" max="0" value="0" style="flex:1;min-width:140px"><span id="tt"></span></div>
+<div class="bar"><select id="sel"></select><button id="b1" title="1 s para tras">&#9664;&#9664; 1 s</button><button id="b01" title="0,1 s para tras">&#9664; 0,1 s</button><button id="pp">Pausar</button><button id="f01" title="0,1 s para frente">0,1 s &#9654;</button><button id="f1" title="1 s para frente">1 s &#9654;&#9654;</button><button id="r0" title="voltar ao inicio">&#8634; inicio</button><label>velocidade <select id="vel"><option value="0.25">0,25x</option><option value="0.5">0,5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option></select></label><span id="tt"></span></div>
 <canvas id="c" width="1000" height="620"></canvas>
-<div id="sens"></div><small>Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Vermelho/azul = borda do mapa. Traco vermelho = caminho do eixo.</small>
+<div id="sens"></div><small>Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Vermelho/azul = borda do mapa. Traco vermelho = caminho do eixo. Teclas: setas esquerda/direita (0,1 s), shift + seta (1 s), espaco (pausa).</small>
 </main><script>
 const D=)HTML",f);
   fputs("[", f);
@@ -926,7 +927,7 @@ const D=)HTML",f);
     fputs("]}", f);
   }
   fputs("];\n", f);
-  fputs(R"HTML(const cv=document.getElementById('c'),cx=cv.getContext('2d'),sel=document.getElementById('sel'),tr=document.getElementById('t'),sens=document.getElementById('sens');
+  fputs(R"HTML(const cv=document.getElementById('c'),cx=cv.getContext('2d'),sel=document.getElementById('sel'),sens=document.getElementById('sens');
 const cores=['#111','#e02424','#1c64f2'],zonas=['#2e8b3d','#f2d024','#8b4a1f'];let cur=0,fr=0,play=true,last=0,vel=1;
 D.forEach((d,i)=>{const o=document.createElement('option');o.value=i;o.textContent=d.n;sel.appendChild(o)});
 for(let i=0;i<8;i++){const s=document.createElement('span');s.textContent='S'+(i+1);sens.appendChild(s)}
@@ -941,15 +942,18 @@ cx.strokeStyle='#e02424';cx.lineWidth=1.5;cx.beginPath();for(let i=0;i<=fr;i++){
 const f=d.f[fr],th=f[2]*Math.PI/180,c=Math.cos(th),s=Math.sin(th);const W=(fx,fy)=>P(t,f[0]+fx*c-fy*s,f[1]+fx*s+fy*c);
 cx.fillStyle=dark()?'rgba(110,160,255,.35)':'rgba(42,109,244,.25)';cx.strokeStyle='#2a6df4';cx.lineWidth=2;cx.beginPath();[[-100,-85],[100,-85],[100,85],[-100,85]].forEach((q,i)=>{const p=W(q[0],q[1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])});cx.closePath();cx.fill();cx.stroke();
 const fr0=W(100,0),to=W(60,0);cx.beginPath();cx.moveTo(to[0],to[1]);cx.lineTo(fr0[0],fr0[1]);cx.stroke();
-if(d.a>=0&&fr>=d.f.length-1){const q=W(0,0);cx.lineWidth=4;cx.strokeStyle=d.a?'#1a9a3a':'#e02424';cx.beginPath();cx.arc(q[0],q[1],46*t.k*2.2,0,7);cx.stroke();cx.fillStyle=d.a?'#1a9a3a':'#e02424';cx.font='bold 18px system-ui';cx.fillText(d.a?'ACHOU A LINHA':'NAO ACHOU',q[0]+30,q[1]-40)}
 const e=W(0,0);cx.fillStyle='#2a6df4';cx.beginPath();cx.arc(e[0],e[1],4,0,7);cx.fill();
 for(let i=0;i<8;i++){const lat=37.5-i*75/7,p=W(30,lat),on=(f[3]>>i)&1;cx.fillStyle=on?'#ffb000':(dark()?'#555':'#ddd');cx.strokeStyle=on?'#a06000':'#888';cx.lineWidth=1;cx.beginPath();cx.arc(p[0],p[1],Math.max(3,5*t.k*2),0,7);cx.fill();cx.stroke()}
-[...sens.children].forEach((s,i)=>s.classList.toggle('on',((f[3]>>i)&1)==1));document.getElementById('tt').textContent=(fr*0.02).toFixed(2)+' s / '+((d.f.length-1)*0.02).toFixed(2)+' s'}
-function carrega(i){cur=i;fr=0;tr.max=D[i].f.length-1;tr.value=0;play=true;document.getElementById('pp').textContent='Pausar';desenha()}
-sel.onchange=()=>carrega(+sel.value);tr.oninput=()=>{fr=+tr.value;play=false;document.getElementById('pp').textContent='Continuar';desenha()};
+[...sens.children].forEach((s,i)=>s.classList.toggle('on',((f[3]>>i)&1)==1));document.getElementById('tt').textContent='t = '+(fr*0.02).toFixed(2)+' s'}
+function carrega(i){cur=i;fr=0;play=true;document.getElementById('pp').textContent='Pausar';desenha()}
+function pausa(){play=false;document.getElementById('pp').textContent='Continuar'}
+function passo(n){pausa();fr=Math.max(0,Math.min(D[cur].f.length-1,fr+n));desenha()}
+sel.onchange=()=>carrega(+sel.value);
+b1.onclick=()=>passo(-50);b01.onclick=()=>passo(-5);f01.onclick=()=>passo(5);f1.onclick=()=>passo(50);r0.onclick=()=>{fr=0;play=true;document.getElementById('pp').textContent='Pausar';desenha()};
+addEventListener('keydown',e=>{if(e.key==='ArrowRight'){passo(e.shiftKey?50:5)}else if(e.key==='ArrowLeft'){passo(e.shiftKey?-50:-5)}else if(e.key===' '){e.preventDefault();document.getElementById('pp').click()}});
 document.getElementById('pp').onclick=()=>{play=!play;document.getElementById('pp').textContent=play?'Pausar':'Continuar';if(play&&fr>=D[cur].f.length-1)fr=0};
 document.getElementById('vel').onchange=e=>vel=+e.target.value;
-function loop(ts){if(play&&ts-last>=20/vel){last=ts;if(fr<D[cur].f.length-1){fr++;tr.value=fr}}desenha();requestAnimationFrame(loop)}
+function loop(ts){if(play&&ts-last>=20/vel){last=ts;if(fr<D[cur].f.length-1){fr++}}desenha();requestAnimationFrame(loop)}
 carrega(0);requestAnimationFrame(loop);
 </script></body></html>)HTML",f);
   fclose(f);
