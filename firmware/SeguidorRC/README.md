@@ -58,3 +58,7 @@ Segue o ultimo comando por `lacunaMs` (falha na fita); depois **sempre** gira no
 2. Ponta (S1/S8) dava giro com uma unica leitura: agora as pontas nao guiam, so avisam quando uma acende sozinha.
 3. Calibracao ruim passava batida: com menos de 6 sensores validos ela e recusada e repetida.
 4. Os 8 pinos sao lidos de uma vez no registrador `GPIO_IN_REG` e a leitura espera so ate o maior limiar da calibracao.
+
+## Borda do mapa (linha vermelha ou azul)
+
+As ruas terminam numa linha vermelha (cima e baixo) ou azul (laterais) que acende S1 e S8 como um cruzamento, mas e a borda. `borda.h` decide pela COR do chao (TCS34725; a tabela de cores e `firmware/src/core/color_table.h`, uma so): vermelho ou azul sem cubo = meia-volta e volta para dentro do mapa; com cubo = para e deixa para o navegador. A cor vista vale por 400 ms (o TCS pode estar a frente ou atras da barra). No sketch fica desligada (`USA_COR 0`) ate ligar o sensor. Teste: `test/teste_borda.cpp`; cenarios no `test/simulador.cpp`.

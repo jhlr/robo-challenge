@@ -7,6 +7,39 @@
 
 using namespace seguidor;
 
+// --- Cor da linha (TCS34725 do chao): as ruas terminam numa linha VERMELHA (cima/baixo) ou AZUL (laterais). Ela acende S1 e S8 como um cruzamento,
+// mas e a borda do mapa: nao se confirma girando, o robo da meia-volta e volta para dentro do mapa (ou, com cubo na mao, espera o navegador).
+// Desligado ate ligar o sensor: troque para 1, instale a biblioteca "Adafruit TCS34725" e defina os pinos do I2C do TCS (livres: este sketch
+// ja usa 11-14, 21, 38 e 47 na ponte H). A tabela de cores e a do firmware principal (core/color_table.h): uma so, nao copie.
+#define USA_COR 0
+#if USA_COR
+#include <Adafruit_TCS34725.h>
+#include <Wire.h>
+
+#include "../../../src/core/color_table.h"
+constexpr int tcsSda = -1, tcsScl = -1;   // DEFINA
+static_assert(tcsSda >= 0 && tcsScl >= 0, "defina os pinos do TCS34725 (tcsSda, tcsScl)");
+Adafruit_TCS34725 tcs(TCS34725_INTEGRATIONTIME_24MS, TCS34725_GAIN_4X);
+core::Cor corAnterior = core::DESCONHECIDA, corAceita = core::DESCONHECIDA;
+#endif
+MemoriaCor memCor;
+constexpr unsigned long kJanelaCorMs = 400;   // a cor da borda vale por este tempo (o TCS pode estar a frente ou atras da barra)
+bool temCubo = false;   // carregando um cubo para guardar: na borda nao da meia-volta, deixa para o navegador (ainda nao ligado)
+bool parado = false;
+
+// A cada ~60 ms (a leitura do TCS leva 24 ms: nao ler a cada volta do loop, a correcao precisa de ciclos curtos).
+void lerCor() {
+#if USA_COR
+  static unsigned long ultima = 0;
+  if (millis() - ultima < 60) return;
+  ultima = millis();
+  uint16_t r, g, b, c;
+  tcs.getRawData(&r, &g, &b, &c);
+  corAceita = core::filtrarCor(core::classificarCor(r, g, b, c), corAnterior, corAceita);   // so acredita se repetir em duas leituras
+  anotarCor(memCor, corAceita == core::VERMELHO ? CorLinha::Vermelho : (corAceita == core::AZUL ? CorLinha::Azul : CorLinha::Outra), millis());
+#endif
+}
+
 // --- Ligacao (S1 = ponta esquerda ... S8 = ponta direita; os pinos dos sensores precisam ser < 32) ---
 // Barra montada ESPELHADA em relacao ao codigo do colega (confirmado pelo usuario em 2026-10-28): S1 (esquerda) e o pino 1 ... S8 (direita) e o pino 8.
 const uint8_t pinosSensores[kSensores] = {1, 2, 3, 4, 5, 6, 7, 8};
@@ -80,10 +113,29 @@ bool confirmarGirando(ResultadoGiro& r) {
   return r.cruzamento;
 }
 
+// S1 e S8 no preto numa linha vermelha ou azul: borda do mapa, nao cruzamento (nada para confirmar girando).
+void bordaDoMapa(AcaoCruzamento acao) {
+  if (acao == AcaoCruzamento::Navegador) {
+    Serial.println(">>> BORDA com cubo: parado, a rota e do navegador (ainda nao ligado)");
+    parado = true;
+    return;
+  }
+  Serial.println(">>> BORDA do mapa (linha vermelha/azul): meia-volta para voltar ao mapa");
+  int n = 0;
+  girarAte(0.0f, 180.0f, n);
+  esquecerCor(memCor);   // a linha que ficou atras nao conta para o proximo cruzamento
+  esquecerUltimoComando(memoria);
+  tUltimoCruzamento = millis();
+  fimDeBecoAvisado = false;
+  comecarASair(cruzamento, millis());
+}
+
 // Achou "cruzamento" (S1 e S8 no preto): para e confirma girando 90 graus para cada lado. A decisao de qual rua seguir sera do navegador (ainda nao ligado
 // aqui): por enquanto, depois de confirmar, segue reto.
 void pararNoCruzamento() {
   parar(ponte);
+  const AcaoCruzamento acao = acaoNaPonta(corRecente(memCor, millis(), kJanelaCorMs), temCubo);
+  if (acao != AcaoCruzamento::Cruzamento) { bordaDoMapa(acao); return; }
   if (kModoTeste) { Serial.println(">>> S1 e S8 no preto (modo teste: nao gira)"); comecarASair(cruzamento, millis()); return; }
 
   ResultadoGiro giro;
@@ -103,6 +155,10 @@ void setup() {
   Serial.begin(115200);
   iniciar(ponte);
   iniciar(barra, pinosSensores);
+#if USA_COR
+  Wire.begin(tcsSda, tcsScl);
+  if (!tcs.begin(0x29, &Wire)) Serial.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
+#endif
 
   delay(1000);
   // Nao anda com calibracao ruim: sensor morto ou robo parado fazia o carro rodopiar
@@ -114,7 +170,9 @@ void setup() {
 }
 
 void loop() {
+  if (parado) { parar(ponte); return; }
   ler(barra);
+  lerCor();
   const int travados = atualizarSaude(barra.preto, millis(), saude, barra.ok);
   if (travados > 0) Serial.printf("!!! %d sensor(es) no preto ha mais de 30 s: marcado(s) como ruim(ns) e ignorado(s)\n", travados);
   // Procurando a linha, S1 e S8 acesos nao sao cruzamento: a barra acende inteira ao ficar paralela a linha (robo de lado)

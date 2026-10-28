@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "seguidor/borda.h"
 #include "seguidor/cruzamento.h"
 #include "seguidor/decisao.h"
 #include "seguidor/giro_cruzamento.h"
@@ -27,13 +28,15 @@ using namespace seguidor;
 
 // ---------------------------------------------------------------- pista
 
-struct Seg { double x0, y0, x1, y1; };
+enum CorSeg { kPreta = 0, kVermelha = 1, kAzul = 2 };   // vermelho e azul valem como PRETO para os sensores RC (suposto: confirme na pista)
+
+struct Seg { double x0, y0, x1, y1; int cor = kPreta; };
 
 struct Pista {
   std::vector<Seg> segs;
   double largura = 20.0;
 
-  void reta(double x0, double y0, double x1, double y1) { segs.push_back({x0, y0, x1, y1}); }
+  void reta(double x0, double y0, double x1, double y1, int cor = kPreta) { segs.push_back({x0, y0, x1, y1, cor}); }
   // Arco de centro (cx,cy) e raio r de a0 a a1 (graus), em segmentos de ~5 mm.
   void arco(double cx, double cy, double r, double a0, double a1) {
     const int n = std::max(2, static_cast<int>(fabs(a1 - a0) * M_PI / 180.0 * r / 5.0));
@@ -54,6 +57,14 @@ struct Pista {
     return d;
   }
   bool preto(double x, double y) const { return distancia(x, y) < largura / 2.0; }
+  // Cor da linha sob o ponto (a mais proxima dentro da largura); kPreta tambem vale para fora da linha: so interessa vermelho e azul.
+  int cor(double x, double y) const {
+    int c = kPreta;
+    for (const Seg& s : segs) {
+      if (s.cor != kPreta && distSeg(s, x, y) < largura / 2.0) c = s.cor;   // a mancha colorida sob o sensor vence a linha preta
+    }
+    return c;
+  }
 };
 
 // ---------------------------------------------------------------- carro
@@ -93,6 +104,13 @@ class Carro {
       ponto(i, x, y);
       preto[i] = pista_.preto(x, y);
     }
+  }
+  // Cor do chao no TCS: suposto no centro da barra (a posicao real e pergunta aberta nos docs).
+  int corChao() const {
+    double x, y, x2, y2;
+    ponto(3, x, y);
+    ponto(4, x2, y2);
+    return pista_.cor((x + x2) / 2, (y + y2) / 2);
   }
   double erroBarra() const {   // distancia do centro da barra ate a linha mais proxima
     double x, y;
@@ -147,9 +165,13 @@ struct Firmware {
   // relatorio do ultimo giro
   float giroDriftGraus = 0;
   int ruaEsq = -1, ruaDir = -1, ruaEsqVerdade = -1, ruaDirVerdade = -1;
-  bool girou = false;
+  bool girou = false, parado = false;
   Estado paradaEm = {0, 0, 0};   // onde o eixo estava quando o cruzamento foi confirmado
   bool paraNoCruzamento = true;
+  bool temCubo = false;
+  MemoriaCor memCor;
+  static constexpr unsigned long kJanelaCorMs = 400;
+  int bordas = 0, meiasVoltas = 0, paradasNavegador = 0;
 
   static void apaga(int& v, float x) { v = static_cast<int>(x); }
 
@@ -181,6 +203,23 @@ struct Firmware {
   void pararNoCruzamento(Carro& c, bool preto[kSensores]) {
     c.parar();
     paradaEm = c.estado();
+    const AcaoCruzamento acao = acaoNaPonta(corRecente(memCor, c.agoraMs(), kJanelaCorMs), temCubo);
+    if (acao != AcaoCruzamento::Cruzamento) {   // borda do mapa: nao gira para confirmar
+      bordas++;
+      if (acao == AcaoCruzamento::MeiaVolta) {
+        std::vector<AmostraGiro> est, ver;
+        girarAte(c, 0.0f, 180.0f, est, ver, c.estado().th);
+        meiasVoltas++;
+        esquecerUltimoComando(memoria);
+        esquecerCor(memCor);
+        comecarASair(cruz, c.agoraMs());
+      } else {
+        paradasNavegador++;
+        parado = true;
+      }
+      tUltimoCruzamento = c.agoraMs();
+      return;
+    }
     std::vector<AmostraGiro> est, ver;
     const double th0 = c.estado().th;   // angulo verdadeiro medido a partir de como chegou
     est.push_back({0, preto[0], preto[7], acesos(preto)});
@@ -205,9 +244,12 @@ struct Firmware {
 
   // Um ciclo do loop().
   void passo(Carro& c) {
+    if (parado) { c.parar(); c.avancar(); return; }
     bool p[kSensores];
     c.ler(p);
     const unsigned long agora = c.agoraMs();
+    const int corChao = c.corChao();
+    anotarCor(memCor, corChao == kVermelha ? CorLinha::Vermelho : (corChao == kAzul ? CorLinha::Azul : CorLinha::Outra), agora);
     if (paraNoCruzamento && !estaBuscando(memoria, agora, ajustes) && cruzamentoConfirmado(p, agora, ajC, cruz)) {
       pararNoCruzamento(c, p);
       return;
@@ -337,6 +379,30 @@ static Resultado cenarioCruzamento(double off, double ang) {
               fw.cruzamentos, fw.falsosAlarmes, fw.fimDeBeco ? "SIM" : "nao", fw.ruaEsq, fw.ruaDir, fw.ruaEsqVerdade, fw.ruaDirVerdade, fw.giroDriftGraus, 500.0 - fw.paradaEm.y)};
 }
 
+// 3a. Beco que termina na borda (linha vermelha ou azul): le a cor, da meia-volta e volta; com cubo, para e deixa para o navegador.
+static Resultado cenarioBorda(int cor, bool cubo) {
+  Pista p;
+  p.reta(0, 0, 0, 627);               // beco de 127 mm depois da rua
+  p.reta(-400, 500, 400, 500);        // ultima rua
+  p.reta(-200, 627, 200, 627, cor);   // borda
+  Carro c(p, norte(0, 100));
+  Firmware fw;
+  fw.temCubo = cubo;
+  bool voltou = false;
+  rodar(fw, c, 20000, [&](const Carro& k) {
+    if (cubo) return fw.parado;
+    voltou = k.estado().y < 300 && fw.meiasVoltas > 0;
+    return voltou;
+  });
+  const bool ok = cubo ? (fw.bordas == 1 && fw.paradasNavegador == 1 && fw.meiasVoltas == 0)
+                       : (voltou && fw.bordas == 1 && fw.meiasVoltas == 1 && fw.cruzamentos == 2 && fw.falsosAlarmes == 0 && c.erroBarra() < 8.0);
+  const char* nome = cor == kVermelha ? "vermelha" : "azul";
+  svg(fmt("borda_%s%s", nome, cubo ? "_cubo" : ""), p, c);
+  return {fmt("borda %s%s", nome, cubo ? " com cubo" : ""), ok,
+          fmt("bordas %d, meias-voltas %d, parou p/ navegador %d, cruzamentos %d, falsos %d, %s, y final %.0f, erro %.1f mm", fw.bordas, fw.meiasVoltas, fw.paradasNavegador,
+              fw.cruzamentos, fw.falsosAlarmes, voltou ? "voltou ao mapa" : "NAO voltou", c.estado().y, c.erroBarra())};
+}
+
 // 3b. Depois do cruzamento o carro tem de seguir a linha do outro lado (rua e beco longos).
 static Resultado cenarioAtravessa() {
   Pista p;
@@ -408,6 +474,9 @@ int main(int argc, char** argv) {
   rs.push_back(cenarioCruzamento(10, 0));
   rs.push_back(cenarioCruzamento(-10, 8));
   rs.push_back(cenarioAtravessa());
+  rs.push_back(cenarioBorda(kVermelha, false));
+  rs.push_back(cenarioBorda(kAzul, false));
+  rs.push_back(cenarioBorda(kVermelha, true));
   for (double d : {30.0, 60.0, 100.0})
     for (double rumo : {90.0, 0.0, 180.0, -90.0}) {
       rs.push_back(cenarioBusca(d, rumo));
