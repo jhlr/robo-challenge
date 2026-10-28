@@ -5,7 +5,7 @@ Robo autonomo para o desafio (regras: 300 x 300 mm com tudo estendido, totalment
 ```
 firmware/                 codigo que roda no robo
   src/ include/ test/       ESP32 DevKit (PlatformIO): bringup (menu serial) e follow (seguidor com juncoes); testes de src/core rodam no PC
-  seguidor_linha_s3/        seguidor de linha simples do colega (ESP32-S3 + TB6612 + 8 sensores RC), corrigido (Arduino IDE)
+  SeguidorRC/               biblioteca Arduino do seguidor de linha (ESP32-S3 + TB6612 + 8 sensores RC): sensores, decisao, ponte H; exemplo em examples/
 cad/                      modelos e pecas
   braco/                    braco em OpenSCAD: params.json -> cinematica.py -> params_gen.scad; pecas de MDF (mdf/*.dxf) e STL impressos
   chassi/                   conves de cima alargado (script + DXF)
