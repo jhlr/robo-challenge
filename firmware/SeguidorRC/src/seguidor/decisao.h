@@ -128,6 +128,12 @@ inline bool estaBuscando(const Memoria& m, unsigned long agoraMs, const Ajustes&
 // preto[0] = S1 ... preto[7] = S8. agoraMs = millis().
 Comando decidir(const bool preto[kSensores], unsigned long agoraMs, const Ajustes& ajustes, Memoria& memoria);
 
+// Vinha seguindo a linha (nao esta perdido/buscando, e ja andou com um comando de verdade)? Quem decide o que as duas pontas acesas eram usa isto:
+// seguindo -> cruzamento; perdido -> era o robo de lado em cima da linha.
+inline bool vinhaSeguindoLinha(const Memoria& m, unsigned long agoraMs, const Ajustes& aj) {
+  return !estaBuscando(m, agoraMs, aj) && (m.ultimoEsq != 0 || m.ultimoDir != 0);
+}
+
 // Use quando voce segurar os motores parados por fora (modo teste): a lacuna nao deve repetir um comando que nao rodou.
 void esquecerUltimoComando(Memoria& memoria);
 

@@ -82,3 +82,11 @@ S1 e S8 no preto juntos, em QUALQUER situacao (seguindo, perdido, buscando), tem
 - vinha seguindo a linha: **cruzamento** se ha rua dos dois lados; senao falso alarme.
 - estava perdido/buscando: se depois de virar o padrao fica **estreito** (1 a 3 acesos), era ele de lado em cima da linha: **endireitou** e segue por ela; senao vira para o outro lado; senao falso alarme.
 O padrao estreito nao exige o centro: com a barra sobre a linha o eixo fica ~30 mm ao lado dela (o simulador mostrou).
+
+## Simulador ao vivo (sem fim)
+
+```bash
+cd firmware/SeguidorRC && g++ -std=c++17 -O2 -Isrc test/simulador.cpp src/seguidor/decisao.cpp -o /tmp/simulador && /tmp/simulador --servir
+# abra http://localhost:8765
+```
+O servidor C++ simula so o que a pagina pede, SEM duracao gravada nem tempo maximo (a pagina nao tem slider): botoes de avancar/voltar 0,1 s e 1 s, velocidade ate 8x, clique no mapa para soltar o robo ali (apontando para o lado escolhido) e ver a busca acontecendo, levantar/soltar de frente e pancada forte. `/tmp/simulador` sem argumentos roda os 54 cenarios de teste (com `-q` so o placar; `chave=valor` muda fisica e ajustes).

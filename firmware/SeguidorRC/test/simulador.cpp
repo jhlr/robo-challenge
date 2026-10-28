@@ -164,7 +164,7 @@ class Carro {
 
   // Passa um ciclo (dtMs) com o comando atual.
   void avancar() {
-    if (levantado_) { t_ += static_cast<unsigned long>(f_.dtMs); return; }   // as rodas giram no ar: nao sai do lugar
+    if (levantado_) { t_ += static_cast<unsigned long>(f_.dtMs); if (t_ % 20 == 0) grava(); return; }   // as rodas giram no ar: nao sai do lugar
     const double dt = f_.dtMs / 1000.0, k = 1.0 - exp(-f_.dtMs / f_.tauMs);
     vE_ += (alvoE_ - vE_) * k;
     vD_ += (alvoD_ - vD_) * k;
@@ -333,7 +333,7 @@ struct Firmware {
       return;
     }
     // As duas pontas acesas, em QUALQUER situacao (inclusive perdido/buscando): varredura de 90 graus a partir do lado menos explorado
-    const bool vinhaSeguindo = !estaBuscando(memoria, c.agoraMs(), ajustes);
+    const bool vinhaSeguindo = vinhaSeguindoLinha(memoria, c.agoraMs(), ajustes);
     const int lado = ladoMenosExplorado(expl, rumo, usaImu, memoria.ultimoLado);
     const double th0 = c.estado().th;   // angulo verdadeiro medido a partir de como chegou
     const float rumo0 = rumo;
@@ -489,13 +489,7 @@ static void placar(const Carro& c) {
   gPlacar.pior = std::max(gPlacar.pior, c.erroMax());
 }
 
-// Tudo o que cada cenario percorreu, para a pagina de visualizacao (--html=arquivo).
-struct Viz { std::string nome; int achou; std::vector<Seg> segs; std::vector<Ret> decor; double largura; std::vector<Estado> rastro; std::vector<uint8_t> bits; };
-static std::vector<Viz> gViz;
-static const char* gHtmlPath = nullptr;
-
-static void svg(const std::string& nome, const Pista& p, const Carro& c, int achou = -1) {
-  if (gHtmlPath) gViz.push_back({nome, achou, p.segs, p.decor, p.largura, c.rastro(), c.bits()});
+static void svg(const std::string& nome, const Pista& p, const Carro& c, int = -1) {
   if (!gSvgDir) return;
   double x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   auto acha = [&](double x, double y) { x0 = std::min(x0, x); y0 = std::min(y0, y); x1 = std::max(x1, x); y1 = std::max(y1, y); };
@@ -842,6 +836,28 @@ static Resultado cenarioLacuna(double lacunaMm) {
 }
 
 // 5. Busca: carro solto fora da linha (distancia lateral e rumo variados). Informativo + criterio: achar a linha em ate 15 s.
+// Liga o MPU, mede viés e calibra os motores (zona morta e graus por segundo na velocidade RAPIDA de busca) e volta o robo onde estava, com o rastro limpo.
+static void prepararMpu(Firmware& fw, Carro& c, const Estado& origem) {
+  fw.ligarImu(c);
+  Calibracao cal;
+  AjustesCalibracao ac;
+  bool fim = false;
+  for (int i = 0; i < 6000 && !fim; i++) {
+    const ComandoCalibracao k = passoCalibracao(cal, fw.ultimoImu.gzRadS - fw.vies, c.agoraMs(), ac);
+    fim = k.terminou;
+    c.comandar(k.esq, k.dir);
+    fw.tick(c);
+  }
+  if (cal.fase == Calibracao::Pronto) {
+    fw.ajustes.zonaMortaPwm = cal.zonaMortaPwm;
+    fw.ajustes.velBuscaExterna = cal.velMedida;
+    fw.ajustes.grausPorSegundoBusca = cal.grausPorSegundo;
+    fw.ajustes = normalizar(fw.ajustes);
+  }
+  c.colocarEm(origem);
+  c.limparRastro();   // a animacao mostra so o que vem depois da calibracao
+}
+
 static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms, int& ciclos, const Pista& p, Carro** saida = nullptr) {
   // `dist` = distancia do CENTRO DA BARRA (nao do eixo) ate a linha: assim a barra nunca comeca em cima dela, qualquer que seja o rumo
   const double th = rumoGraus * M_PI / 180.0;
@@ -850,28 +866,7 @@ static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms
   delete ultimo;
   Carro* c = ultimo = new Carro(p, origem);
   Firmware fw;
-  if (comMpu) {   // com o MPU o robo mede a zona morta e os graus por segundo ANTES de sair procurando (e depois volta onde estava)
-    fw.ligarImu(*c);
-    Calibracao cal;
-    AjustesCalibracao ac;
-    bool fim = false;
-    for (int i = 0; i < 6000 && !fim; i++) {
-      const ComandoCalibracao k = passoCalibracao(cal, fw.ultimoImu.gzRadS - fw.vies, c->agoraMs(), ac);
-      fim = k.terminou;
-      c->comandar(k.esq, k.dir);
-      fw.tick(*c);
-    }
-    if (getenv("SIM_DEBUG")) fprintf(stderr, "  calibracao busca: fase %d zona %d vel %d graus/s %.1f\n", static_cast<int>(cal.fase), cal.zonaMortaPwm, cal.velMedida, cal.grausPorSegundo);
-    if (cal.fase == Calibracao::Pronto) {
-      fw.ajustes.zonaMortaPwm = cal.zonaMortaPwm;
-      fw.ajustes.velBuscaExterna = cal.velMedida;
-      fw.ajustes.grausPorSegundoBusca = cal.grausPorSegundo;
-      fw.ajustes = normalizar(fw.ajustes);
-    }
-    c->colocarEm(origem);
-    c->limparRastro();   // a animacao mostra so a busca, nao a calibracao
-    if (getenv("SEM_IMU_NA_BUSCA")) fw.usaImu = false;
-  }
+  if (comMpu) prepararMpu(fw, *c, origem);
   const unsigned long t0 = c->agoraMs();
   const bool achou = rodar(fw, *c, [&](const Carro& k) {
     return k.erroBarra() < 8.0 && fw.memoria.perdeuEm == 0;   // de novo em cima da linha (ao largar, a barra esta a >= 30 mm dela)
@@ -898,74 +893,282 @@ static Resultado cenarioBusca(double dist, double rumoGraus) {
           fmt("com MPU (calibra o giro antes): %s em %lu ms | sem MPU (chute de 110 graus/s): %s", com ? "achou" : "NAO achou", msCom, sem ? fmt("achou em %lu ms", msSem).c_str() : "NAO achou")};
 }
 
-// Pagina unica (sem dependencias) que anima cada cenario: pista, carro, barra de 8 sensores acendendo e rastro.
-static void escreverHtml(const char* caminho) {
-  std::stable_sort(gViz.begin(), gViz.end(), [](const Viz& a, const Viz& b) { return (a.nome == "tabuleiro_inteiro") > (b.nome == "tabuleiro_inteiro"); });   // o mapa completo vem primeiro
-  FILE* f = fopen(caminho, "w");
-  if (!f) return;
-  fputs(R"HTML(<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Simulador do seguidor</title>
-<style>:root{--bg:#f6f6f4;--fg:#1b1b1b;--card:#fff;--bd:#d8d8d4;--ac:#2a6df4}@media(prefers-color-scheme:dark){:root{--bg:#161618;--fg:#ececec;--card:#202024;--bd:#34343a;--ac:#6ea0ff}}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif}main{max-width:1000px;margin:0 auto;padding:16px}
-.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}select,button,input{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:6px 10px}
-button{cursor:pointer}canvas{width:100%;background:var(--card);border:1px solid var(--bd);border-radius:8px;display:block}
-#sens{display:flex;gap:6px;align-items:center;margin:10px 0}#sens span{width:26px;height:26px;border-radius:50%;border:2px solid var(--bd);display:inline-flex;align-items:center;justify-content:center;font-size:11px}#sens span.on{background:#111;color:#fff;border-color:#111}
-@media(prefers-color-scheme:dark){#sens span.on{background:#fff;color:#111;border-color:#fff}}small{opacity:.7}</style></head><body><main>
-<div class="bar"><select id="sel"></select><button id="b1" title="1 s para tras">&#9664;&#9664; 1 s</button><button id="b01" title="0,1 s para tras">&#9664; 0,1 s</button><button id="pp">Pausar</button><button id="f01" title="0,1 s para frente">0,1 s &#9654;</button><button id="f1" title="1 s para frente">1 s &#9654;&#9654;</button><button id="r0" title="voltar ao inicio">&#8634; inicio</button><label>velocidade <select id="vel"><option value="0.25">0,25x</option><option value="0.5">0,5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option></select></label><span id="tt"></span></div>
-<canvas id="c" width="1000" height="620"></canvas>
-<div id="sens"></div><small>Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Vermelho/azul = borda do mapa. Traco vermelho = caminho do eixo. Teclas: setas esquerda/direita (0,1 s), shift + seta (1 s), espaco (pausa).</small>
-</main><script>
-const D=)HTML",f);
-  fputs("[", f);
-  for (size_t v = 0; v < gViz.size(); v++) {
-    const Viz& z = gViz[v];
-    fprintf(f, "%s{n:\"%s\",a:%d,w:%.0f,s:[", v ? "," : "", z.nome.c_str(), z.achou, z.largura);
-    for (size_t i = 0; i < z.segs.size(); i++) fprintf(f, "%s[%.1f,%.1f,%.1f,%.1f,%d]", i ? "," : "", z.segs[i].x0, z.segs[i].y0, z.segs[i].x1, z.segs[i].y1, z.segs[i].cor);
-    fputs("],r:[", f);
-    for (size_t i = 0; i < z.decor.size(); i++) fprintf(f, "%s[%.0f,%.0f,%.0f,%.0f,%d]", i ? "," : "", z.decor[i].x0, z.decor[i].y0, z.decor[i].x1, z.decor[i].y1, z.decor[i].cor);
-    fputs("],f:[", f);
-    for (size_t i = 0; i < z.rastro.size(); i++) fprintf(f, "%s[%.1f,%.1f,%.2f,%d]", i ? "," : "", z.rastro[i].x, z.rastro[i].y, z.rastro[i].th * 180.0 / M_PI, z.bits[i]);
-    fputs("]}", f);
+// ================================================================ SIMULACAO AO VIVO (--servir): sem duracao gravada
+// O simulador vira um servidor HTTP local: a pagina pede quadros (20 ms de simulacao cada) e o servidor SIMULA SO O QUE FOI PEDIDO, sem fim. Da para
+// clicar no mapa para soltar o robo em qualquer lugar (a busca roda ao vivo), levantar/soltar o robo e dar uma pancada. Usa a MESMA logica C++ dos testes.
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <functional>
+#include <map>
+#include <memory>
+
+struct Sessao {
+  std::string nome;
+  std::unique_ptr<Pista> pista;
+  std::unique_ptr<Carro> carro;
+  std::unique_ptr<Firmware> fw;
+  double frenteGraus = 90.0;   // para onde e "de frente" depois de levantado e solto
+};
+
+struct Receita { std::string nome; std::function<std::unique_ptr<Sessao>()> cria; };
+
+static std::unique_ptr<Sessao> sessaoSimples(const std::string& nome, Pista&& pista, Estado e, bool mpu, double frente = 90.0) {
+  auto s = std::make_unique<Sessao>();
+  s->nome = nome;
+  s->pista = std::make_unique<Pista>(std::move(pista));
+  s->carro = std::make_unique<Carro>(*s->pista, e);
+  s->fw = std::make_unique<Firmware>();
+  s->frenteGraus = frente;
+  if (mpu) s->fw->ligarImu(*s->carro);
+  return s;
+}
+
+static std::vector<Receita> receitas() {
+  std::vector<Receita> r;
+  r.push_back({"Mapa completo (tabuleiro)", [] {
+    auto s = sessaoSimples("Mapa completo (tabuleiro)", tabuleiro(), {-140, kBeco + 2 * kPasso, 0.0}, true, 0.0);
+    s->fw->portaoPendente = true;
+    s->fw->rota = "SLSSSS";   // depois da rota, segue reto em todo cruzamento
+    return s;
+  }});
+  for (double dist : {30.0, 60.0, 100.0})
+    for (double rumo : {90.0, 0.0, 180.0, -90.0}) {
+      const std::string nome = fmt("Busca: barra a %.0f mm da linha, apontando para %.0f graus", dist, rumo);
+      r.push_back({nome, [nome, dist, rumo] {
+        Pista p;
+        p.reta(0, -400, 0, 1400);
+        const double th = rumo * M_PI / 180.0;
+        const Estado origem = {dist - 30.0 * cos(th), 500 - 30.0 * sin(th), th};
+        auto s = sessaoSimples(nome, std::move(p), origem, false, rumo);
+        prepararMpu(*s->fw, *s->carro, origem);
+        return s;
+      }});
+    }
+  r.push_back({"Perdido de lado na linha (barra inteira sobre ela)", [] {
+    Pista p;
+    p.reta(0, 0, 0, 1400);
+    auto s = sessaoSimples("Perdido de lado na linha (barra inteira sobre ela)", std::move(p), {-150, 300, 0.0}, true, 90.0);
+    for (int i = 0; i < 140; i++) s->fw->passo(*s->carro);   // procura um pouco
+    s->carro->colocarEm({-30, 500, 0.0});
+    return s;
+  }});
+  r.push_back({"Reta, comecando torto", [] {
+    Pista p;
+    p.reta(0, 0, 0, 3000);
+    return sessaoSimples("Reta, comecando torto", std::move(p), norte(20, 100, 15), true);
+  }});
+  r.push_back({"Cruzamento com beco ate a borda vermelha", [] {
+    Pista p;
+    p.reta(0, 0, 0, 627);
+    p.reta(-400, 500, 400, 500);
+    p.reta(-200, 627, 200, 627, kVermelha);
+    return sessaoSimples("Cruzamento com beco ate a borda vermelha", std::move(p), norte(0, 100), true);
+  }});
+  r.push_back({"Canto vivo de 90 graus (esquerda)", [] {
+    Pista p;
+    p.reta(0, 0, 0, 400);
+    p.reta(0, 400, -600, 400);
+    return sessaoSimples("Canto vivo de 90 graus (esquerda)", std::move(p), norte(0, 50), true);
+  }});
+  r.push_back({"Arco de 150 mm", [] {
+    Pista p;
+    p.reta(0, 0, 0, 200);
+    p.arco(150, 200, 150, 180, 90);
+    p.reta(150, 350, 550, 350);
+    return sessaoSimples("Arco de 150 mm", std::move(p), norte(0, 50), true);
+  }});
+  r.push_back({"Lacuna de 100 mm na linha", [] {
+    Pista p;
+    p.reta(0, 0, 0, 300);
+    p.reta(0, 400, 0, 1400);
+    return sessaoSimples("Lacuna de 100 mm na linha", std::move(p), norte(0, 100, 6), true);
+  }});
+  return r;
+}
+
+static std::string jsonSegs(const Pista& p) {
+  std::string o = "{\"w\":" + fmt("%.0f", p.largura) + ",\"s\":[";
+  for (size_t i = 0; i < p.segs.size(); i++) o += fmt("%s[%.1f,%.1f,%.1f,%.1f,%d]", i ? "," : "", p.segs[i].x0, p.segs[i].y0, p.segs[i].x1, p.segs[i].y1, p.segs[i].cor);
+  o += "],\"r\":[";
+  for (size_t i = 0; i < p.decor.size(); i++) o += fmt("%s[%.0f,%.0f,%.0f,%.0f,%d]", i ? "," : "", p.decor[i].x0, p.decor[i].y0, p.decor[i].x1, p.decor[i].y1, p.decor[i].cor);
+  return o + "]}";
+}
+
+static std::string valor(const std::string& q, const std::string& chave, const std::string& padrao = "") {
+  const std::string k = chave + "=";
+  size_t i = 0;
+  while ((i = q.find(k, i)) != std::string::npos) {
+    if (i == 0 || q[i - 1] == '&') {
+      const size_t f = q.find('&', i);
+      return q.substr(i + k.size(), f == std::string::npos ? std::string::npos : f - i - k.size());
+    }
+    i++;
   }
-  fputs("];\n", f);
-  fputs(R"HTML(const cv=document.getElementById('c'),cx=cv.getContext('2d'),sel=document.getElementById('sel'),sens=document.getElementById('sens');
-const cores=['#111','#e02424','#1c64f2'],zonas=['#2e8b3d','#f2d024','#8b4a1f'];let cur=0,fr=0,play=true,last=0,vel=1;
-D.forEach((d,i)=>{const o=document.createElement('option');o.value=i;o.textContent=d.n;sel.appendChild(o)});
+  return padrao;
+}
+
+static void responder(int fd, const std::string& tipo, const std::string& corpo) {
+  const std::string h = "HTTP/1.1 200 OK\r\nContent-Type: " + tipo + "; charset=utf-8\r\nContent-Length: " + std::to_string(corpo.size()) + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+  send(fd, h.data(), h.size(), 0);
+  size_t env = 0;
+  while (env < corpo.size()) {
+    const ssize_t n = send(fd, corpo.data() + env, corpo.size() - env, 0);
+    if (n <= 0) break;
+    env += static_cast<size_t>(n);
+  }
+}
+
+extern const char* kPaginaAoVivo;
+
+static int servir(int porta) {
+  const int srv = socket(AF_INET, SOCK_STREAM, 0);
+  int um = 1;
+  setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &um, sizeof um);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);   // so esta maquina
+  addr.sin_port = htons(static_cast<uint16_t>(porta));
+  if (bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0 || listen(srv, 8) != 0) { perror("bind/listen"); return 1; }
+  const std::vector<Receita> lista = receitas();
+  std::map<int, std::unique_ptr<Sessao>> sessoes;
+  auto pega = [&](int i) -> Sessao& {
+    if (!sessoes.count(i)) sessoes[i] = lista[static_cast<size_t>(i)].cria();
+    return *sessoes[i];
+  };
+  printf("Simulador ao vivo em http://localhost:%d  (Ctrl+C para parar)\n", porta);
+  fflush(stdout);
+  for (;;) {
+    const int fd = accept(srv, nullptr, nullptr);
+    if (fd < 0) continue;
+    char buf[4096];
+    const ssize_t n = recv(fd, buf, sizeof buf - 1, 0);
+    if (n <= 0) { close(fd); continue; }
+    buf[n] = 0;
+    std::string req(buf), alvo;
+    const size_t a = req.find(' '), b = req.find(' ', a + 1);
+    if (a != std::string::npos && b != std::string::npos) alvo = req.substr(a + 1, b - a - 1);
+    const size_t qi = alvo.find('?');
+    const std::string rota = alvo.substr(0, qi), q = qi == std::string::npos ? "" : alvo.substr(qi + 1);
+    const int i = std::max(0, std::min(static_cast<int>(lista.size()) - 1, atoi(valor(q, "s", "0").c_str())));
+
+    if (rota == "/") {
+      responder(fd, "text/html", kPaginaAoVivo);
+    } else if (rota == "/lista") {
+      std::string o = "[";
+      for (size_t k = 0; k < lista.size(); k++) o += fmt("%s\"%s\"", k ? "," : "", lista[k].nome.c_str());
+      responder(fd, "application/json", o + "]");
+    } else if (rota == "/sessao") {   // (re)cria a sessao e devolve a pista
+      sessoes.erase(i);
+      Sessao& s = pega(i);
+      responder(fd, "application/json", jsonSegs(*s.pista));
+    } else if (rota == "/frames") {   // quadros [desde, desde+n): simula so ate aqui
+      Sessao& s = pega(i);
+      const size_t desde = static_cast<size_t>(std::max(0, atoi(valor(q, "desde", "0").c_str())));
+      const size_t n2 = static_cast<size_t>(std::max(1, std::min(500, atoi(valor(q, "n", "50").c_str()))));
+      while (s.carro->rastro().size() < desde + n2) s.fw->passo(*s.carro);
+      std::string o = "{\"f\":[";
+      for (size_t k = desde; k < desde + n2; k++) {
+        const Estado& e = s.carro->rastro()[k];
+        o += fmt("%s[%.1f,%.1f,%.2f,%d]", k > desde ? "," : "", e.x, e.y, e.th * 180.0 / M_PI, s.carro->bits()[k]);
+      }
+      const Firmware& f = *s.fw;
+      o += "],\"i\":\"" + fmt("cruzamentos %d | falsos alarmes %d | endireitou %d | bordas %d (meias-voltas %d) | portao %d | levantado %s", f.cruzamentos, f.falsosAlarmes, f.endireitou, f.bordas, f.meiasVoltas, f.portoes,
+                                s.carro->levantado() ? "SIM" : "nao") + "\"}";
+      responder(fd, "application/json", o);
+    } else if (rota == "/colocar") {   // solta o robo em (x, y) mm, apontando para th graus (a memoria do firmware recomeca: foi pego e posto)
+      Sessao& s = pega(i);
+      const double th = atof(valor(q, "th", "90").c_str()) * M_PI / 180.0;
+      s.carro->colocarEm({atof(valor(q, "x", "0").c_str()), atof(valor(q, "y", "0").c_str()), th});
+      s.carro->levantar(false);
+      s.fw->memoria = Memoria{};
+      s.fw->cruz = MemoriaCruzamento{};
+      responder(fd, "text/plain", "ok");
+    } else if (rota == "/acao") {
+      Sessao& s = pega(i);
+      const std::string ac = valor(q, "a");
+      if (ac == "levantar") s.carro->levantar(true);
+      else if (ac == "soltar") { Estado e = s.carro->estado(); e.th = s.frenteGraus * M_PI / 180.0; s.carro->colocarEm(e); s.carro->levantar(false); }   // SEMPRE de frente
+      else if (ac == "bater") s.carro->bater(2.5, 4);
+      responder(fd, "text/plain", "ok");
+    } else {
+      const std::string o = "nao encontrado";
+      const std::string h = "HTTP/1.1 404 Not Found\r\nContent-Length: " + std::to_string(o.size()) + "\r\nConnection: close\r\n\r\n" + o;
+      send(fd, h.data(), h.size(), 0);
+    }
+    close(fd);
+  }
+}
+
+const char* kPaginaAoVivo = R"HTML(<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Simulador do seguidor ao vivo</title>
+<style>:root{--bg:#f6f6f4;--fg:#1b1b1b;--card:#fff;--bd:#d8d8d4;--ac:#2a6df4}@media(prefers-color-scheme:dark){:root{--bg:#161618;--fg:#ececec;--card:#202024;--bd:#34343a;--ac:#6ea0ff}}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif}main{max-width:1100px;margin:0 auto;padding:16px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}select,button,input{font:inherit;color:var(--fg);background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}canvas{width:100%;background:var(--card);border:1px solid var(--bd);border-radius:8px;display:block;cursor:crosshair}
+#sens{display:flex;gap:6px;align-items:center;margin:10px 0}#sens span{width:26px;height:26px;border-radius:50%;border:2px solid var(--bd);display:inline-flex;align-items:center;justify-content:center;font-size:11px}#sens span.on{background:#111;color:#fff;border-color:#111}
+@media(prefers-color-scheme:dark){#sens span.on{background:#fff;color:#111;border-color:#fff}}small{opacity:.7;display:block;margin-top:6px}#info{font-variant-numeric:tabular-nums;margin-top:6px}</style></head><body><main>
+<div class="bar"><select id="sel" style="max-width:100%"></select><button id="rein" title="recria a simulacao do zero">&#8634; recomecar</button></div>
+<div class="bar"><button id="b1">&#9664;&#9664; 1 s</button><button id="b01">&#9664; 0,1 s</button><button id="pp">Pausar</button><button id="f01">0,1 s &#9654;</button><button id="f1">1 s &#9654;&#9654;</button>
+<label>velocidade <select id="vel"><option value="0.25">0,25x</option><option value="0.5">0,5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option></select></label><span id="tt"></span></div>
+<div class="bar"><label>soltar apontando para <select id="th"><option value="90">cima (norte)</option><option value="0">direita (leste)</option><option value="180">esquerda (oeste)</option><option value="-90">baixo (sul)</option></select></label>
+<button id="lev">Levantar o robo</button><button id="sol">Soltar de frente</button><button id="bat">Pancada forte</button><label><input type="checkbox" id="seg" checked> camera segue o robo</label></div>
+<canvas id="c" width="1100" height="640"></canvas><div id="sens"></div><div id="info"></div>
+<small>Simulacao AO VIVO, sem fim: nada e gravado, o servidor C++ simula o que voce esta vendo. Clique no mapa para soltar o robo ali (apontando para o lado escolhido). Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Setas: 0,1 s; shift + seta: 1 s; espaco: pausa.</small></main><script>
+const cv=document.getElementById('c'),cx=cv.getContext('2d'),sel=document.getElementById('sel'),sens=document.getElementById('sens');
+const cores=['#111','#e02424','#1c64f2'],zonas=['#2e8b3d','#f2d024','#8b4a1f'];
+let cur=0,pista=null,frames=[],fr=0,play=true,pedindo=false,last=0,vel=1,info='',trilha0=0;
 for(let i=0;i<8;i++){const s=document.createElement('span');s.textContent='S'+(i+1);sens.appendChild(s)}
-function dark(){return matchMedia('(prefers-color-scheme: dark)').matches}
-function tela(){const d=D[cur];let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;const a=(x,y)=>{x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)};d.s.forEach(s=>{a(s[0],s[1]);a(s[2],s[3])});d.r.forEach(r=>{a(r[0],r[1]);a(r[2],r[3])});d.f.forEach(f=>a(f[0],f[1]));x0-=120;x1+=120;y0-=120;y1+=120;
+const dark=()=>matchMedia('(prefers-color-scheme: dark)').matches;
+async function j(u){return (await fetch(u)).json()}
+async function carrega(i){cur=i;frames=[];fr=0;trilha0=0;play=true;pp.textContent='Pausar';pista=await j('/sessao?s='+i);await mais()}
+async function mais(){if(pedindo)return;pedindo=true;try{const r=await j(`/frames?s=${cur}&desde=${frames.length}&n=25`);for(const f of r.f)frames.push(f);info=r.i}finally{pedindo=false}}
+let vista=null;
+function tela(){const f=frames[fr]||[0,0,0,0];
+if(seg.checked){const k=cv.width/900;return{k,ox:cv.width/2-f[0]*k,oy:cv.height/2+f[1]*k}}
+let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;const a=(x,y)=>{x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)};
+pista.s.forEach(s=>{a(s[0],s[1]);a(s[2],s[3])});pista.r.forEach(r=>{a(r[0],r[1]);a(r[2],r[3])});x0-=60;x1+=60;y0-=60;y1+=60;
 const k=Math.min(cv.width/(x1-x0),cv.height/(y1-y0));return{k,ox:(cv.width-(x1-x0)*k)/2-x0*k,oy:(cv.height-(y1-y0)*k)/2+y1*k}}
-function P(t,x,y){return[t.ox+x*t.k,t.oy-y*t.k]}
-function desenha(){const d=D[cur],t=tela();cx.clearRect(0,0,cv.width,cv.height);cx.lineCap='butt';
-d.r.forEach(r=>{const a=P(t,r[0],r[3]),b=P(t,r[2],r[1]);cx.fillStyle=zonas[r[4]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1])});
-d.s.forEach(s=>{cx.strokeStyle=dark()&&s[4]==0?'#cfcfcf':cores[s[4]];cx.lineWidth=d.w*t.k;const a=P(t,s[0],s[1]),b=P(t,s[2],s[3]);cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()});
-cx.strokeStyle='#e02424';cx.lineWidth=1.5;cx.beginPath();for(let i=0;i<=fr;i++){const p=P(t,d.f[i][0],d.f[i][1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])}cx.stroke();
-const f=d.f[fr],th=f[2]*Math.PI/180,c=Math.cos(th),s=Math.sin(th);const W=(fx,fy)=>P(t,f[0]+fx*c-fy*s,f[1]+fx*s+fy*c);
+const P=(t,x,y)=>[t.ox+x*t.k,t.oy-y*t.k];
+function desenha(){if(!pista||!frames.length)return;const t=tela();vista=t;cx.clearRect(0,0,cv.width,cv.height);
+pista.r.forEach(r=>{const a=P(t,r[0],r[3]),b=P(t,r[2],r[1]);cx.fillStyle=zonas[r[4]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1])});
+pista.s.forEach(s=>{cx.strokeStyle=dark()&&s[4]==0?'#cfcfcf':cores[s[4]];cx.lineWidth=pista.w*t.k;const a=P(t,s[0],s[1]),b=P(t,s[2],s[3]);cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()});
+cx.strokeStyle='#e02424';cx.lineWidth=1.5;cx.beginPath();for(let i=Math.max(0,fr-1500);i<=fr;i++){const p=P(t,frames[i][0],frames[i][1]);i==Math.max(0,fr-1500)?cx.moveTo(p[0],p[1]):cx.lineTo(p[0],p[1])}cx.stroke();
+const f=frames[fr],th=f[2]*Math.PI/180,c=Math.cos(th),s=Math.sin(th);const W=(fx,fy)=>P(t,f[0]+fx*c-fy*s,f[1]+fx*s+fy*c);
 cx.fillStyle=dark()?'rgba(110,160,255,.35)':'rgba(42,109,244,.25)';cx.strokeStyle='#2a6df4';cx.lineWidth=2;cx.beginPath();[[-100,-85],[100,-85],[100,85],[-100,85]].forEach((q,i)=>{const p=W(q[0],q[1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])});cx.closePath();cx.fill();cx.stroke();
 const fr0=W(100,0),to=W(60,0);cx.beginPath();cx.moveTo(to[0],to[1]);cx.lineTo(fr0[0],fr0[1]);cx.stroke();
 const e=W(0,0);cx.fillStyle='#2a6df4';cx.beginPath();cx.arc(e[0],e[1],4,0,7);cx.fill();
 for(let i=0;i<8;i++){const lat=37.5-i*75/7,p=W(30,lat),on=(f[3]>>i)&1;cx.fillStyle=on?'#ffb000':(dark()?'#555':'#ddd');cx.strokeStyle=on?'#a06000':'#888';cx.lineWidth=1;cx.beginPath();cx.arc(p[0],p[1],Math.max(3,5*t.k*2),0,7);cx.fill();cx.stroke()}
-[...sens.children].forEach((s,i)=>s.classList.toggle('on',((f[3]>>i)&1)==1));document.getElementById('tt').textContent='t = '+(fr*0.02).toFixed(2)+' s'}
-function carrega(i){cur=i;fr=0;play=true;document.getElementById('pp').textContent='Pausar';desenha()}
-function pausa(){play=false;document.getElementById('pp').textContent='Continuar'}
-function passo(n){pausa();fr=Math.max(0,Math.min(D[cur].f.length-1,fr+n));desenha()}
-sel.onchange=()=>carrega(+sel.value);
-b1.onclick=()=>passo(-50);b01.onclick=()=>passo(-5);f01.onclick=()=>passo(5);f1.onclick=()=>passo(50);r0.onclick=()=>{fr=0;play=true;document.getElementById('pp').textContent='Pausar';desenha()};
-addEventListener('keydown',e=>{if(e.key==='ArrowRight'){passo(e.shiftKey?50:5)}else if(e.key==='ArrowLeft'){passo(e.shiftKey?-50:-5)}else if(e.key===' '){e.preventDefault();document.getElementById('pp').click()}});
-document.getElementById('pp').onclick=()=>{play=!play;document.getElementById('pp').textContent=play?'Pausar':'Continuar';if(play&&fr>=D[cur].f.length-1)fr=0};
-document.getElementById('vel').onchange=e=>vel=+e.target.value;
-function loop(ts){if(play&&ts-last>=20/vel){last=ts;if(fr<D[cur].f.length-1){fr++}}desenha();requestAnimationFrame(loop)}
-carrega(0);requestAnimationFrame(loop);
-</script></body></html>)HTML",f);
-  fclose(f);
-}
+[...sens.children].forEach((s,i)=>s.classList.toggle('on',((f[3]>>i)&1)==1));
+tt.textContent='t = '+(fr*0.02).toFixed(2)+' s';document.getElementById('info').textContent=info}
+function pausa(){play=false;pp.textContent='Continuar'}
+function passo(n){pausa();fr=Math.max(0,Math.min(frames.length-1,fr+n));desenha();if(frames.length-fr<60)mais()}
+sel.onchange=()=>carrega(+sel.value);rein.onclick=()=>carrega(cur);
+b1.onclick=()=>passo(-50);b01.onclick=()=>passo(-5);f01.onclick=()=>passo(5);f1.onclick=()=>passo(50);
+pp.onclick=()=>{play=!play;pp.textContent=play?'Pausar':'Continuar'};vel_=document.getElementById('vel');vel_.onchange=e=>vel=+e.target.value;
+lev.onclick=()=>fetch('/acao?s='+cur+'&a=levantar');sol.onclick=()=>fetch('/acao?s='+cur+'&a=soltar');bat.onclick=()=>fetch('/acao?s='+cur+'&a=bater');
+cv.onclick=e=>{if(!vista)return;const r=cv.getBoundingClientRect(),px=(e.clientX-r.left)*cv.width/r.width,py=(e.clientY-r.top)*cv.height/r.height;const x=(px-vista.ox)/vista.k,y=(vista.oy-py)/vista.k;
+fetch(`/colocar?s=${cur}&x=${x.toFixed(1)}&y=${y.toFixed(1)}&th=${document.getElementById('th').value}`);play=true;pp.textContent='Pausar'};
+addEventListener('keydown',e=>{if(e.key==='ArrowRight')passo(e.shiftKey?50:5);else if(e.key==='ArrowLeft')passo(e.shiftKey?-50:-5);else if(e.key===' '){e.preventDefault();pp.click()}});
+let acum=0,ultimoTs=0;
+function loop(ts){const dt=ultimoTs?ts-ultimoTs:0;ultimoTs=ts;if(play&&frames.length){acum+=dt*vel/20;while(acum>=1){acum-=1;if(fr<frames.length-1)fr++}}
+if(frames.length-fr<40)mais();desenha();requestAnimationFrame(loop)}
+(async()=>{const nomes=await j('/lista');nomes.forEach((n,i)=>{const o=document.createElement('option');o.value=i;o.textContent=n;sel.appendChild(o)});await carrega(0);requestAnimationFrame(loop)})();
+</script></body></html>)HTML";
 
 int main(int argc, char** argv) {
+  bool servirAoVivo = false;
   // Argumentos: uma pasta (grava um SVG por cenario) e/ou chave=valor para os parametros fisicos: tau, derrap, bitola, zona, ganho, barra
   for (int i = 1; i < argc; i++) {
     const char* eq = strchr(argv[i], '=');
-    if (!eq) { if (!strcmp(argv[i], "-q")) gSo_Placar = true; else gSvgDir = argv[i]; continue; }
+    if (!eq) {
+      if (!strcmp(argv[i], "-q")) gSo_Placar = true;
+      else if (!strcmp(argv[i], "--servir")) servirAoVivo = true;
+      else gSvgDir = argv[i];
+      continue;
+    }
     const std::string k(argv[i], eq - argv[i]);
-    if (k == "--html") { gHtmlPath = eq + 1; continue; }
     const double v = atof(eq + 1);
     if (k == "tau") gFis.tauMs = v;
     else if (k == "derrap") gFis.derrapagem = v;
@@ -993,6 +1196,7 @@ int main(int argc, char** argv) {
     else if (k == "velreto") gAjustes.velReto = static_cast<int>(v);
     else { fprintf(stderr, "parametro desconhecido: %s\n", k.c_str()); return 2; }
   }
+  if (servirAoVivo) return servir(8765);
   std::vector<Resultado> rs;
 
   rs.push_back(cenarioReta("reta", 0, 0, true));
@@ -1038,7 +1242,6 @@ int main(int argc, char** argv) {
   }
   if (gSo_Placar) printf("%d falhas | ", falhas);
   printf("\nPLACAR seguimento (%d percursos): tempo medio %.2f s, erro rms medio %.2f mm, pior desvio %.1f mm\n", gPlacar.n, gPlacar.tempoS / gPlacar.n, gPlacar.rms / gPlacar.n, gPlacar.pior);
-  if (gHtmlPath) { escreverHtml(gHtmlPath); printf("pagina de visualizacao: %s (%d cenarios)\n", gHtmlPath, static_cast<int>(gViz.size())); }
   printf("%d de %d cenarios passaram\n", static_cast<int>(rs.size()) - falhas, static_cast<int>(rs.size()));
   return falhas ? 1 : 0;
 }

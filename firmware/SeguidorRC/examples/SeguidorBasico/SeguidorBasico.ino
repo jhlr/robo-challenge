@@ -221,7 +221,7 @@ void pararNoCruzamento() {
   if (acao != AcaoCruzamento::Cruzamento) { bordaDoMapa(acao); return; }
   if (kModoTeste) { Serial.println(">>> S1 e S8 no preto (modo teste: nao gira)"); comecarASair(cruzamento, millis()); return; }
 
-  const bool vinhaSeguindo = !estaBuscando(memoria, millis(), ajustes);
+  const bool vinhaSeguindo = vinhaSeguindoLinha(memoria, millis(), ajustes);
 #if USA_IMU
   const int lado = ladoMenosExplorado(exploracao, rumo, true, memoria.ultimoLado);
 #else
