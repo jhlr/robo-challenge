@@ -62,3 +62,7 @@ Segue o ultimo comando por `lacunaMs` (falha na fita); depois **sempre** gira no
 ## Borda do mapa (linha vermelha ou azul)
 
 As ruas terminam numa linha vermelha (cima e baixo) ou azul (laterais) que acende S1 e S8 como um cruzamento, mas e a borda. `borda.h` decide pela COR do chao (TCS34725; a tabela de cores e `firmware/src/core/color_table.h`, uma so): vermelho ou azul sem cubo = meia-volta e volta para dentro do mapa; com cubo = para e deixa para o navegador. A cor vista vale por 400 ms (o TCS pode estar a frente ou atras da barra). No sketch fica desligada (`USA_COR 0`) ate ligar o sensor. Teste: `test/teste_borda.cpp`; cenarios no `test/simulador.cpp`.
+
+## Calibracao das velocidades
+
+`Ajustes::zonaMortaPwm` (PWM abaixo do qual a roda nao anda) e a unica calibracao de hardware: `normalizar(ajustes)` levanta toda velocidade de giro, correcao e busca para fora dela. No simulador, com a zona real em 80 e a decisao achando 65, 52 cenarios falham (o robo nao gira); com a zona calibrada, 2. Meca a zona antes de ajustar o resto. Os valores de correcao (`velCorrecaoLeve` 90, `fracaoGiroLeve` 0,7, `fracaoGiroForte` 0,95) vieram de uma varredura no simulador (`python` + `test/simulador.cpp -q chave=valor`), nao da pista.

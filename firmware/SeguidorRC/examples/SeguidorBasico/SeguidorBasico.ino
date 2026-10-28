@@ -153,6 +153,7 @@ void pararNoCruzamento() {
 
 void setup() {
   Serial.begin(115200);
+  ajustes = normalizar(ajustes);   // velocidades fora da zona morta dos motores (zonaMortaPwm)
   iniciar(ponte);
   iniciar(barra, pinosSensores);
 #if USA_COR

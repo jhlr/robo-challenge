@@ -80,6 +80,8 @@ struct ParamsFisicos {
   double dtMs = 5.0;              // um ciclo de leitura+decisao
 };
 
+Ajustes gAjustes;   // os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
+bool gSo_Placar = false;
 ParamsFisicos gFis;   // os cenarios usam este; da para mudar na linha de comando (veja main)
 
 struct Estado { double x, y, th; };   // eixo (mm), rumo (rad, 0 = +x, anti-horario)
@@ -92,6 +94,7 @@ class Carro {
   unsigned long agoraMs() const { return t_; }
   const std::vector<Estado>& rastro() const { return rastro_; }
   double erroMax() const { return erroMax_; }
+  double erroRms() const { return n_ ? sqrt(soma2_ / n_) : 0.0; }   // erro medio quadratico da barra ate a linha, a cada ciclo
 
   void ponto(int i, double& x, double& y) const {
     const double lat = f_.barraMm / 2.0 - i * f_.barraMm / (kSensores - 1);   // S1 = esquerda = +lado
@@ -135,7 +138,10 @@ class Carro {
     e_.y += v * sin(thMeio) * dt;
     e_.th += w * dt;
     t_ += static_cast<unsigned long>(f_.dtMs);
-    erroMax_ = std::max(erroMax_, erroBarra());
+    const double eb = erroBarra();
+    erroMax_ = std::max(erroMax_, eb);
+    soma2_ += eb * eb;
+    n_++;
     if (t_ % 20 == 0) grava();
   }
 
@@ -146,7 +152,8 @@ class Carro {
   const Pista& pista_;
   Estado e_;
   ParamsFisicos f_;
-  double vE_ = 0, vD_ = 0, alvoE_ = 0, alvoD_ = 0, erroMax_ = 0;
+  double vE_ = 0, vD_ = 0, alvoE_ = 0, alvoD_ = 0, erroMax_ = 0, soma2_ = 0;
+  long n_ = 0;
   unsigned long t_ = 0;
   std::vector<Estado> rastro_;
 };
@@ -154,7 +161,7 @@ class Carro {
 // ---------------------------------------------------------------- firmware simulado (espelha SeguidorBasico.ino)
 
 struct Firmware {
-  Ajustes ajustes;
+  Ajustes ajustes = normalizar(gAjustes);
   AjustesCruzamento ajC;
   AjustesGiroCruzamento ajG;
   Memoria memoria;
@@ -289,6 +296,15 @@ static std::string fmt(const char* f, ...) {
 
 static const char* gSvgDir = nullptr;
 
+// Placar de qualidade do seguimento (reta, cantos, arcos): para comparar uma mudanca na decisao antes e depois.
+static struct { int n = 0; double tempoS = 0, rms = 0, pior = 0; } gPlacar;
+static void placar(const Carro& c) {
+  gPlacar.n++;
+  gPlacar.tempoS += c.agoraMs() / 1000.0;
+  gPlacar.rms += c.erroRms();
+  gPlacar.pior = std::max(gPlacar.pior, c.erroMax());
+}
+
 static void svg(const std::string& nome, const Pista& p, const Carro& c) {
   if (!gSvgDir) return;
   double x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -328,10 +344,11 @@ static Resultado cenarioReta(const char* nome, double off, double ang, bool salv
   Carro c(p, norte(off, 100, ang));
   Firmware fw;
   const bool chegou = rodar(fw, c, 12000, [](const Carro& k) { return k.estado().y > 900; });
+  placar(c);
   const bool ok = chegou && c.erroBarra() < 6.0 && fw.ticksBuscando == 0;
   if (salva) svg(nome, p, c);
-  return {nome, ok, fmt("off %+.0f mm, ang %+.0f: %s em %lu ms, erro final %.1f mm, erro max %.1f mm, buscando %d ciclos", off, ang, chegou ? "chegou" : "NAO chegou", c.agoraMs(),
-                       c.erroBarra(), c.erroMax(), fw.ticksBuscando)};
+  return {nome, ok, fmt("off %+.0f mm, ang %+.0f: %s em %lu ms, erro final %.1f mm, erro max %.1f mm, rms %.1f, buscando %d ciclos", off, ang, chegou ? "chegou" : "NAO chegou", c.agoraMs(),
+                       c.erroBarra(), c.erroMax(), c.erroRms(), fw.ticksBuscando)};
 }
 
 // 2. Curva (canto vivo de 90 graus, ou arco): tem de seguir ate a perna de saida.
@@ -344,6 +361,7 @@ static Resultado cenarioCanto(bool paraEsquerda) {
   Firmware fw;
   fw.paraNoCruzamento = true;
   const bool chegou = rodar(fw, c, 15000, [&](const Carro& k) { return fabs(k.estado().x) > 450; });
+  placar(c);
   const bool ok = chegou && c.erroBarra() < 6.0;
   svg(paraEsquerda ? "canto_esquerda" : "canto_direita", p, c);
   return {paraEsquerda ? "canto vivo 90 (esquerda)" : "canto vivo 90 (direita)", ok,
@@ -359,6 +377,7 @@ static Resultado cenarioArco(double raio) {
   Carro c(p, norte(0, 50));
   Firmware fw;
   const bool chegou = rodar(fw, c, 15000, [&](const Carro& k) { return k.estado().x > raio + 300; });
+  placar(c);
   const bool ok = chegou && c.erroBarra() < 6.0;
   svg(fmt("arco_%.0f", raio), p, c);
   return {fmt("arco raio %.0f mm", raio), ok, fmt("%s em %lu ms, erro final %.1f mm, erro max %.1f mm, buscando %d ciclos", chegou ? "chegou" : "NAO chegou", c.agoraMs(), c.erroBarra(), c.erroMax(), fw.ticksBuscando)};
@@ -447,15 +466,25 @@ int main(int argc, char** argv) {
   // Argumentos: uma pasta (grava um SVG por cenario) e/ou chave=valor para os parametros fisicos: tau, derrap, bitola, zona, ganho, barra
   for (int i = 1; i < argc; i++) {
     const char* eq = strchr(argv[i], '=');
-    if (!eq) { gSvgDir = argv[i]; continue; }
+    if (!eq) { if (!strcmp(argv[i], "-q")) gSo_Placar = true; else gSvgDir = argv[i]; continue; }
     const std::string k(argv[i], eq - argv[i]);
     const double v = atof(eq + 1);
     if (k == "tau") gFis.tauMs = v;
     else if (k == "derrap") gFis.derrapagem = v;
     else if (k == "bitola") gFis.bitolaMm = v;
-    else if (k == "zona") gFis.zonaMortaPwm = v;
+    else if (k == "zona") { gFis.zonaMortaPwm = v; gAjustes.zonaMortaPwm = static_cast<int>(v); }   // zona CALIBRADA: a decisao sabe
+    else if (k == "zonaaj") gAjustes.zonaMortaPwm = static_cast<int>(v);   // so a decisao (calibracao errada)
     else if (k == "ganho") gFis.mmSPorPwm = v;
     else if (k == "barra") gFis.barraAFrenteMm = v;
+    else if (k == "periodo") gAjustes.periodoCorrecaoMs = static_cast<unsigned long>(v);
+    else if (k == "fl") gAjustes.fracaoGiroLeve = static_cast<float>(v);
+    else if (k == "ff") gAjustes.fracaoGiroForte = static_cast<float>(v);
+    else if (k == "vl") gAjustes.velCorrecaoLeve = static_cast<int>(v);
+    else if (k == "vf") gAjustes.velCorrecaoForte = static_cast<int>(v);
+    else if (k == "posreto") gAjustes.posReto = static_cast<float>(v);
+    else if (k == "posleve") gAjustes.posLeve = static_cast<float>(v);
+    else if (k == "posforte") gAjustes.posForte = static_cast<float>(v);
+    else if (k == "velreto") gAjustes.velReto = static_cast<int>(v);
     else { fprintf(stderr, "parametro desconhecido: %s\n", k.c_str()); return 2; }
   }
   std::vector<Resultado> rs;
@@ -485,9 +514,11 @@ int main(int argc, char** argv) {
 
   int falhas = 0;
   for (const Resultado& r : rs) {
-    printf("[%s] %s\n       %s\n", r.ok ? "ok  " : (r.informativo ? "info" : "FALHA"), r.nome.c_str(), r.info.c_str());
+    if (!gSo_Placar) printf("[%s] %s\n       %s\n", r.ok ? "ok  " : (r.informativo ? "info" : "FALHA"), r.nome.c_str(), r.info.c_str());
     falhas += (r.ok || r.informativo) ? 0 : 1;
   }
-  printf("\n%d de %d cenarios passaram\n", static_cast<int>(rs.size()) - falhas, static_cast<int>(rs.size()));
+  if (gSo_Placar) printf("%d falhas | ", falhas);
+  printf("\nPLACAR seguimento (%d percursos): tempo medio %.2f s, erro rms medio %.2f mm, pior desvio %.1f mm\n", gPlacar.n, gPlacar.tempoS / gPlacar.n, gPlacar.rms / gPlacar.n, gPlacar.pior);
+  printf("%d de %d cenarios passaram\n", static_cast<int>(rs.size()) - falhas, static_cast<int>(rs.size()));
   return falhas ? 1 : 0;
 }

@@ -8,18 +8,23 @@ constexpr int kSensores = 8;   // S1 = ponta esquerda ... S8 = ponta direita
 
 // Numeros para ajustar na pista. Os valores de partida sao chutes razoaveis.
 struct Ajustes {
+  // Zona morta dos motores: abaixo disto (PWM) a roda nao anda. E A UNICA calibracao de hardware das velocidades: meca na bancada e corrija aqui.
+  // normalizar() levanta toda velocidade de giro/busca que ficaria dentro da zona (roda parada = o robo nao gira).
+  int zonaMortaPwm = 65;
+  int folgaZonaPwm = 8;   // acima da zona, para nao ficar no limite
+
   // Velocidades (0 a 255)
   int velReto = 110;     // indo reto
   // Toda curva (correcao, busca, cruzamento) move as rodas em SENTIDOS OPOSTOS, nunca uma parada ou lenta arrastando: gira no eixo.
   // Os TT amarelos nao andam abaixo de uns 25% de PWM (~65): as duas velocidades ficam acima disso.
-  int velCorrecaoLeve = 70;    // giro de correcao quando S3 ou S6 acende junto com o centro
+  int velCorrecaoLeve = 90;    // giro de correcao quando S3 ou S6 acende junto com o centro
   int velCorrecaoForte = 100;  // giro de correcao quando S2 ou S7 acende
 
   // Giro intercalado com avanco: so girar no eixo nao sai do lugar (gira, passa do ponto, gira de volta e fica travado).
   // Entao cada correcao alterna, dentro de periodoCorrecaoMs, um trecho de GIRO (rodas em sentidos opostos) e um de AVANCO reto.
   unsigned long periodoCorrecaoMs = 80;   // tamanho de um ciclo giro + avanco
-  float fracaoGiroLeve = 0.5f;            // parte do ciclo girando na correcao leve (o resto avanca)
-  float fracaoGiroForte = 0.8f;           // idem na forte; entre as duas a fracao sobe em rampa junto com a velocidade
+  float fracaoGiroLeve = 0.7f;            // parte do ciclo girando na correcao leve (o resto avanca)
+  float fracaoGiroForte = 0.95f;          // idem na forte; entre as duas a fracao sobe em rampa junto com a velocidade
 
   // Correcao proporcional: posicao da linha = media dos sensores S2..S7 acesos, de -3,5 (so S1) a +3,5 (so S8) sem as pontas: S2 = -2,5 ... S4 = -0,5, S5 = +0,5 ... S7 = +2,5
   float posReto = 0.75f;       // |posicao| ate aqui: em cima da linha (S4 e/ou S5), reto
@@ -46,6 +51,19 @@ struct Ajustes {
   float raioMaxEspiralMm = 125.0f;      // a espiral NUNCA passa desse raio de curva (folga entre a rua e os cubos marrons dos quarteiroes)
   int velBuscaContrariaMin = 10;        // e a roda de dentro NUNCA chega a zero nem passa: fica sempre pelo menos assim para tras (sentidos opostos)
 };
+
+// Levanta as velocidades de giro e de busca para fora da zona morta (zonaMortaPwm + folgaZonaPwm). Chame uma vez depois de mudar os ajustes
+// (a decisao e o sketch usam estas velocidades como estao: dentro da zona o robo nao sai do lugar).
+inline Ajustes normalizar(Ajustes aj) {
+  const int minimo = aj.zonaMortaPwm + aj.folgaZonaPwm;
+  auto acima = [minimo](int v) { return v < minimo ? minimo : v; };
+  aj.velCorrecaoLeve = acima(aj.velCorrecaoLeve);
+  aj.velCorrecaoForte = acima(aj.velCorrecaoForte);
+  aj.velBuscaExterna = acima(aj.velBuscaExterna);
+  aj.velMinima = acima(aj.velMinima);
+  aj.velReto = acima(aj.velReto);
+  return aj;
+}
 
 // Roda de dentro no fim da espiral: a que da exatamente raioMaxEspiralMm. Com a de fora em vo e a de dentro em vi, o raio da curva do
 // centro do robo e R = (bitola/2) * (vo + vi) / (vo - vi); isolando vi: vi = vo * (k - 1) / (k + 1), com k = R / (bitola/2).
