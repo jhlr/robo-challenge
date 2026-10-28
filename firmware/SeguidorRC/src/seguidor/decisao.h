@@ -26,6 +26,12 @@ struct Ajustes {
   float fracaoGiroLeve = 0.7f;            // parte do ciclo girando na correcao leve (o resto avanca)
   float fracaoGiroForte = 0.95f;          // idem na forte; entre as duas a fracao sobe em rampa junto com a velocidade
 
+  // Freada: entre os giros de uma correcao o robo avanca mais devagar (velReto x isto): vai corrigir, nao precisa de pressa (e nao passa da curva).
+  float fatorAvancoCorrecao = 0.85f;
+  // Curva fechada (canto de 90 graus): `curvaFechadaSensores` ou mais acesos de um lado (S1-S3 ou S6-S8) e NENHUM do outro. Gira no eixo sem avancar
+  // (fracao 1) ate o centro achar a linha: avancar nao ajuda, o canto ja passou da barra. 0 desliga.
+  int curvaFechadaSensores = 3;
+
   // Correcao proporcional: posicao da linha = media dos sensores S2..S7 acesos, de -3,5 (so S1) a +3,5 (so S8) sem as pontas: S2 = -2,5 ... S4 = -0,5, S5 = +0,5 ... S7 = +2,5
   float posReto = 0.75f;       // |posicao| ate aqui: em cima da linha (S4 e/ou S5), reto
   float posLeve = 1.5f;        // ate aqui a correcao e a leve (S3, S6 ou S3+S4...)

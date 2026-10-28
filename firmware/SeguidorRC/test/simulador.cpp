@@ -484,6 +484,8 @@ int main(int argc, char** argv) {
     else if (k == "posreto") gAjustes.posReto = static_cast<float>(v);
     else if (k == "posleve") gAjustes.posLeve = static_cast<float>(v);
     else if (k == "posforte") gAjustes.posForte = static_cast<float>(v);
+    else if (k == "fatoravanco") gAjustes.fatorAvancoCorrecao = static_cast<float>(v);
+    else if (k == "curvafechada") gAjustes.curvaFechadaSensores = static_cast<int>(v);
     else if (k == "velreto") gAjustes.velReto = static_cast<int>(v);
     else { fprintf(stderr, "parametro desconhecido: %s\n", k.c_str()); return 2; }
   }

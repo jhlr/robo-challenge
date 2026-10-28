@@ -68,15 +68,30 @@ int main() {
     const Ajustes a;
     int giro = 0, avanco = 0;
     long frente = 0;
+    const int avancoEsperado = static_cast<int>(a.velReto * a.fatorAvancoCorrecao);   // entre os giros avanca mais devagar
     for (unsigned long t = 0; t < a.periodoCorrecaoMs; t++) {
       Memoria m;
       const Comando c = passo(m, a, "..#.....", t);
       if (c.esq < 0 && c.dir > 0) giro++;
-      else if (c.esq == a.velReto && c.dir == a.velReto) avanco++;
+      else if (c.esq == avancoEsperado && c.dir == avancoEsperado) avanco++;
       else assert(false);                 // nada de roda parada ou so mais lenta
       frente += (c.esq + c.dir) / 2;
     }
     assert(giro > 0 && avanco > 0 && frente > 0); }
+  { // curva fechada: 3 acesos de um lado e nenhum do outro gira o ciclo INTEIRO, sem avancar
+    const Ajustes a;
+    for (unsigned long t = 0; t < a.periodoCorrecaoMs; t++) {
+      Memoria m;
+      const Comando e = passo(m, a, "###.....", t);
+      assert(e.esq < 0 && e.dir > 0);
+      Memoria m2;
+      const Comando d = passo(m2, a, ".....###", t);
+      assert(d.esq > 0 && d.dir < 0);
+    }
+    Memoria m;   // mas com algum aceso do outro lado nao e curva fechada: volta a intercalar
+    bool avancou = false;
+    for (unsigned long t = 0; t < a.periodoCorrecaoMs; t++) avancou |= passo(m, a, "###....#", t).esq > 0;
+    assert(avancou); }
   { Memoria m;  // S4 e S5 sozinhos: reto
     const Comando c = passo(m, aj, "...##...", 1);
     assert(c.esq == aj.velReto && c.dir == aj.velReto && !c.estranho); }
@@ -94,7 +109,7 @@ int main() {
       Memoria m2;
       const Comando c = passo(m2, aj, "#.......", t);
       if (c.esq == -aj.velCorrecaoForte && c.dir == aj.velCorrecaoForte) giro++;
-      else if (c.esq == aj.velReto && c.dir == aj.velReto) avanco++;
+      else if (c.esq == static_cast<int>(aj.velReto * aj.fatorAvancoCorrecao) && c.dir == c.esq) avanco++;
       else assert(false);
       assert(!c.estranho || true);
     }

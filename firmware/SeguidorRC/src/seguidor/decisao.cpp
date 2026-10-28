@@ -133,15 +133,22 @@ Comando decidir(const bool preto[kSensores], unsigned long agoraMs, const Ajuste
       m.ultimoLado = sinal;
       // Giro intercalado com avanco: nos primeiros fracaoGiro do ciclo gira no eixo, no resto anda reto
       const float fracao = aj.fracaoGiroLeve + (aj.fracaoGiroForte - aj.fracaoGiroLeve) * t;
-      const bool girando = (agoraMs % aj.periodoCorrecaoMs) < static_cast<unsigned long>(aj.periodoCorrecaoMs * fracao);
+      // Curva fechada: so de um lado, 3 ou mais acesos: gira direto, sem avancar entre os giros
+      int esqN = 0, dirN = 0;
+      for (int i = 0; i < 3; i++) esqN += preto[i] ? 1 : 0;
+      for (int i = 5; i < 8; i++) dirN += preto[i] ? 1 : 0;
+      const bool curvaFechada = aj.curvaFechadaSensores > 0 && ((esqN >= aj.curvaFechadaSensores && dirN == 0) || (dirN >= aj.curvaFechadaSensores && esqN == 0));
+      const bool girando = curvaFechada || (agoraMs % aj.periodoCorrecaoMs) < static_cast<unsigned long>(aj.periodoCorrecaoMs * fracao);
       if (!girando) {
-        c = mover(m, aj.velReto, aj.velReto, sinal < 0 ? "< avanca (entre giros)" : "avanca (entre giros) >");
+        int avanco = static_cast<int>(aj.velReto * aj.fatorAvancoCorrecao);
+        if (avanco < aj.velMinima) avanco = aj.velMinima;
+        c = mover(m, avanco, avanco, sinal < 0 ? "< avanca (entre giros)" : "avanca (entre giros) >");
         c.oscilando = oscilando;
         c.estranho = pontaSozinha;
         return c;
       }
-      c = sinal < 0 ? mover(m, -v, v, v >= aj.velCorrecaoForte ? "<<< gira esquerda forte" : "<< gira esquerda")
-                    : mover(m, v, -v, v >= aj.velCorrecaoForte ? "gira direita forte >>>" : "gira direita >>");
+      c = sinal < 0 ? mover(m, -v, v, curvaFechada ? "<<<< CURVA FECHADA esquerda" : (v >= aj.velCorrecaoForte ? "<<< gira esquerda forte" : "<< gira esquerda"))
+                    : mover(m, v, -v, curvaFechada ? "CURVA FECHADA direita >>>>" : (v >= aj.velCorrecaoForte ? "gira direita forte >>>" : "gira direita >>"));
       c.oscilando = oscilando;
     }
   }
