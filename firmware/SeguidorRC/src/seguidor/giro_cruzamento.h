@@ -106,10 +106,14 @@ inline Oito classificarOito(bool vinhaSeguindo, const ResultadoGiro& r) {
 
 // ---------------------------------------------------------------- a varredura, passo a passo (pura: o sketch e o simulador so alimentam leituras e motores)
 //   Seguindo a linha: gira ate +lado*90, depois ate -lado*90, e volta a 0; no fim avaliarGiro diz se ha rua dos dois lados.
+//   SO UM LADO (soUmLado, so seguindo a linha): para confirmar o cruzamento basta UMA rua perpendicular: se a 90 graus do lado pedido ha rua, ja e cruzamento e volta a 0 sem olhar
+//   o outro lado (o que nao mediu fica -1 e o ultrassom dele -2 = "nao mediu"). Sem rua ali, segue como a varredura completa. Completa quando o robo precisa VER as duas ruas ou escolher uma.
 //   Perdido/buscando: gira ate +lado*90; se o padrao ficou estreito, PARA ali (endireitou). Senao vai ate -lado*90 (olha o outro lado);
 //   se la tambem nao, volta a 0 (falso alarme).
 struct Varredura {
   enum Fase : uint8_t { Parada, AteLado, AteOutro, Volta, Pronta } fase = Parada;
+  bool soUmLado = false;       // confirma com uma rua so (ver acima)
+  bool voltaDoPositivo = false;   // a Volta parte do lado em que comecou (+): gira para o outro sentido
   int lado = 1;                // +1 = comeca para a esquerda, -1 = para a direita
   bool vinhaSeguindo = true;
   unsigned long faseDesde = 0; // +1
@@ -125,8 +129,9 @@ struct ComandoVarredura {
   bool terminou;
 };
 
-inline void iniciarVarredura(Varredura& v, int lado, bool vinhaSeguindo) {
+inline void iniciarVarredura(Varredura& v, int lado, bool vinhaSeguindo, bool soUmLado = false) {
   v = Varredura{};
+  v.soUmLado = soUmLado && vinhaSeguindo;
   v.lado = lado >= 0 ? 1 : -1;
   v.vinhaSeguindo = vinhaSeguindo;
   v.fase = Varredura::AteLado;
@@ -150,15 +155,26 @@ inline ComandoVarredura passoVarredura(Varredura& v, const AmostraGiro& leitura,
     if (v.parouPorCubo[0]) { (v.lado > 0 ? v.ruas.ruaEsquerda : v.ruas.ruaDireita) = 1; }
     if (v.parouPorCubo[1]) { (v.lado > 0 ? v.ruas.ruaDireita : v.ruas.ruaEsquerda) = 1; }
     v.ruas.cruzamento = v.ruas.cruzamento || (v.vinhaSeguindo && v.ruas.ruaEsquerda == 1 && v.ruas.ruaDireita == 1 && (v.parouPorCubo[0] || v.parouPorCubo[1]));
+    if (v.soUmLado && v.voltaDoPositivo) {   // confirmou com a rua do primeiro lado: o outro nao foi medido
+      const int primeiro = v.lado > 0 ? v.ruas.ruaEsquerda : v.ruas.ruaDireita;
+      v.ruas.cruzamento = primeiro == 1;
+      (v.lado > 0 ? v.ruas.usDir : v.ruas.usEsq) = -2.0f;
+    }
     v.resultado = endireitou ? Oito::Endireitou : classificarOito(v.vinhaSeguindo, v.ruas);
     v.fase = Varredura::Pronta;
   };
 
   switch (v.fase) {
     case Varredura::AteLado:
-      if (leitura.us > 0.0f && leitura.us <= aj.usParaGiroMm && g > aj.usParaGiroDepoisDeGraus) { v.parouPorCubo[0] = true; para(Varredura::AteOutro); return girar(-v.lado); }
+      if (leitura.us > 0.0f && leitura.us <= aj.usParaGiroMm && g > aj.usParaGiroDepoisDeGraus) {
+        v.parouPorCubo[0] = true;
+        if (v.soUmLado) { v.voltaDoPositivo = true; para(Varredura::Volta); return girar(-v.lado); }   // ha rua (com cubo): basta
+        para(Varredura::AteOutro);
+        return girar(-v.lado);
+      }
       if (g >= aj.giroGraus || estourou) {
         if (!v.vinhaSeguindo && padraoEstreito(leitura.acesos, aj)) { v.ladoEndireitou = v.lado; terminar(true); return {0, 0, true}; }
+        if (v.soUmLado && leitura.acesos >= 1 && leitura.acesos <= aj.acesosMaxRua) { v.voltaDoPositivo = true; para(Varredura::Volta); return girar(-v.lado); }   // rua a 90 graus: e cruzamento
         para(Varredura::AteOutro);
       }
       return girar(v.lado);
@@ -170,8 +186,9 @@ inline ComandoVarredura passoVarredura(Varredura& v, const AmostraGiro& leitura,
       }
       return girar(-v.lado);
     case Varredura::Volta:
-      if (g >= 0.0f || estourou) { terminar(false); return {0, 0, true}; }
-      return girar(v.lado);
+      if (v.voltaDoPositivo ? g <= 0.0f : g >= 0.0f) { terminar(false); return {0, 0, true}; }
+      if (estourou) { terminar(false); return {0, 0, true}; }
+      return girar(v.voltaDoPositivo ? -v.lado : v.lado);
     default:
       return {0, 0, true};
   }

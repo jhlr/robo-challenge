@@ -744,6 +744,7 @@ struct Navegador {
   struct PlatPend { int off; seguidor::CorCubo cor; };
   std::vector<PlatPend> platPend;
   int offLinha = 0;
+  int slotsOlhados = 0;   // marcas do ecoponto ja vistas de perto (bit k = marca k, de baixo para cima)
   std::vector<std::pair<double, seguidor::CorCubo>> platConhecidas;   // (y do slot, cor) ja lidas de perto
   void resolverPlataformas(int linhaAgora) {
     for (const PlatPend& q : platPend) {
@@ -751,7 +752,7 @@ struct Navegador {
       if (linha < 0 || linha >= core::kMapRows) continue;
       bool ja = false;
       for (const auto& pc : platConhecidas) if (fabs(pc.first - yDaPlataforma(linha)) < 1.0) ja = true;
-      if (!ja) platConhecidas.push_back({yDaPlataforma(linha), q.cor});   // a rua da linha r aponta para o slot r (linhas 1 a 3: no centro da plataforma)
+      if (!ja) { platConhecidas.push_back({yDaPlataforma(linha), q.cor}); slotsOlhados |= 1 << linha; }   // a rua da linha r aponta para o slot r (linhas 1 a 3: no centro da plataforma)
     }
     platPend.clear();
   }
@@ -1099,7 +1100,15 @@ struct Firmware {
       varr.fase = Varredura::Pronta;
       semVarreduras++;
     } else {
-      iniciarVarredura(varr, lado, vinhaSeguindo);
+      // Entregando (carregando, indo para o oeste) ele so precisa CONFIRMAR o cruzamento e se virar para a rua do oeste: gira uma vez, para o lado do oeste (uma rua ali ja e cruzamento).
+      // Completa (os dois lados) quando precisa VER as ruas (ultrassom) ou escolher uma.
+      bool soUmLado = false;
+      int ladoVarredura = lado;
+      if (nav.ativo && nav.carregando && vinhaSeguindo && !nav.loc.inGreen) {
+        const double sr = sin(rumo * M_PI / 180.0);
+        if (fabs(sr) > 0.7) { soUmLado = true; ladoVarredura = sr > 0 ? 1 : -1; }   // indo para o norte o oeste fica a esquerda; para o sul, a direita
+      }
+      iniciarVarredura(varr, ladoVarredura, vinhaSeguindo, soUmLado);
       AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto), static_cast<float>(c.us())};
       for (int i = 0; i < 4000; i++) {   // 20 s no maximo
         const ComandoVarredura k = passoVarredura(varr, leitura, c.agoraMs(), ajustes.velBuscaExterna, ajG, bufVarr, kBufVarr);
@@ -1273,35 +1282,35 @@ struct Firmware {
     return c.agoraMs() - t0;
   }
 
-  // Na PRIMEIRA entrega (nada de percurso no verde no inicio: ele entra direto e calibra contando cruzamentos): ja no alto do ecoponto, desce ate a moldura vermelha de baixo
-  // (a distancia entre as molduras e kAlt - 80 mm: da a VELOCIDADE reta de verdade, sem isso o y estimado erra mais que os 50 mm da plataforma) e sobe olhando os 5 slots, um a um,
-  // guardando onde esta cada cor. Daqui para a frente so coleta cor que tem plataforma. `yAtual` e atualizado (termina no slot de cima).
-  void observarPlataformas(Carro& c, double& yAtual) {
+  // Carregando, a prioridade e GUARDAR O CUBO: nada de medir velocidade nem de olhar todas as marcas antes. Se a plataforma da cor ainda nao foi vista (nos primeiros cruzamentos
+  // ou antes), desce do alto do ecoponto olhando as marcas ate achar a da cor do cubo (o que vir no caminho fica guardado em platConhecidas). Quando as 5 foram olhadas, sabe
+  // quais cores tem plataforma e so passa a coletar essas. `yAtual` e atualizado.
+  bool procurarPlataforma(Carro& c, seguidor::CorCubo cor, double& yAtual) {
     Mundo* m = c.mundo();
-    if (getenv("SIM_DEBUG")) fprintf(stderr, "    PLAT inicio descida: pos (%.0f,%.0f) rumo %.0f\n", c.estado().x, c.estado().y, rumo);
-    const unsigned long ms = irAteVermelho(c, false);
-    if (getenv("SIM_DEBUG")) fprintf(stderr, "    PLAT fim descida: pos (%.0f,%.0f) ms %lu\n", c.estado().x, c.estado().y, ms);
-    if (ms > 500) { velLivreMmS = static_cast<float>((kAlt - 80.0) / (ms / 1000.0)); velRetaMedida = true; }
-    m->evento(c.agoraMs(), fmt("PLATAFORMAS: velocidade reta medida entre as molduras vermelhas = %.0f mm/s", velLivreMmS));
-    yAtual = 40.0;   // com a barra na borda da faixa vermelha de baixo, o eixo esta ~40 mm acima dela
-    nav.plataformasVistas.clear();
-    for (int k = 0; k < 5; k++) {
-      const seguidor::CorCubo conhecida = [&] { for (const auto& pc : nav.platConhecidas) if (fabs(pc.first - yDaPlataforma(k)) < 1.0) return pc.second; return seguidor::CorCubo::Nenhuma; }();
+    for (int k = 4; k >= 0; k--) {
       const double yk = yDaPlataforma(k);
+      if ((nav.slotsOlhados >> k) & 1) continue;
       const double dy = yk - yAtual;
       if (fabs(dy) > 20.0) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
       yAtual = yk;
-      const seguidor::CorCubo cor = conhecida != seguidor::CorCubo::Nenhuma ? conhecida : olharSlotOeste(c);   // as ja lidas de perto nos primeiros cruzamentos nao precisam de nova visita
-      if (cor != seguidor::CorCubo::Nenhuma) {
-        nav.plataformasVistas.push_back({yk, cor});
-        m->evento(c.agoraMs(), fmt("PLATAFORMAS: %s no slot %d (y = %.0f mm)", nomeCor(cor), k + 1, yk));
+      const seguidor::CorCubo vista = olharSlotOeste(c);
+      nav.slotsOlhados |= 1 << k;
+      if (vista != seguidor::CorCubo::Nenhuma) {
+        nav.platConhecidas.push_back({yk, vista});
+        nav.plataformasVistas.push_back({yk, vista});
+        m->evento(c.agoraMs(), fmt("PLATAFORMAS: %s na marca %d (y = %.0f mm)", nomeCor(vista), k + 1, yk));
+        if (vista == cor) break;
       } else {
-        m->evento(c.agoraMs(), fmt("PLATAFORMAS: slot %d vazio (sem plataforma)", k + 1));
+        m->evento(c.agoraMs(), fmt("PLATAFORMAS: marca %d vazia", k + 1));
       }
     }
-    for (int i = 0; i < seguidor::kNumCoresCubo; i++) nav.coleta.coletavel[i] = false;
-    for (const auto& pv : nav.plataformasVistas) nav.coleta.coletavel[static_cast<int>(pv.second)] = true;   // so se pega cor que tem plataforma
-    nav.plataformasObservadas = true;
+    if (nav.slotsOlhados == 31) {   // as 5 marcas vistas: so se pega cor que tem plataforma
+      for (int i = 0; i < seguidor::kNumCoresCubo; i++) nav.coleta.coletavel[i] = false;
+      for (const auto& pv : nav.plataformasVistas) nav.coleta.coletavel[static_cast<int>(pv.second)] = true;
+      nav.plataformasObservadas = true;
+    }
+    for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) return true;
+    return false;
   }
 
   static const char* nomeCor(seguidor::CorCubo c) {
@@ -1352,13 +1361,31 @@ struct Firmware {
     // 2) acha a altura (y) SEM depender da pose estimada, que as vezes esta errada: sobe ate a linha VERMELHA do alto (TCS do chao: vermelho = para na hora) e conta a partir dela
     girarPara(c, 90.0);
     if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTREGAR subindo: rumo %.0f, real th %.0f, pos (%.0f,%.0f)\n", rumo, c.estado().th * 57.3, c.estado().x, c.estado().y);
+    // A velocidade reta sai DESTA subida, sem viagem extra: a linha do portao e conhecida (pose), a moldura de cima fica a kAlt - 40 mm do chao e o tempo foi medido. O y das marcas
+    // depende dela (passo de 260 mm; com a velocidade dos cruzamentos, que inclui partidas e curvas, errava mais que os +-80 mm da plataforma).
+    const core::Estimate esPortao = core::estimate(nav.loc);
+    const bool sabeLinha = core::rowMass(nav.loc, esPortao.pose.at.r) >= core::kMinCoordBelief && core::inMap(esPortao.pose.at.c, esPortao.pose.at.r);
+    const double yPortao = yDoCruzamento(esPortao.pose.at.r);
+    const unsigned long tSubida0 = c.agoraMs();
     irAteVermelhoAndando(c);
+    const unsigned long msSubida = c.agoraMs() - tSubida0;
+    if (sabeLinha && !velRetaMedida && msSubida > 800 && (kAlt - 40.0 - yPortao) > 250.0) {
+      velLivreMmS = static_cast<float>((kAlt - 40.0 - yPortao) / (msSubida / 1000.0));
+      velRetaMedida = true;
+      m->evento(c.agoraMs(), fmt("velocidade reta medida na subida ate a moldura de cima = %.0f mm/s", velLivreMmS));
+    } else if (!velRetaMedida) {   // nao sabe a linha: mede entre as duas molduras (desce e volta a subir)
+      const unsigned long ms = irAteVermelho(c, false);
+      if (ms > 500) { velLivreMmS = static_cast<float>((kAlt - 80.0) / (ms / 1000.0)); velRetaMedida = true; }
+      girarPara(c, 90.0);
+      irAteVermelhoAndando(c);
+    }
     double yAtual = kAlt - 40.0;   // com a barra na borda da faixa vermelha, o eixo esta ~40 mm abaixo dela
-    if (!nav.plataformasObservadas) observarPlataformas(c, yAtual);
+    nav.plataformasVistas = nav.platConhecidas;   // o que ja foi lido de perto (cruzamentos iniciais e entregas anteriores)
     for (const seguidor::CorCubo cor : std::vector<seguidor::CorCubo>(nav.carga)) {
       Plataforma plLocal{kPlatX, 0.0, cor};
       const Plataforma* pl = nullptr;
       for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) { plLocal.y = pv.first; pl = &plLocal; }   // so onde VIU a plataforma no inicio
+      if (!pl && !nav.plataformasObservadas && procurarPlataforma(c, cor, yAtual)) for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) { plLocal.y = pv.first; pl = &plLocal; }
       if (!pl) { nav.pontos -= 10; nav.perdidos++; m->evento(c.agoraMs(), "cubo sem plataforma da cor: perdido"); continue; }
       nav.alvoX = pl->x; nav.alvoY = pl->y;
       // 3) vai ate a altura ESPERADA da plataforma (os slots sao retangulos fixos na arena; a cor e que muda), 4) vira para o oeste e olha; como a conta de distancia por tempo

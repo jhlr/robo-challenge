@@ -55,9 +55,10 @@ int main() {
     assert(!padraoEstreito(8, aj) && !padraoEstreito(0, aj) && padraoEstreito(2, aj)); }
   { // a varredura passo a passo, com um robo ficticio que gira a 100 graus/s
     AjustesGiroCruzamento a;
+    bool soUm = false;
     auto rodar = [&](bool vinha, int lado, bool ruaEsq, bool ruaDir, bool estreitoEsq, bool estreitoDir, Varredura& v) {
       static AmostraGiro buf[2000];
-      iniciarVarredura(v, lado, vinha);
+      iniciarVarredura(v, lado, vinha, soUm);
       float graus = 0.0f;
       for (unsigned long t = 0; t < 20000; t += 5) {
         AmostraGiro l{graus, std::fabs(graus) < 1.0f, std::fabs(graus) < 1.0f, 0};
@@ -84,7 +85,18 @@ int main() {
     fim = rodar(false, -1, false, false, true, false, v);                 // comecando pela direita: o lado esquerdo e o "outro"
     assert(v.resultado == Oito::Endireitou && v.ladoEndireitou == 1 && fim > 80.0f);
     fim = rodar(false, 1, true, true, false, false, v);                   // perdido, ruas mas nada estreito: falso alarme, volta a 0
-    assert(v.resultado == Oito::FalsoAlarme && std::fabs(fim) < 2.0f); }
+    assert(v.resultado == Oito::FalsoAlarme && std::fabs(fim) < 2.0f);
+    // SO UM LADO: uma rua perpendicular basta (nao olha o outro lado) e ele volta a 0
+    soUm = true;
+    fim = rodar(true, 1, true, false, false, false, v);                   // rua so na esquerda, comeca por ela: ja e cruzamento
+    assert(v.resultado == Oito::Cruzamento && std::fabs(fim) < 2.0f && v.ruas.ruaEsquerda == 1 && v.ruas.ruaDireita == -1 && v.ruas.usDir == -2.0f);
+    fim = rodar(true, -1, false, true, false, false, v);                  // comeca pela direita: idem
+    assert(v.resultado == Oito::Cruzamento && std::fabs(fim) < 2.0f && v.ruas.ruaDireita == 1 && v.ruas.ruaEsquerda == -1 && v.ruas.usEsq == -2.0f);
+    fim = rodar(true, 1, false, true, false, false, v);                   // sem rua no 1o lado: olha o outro (varredura completa)
+    assert(v.resultado == Oito::FalsoAlarme && v.ruas.ruaDireita == 1 && std::fabs(fim) < 2.0f);
+    fim = rodar(true, 1, false, false, false, false, v);                  // mancha: falso alarme
+    assert(v.resultado == Oito::FalsoAlarme && std::fabs(fim) < 2.0f);
+    soUm = false; }
   { // ultrassom: o eco mais perto perto de +90, -90 e 0 graus vira a distancia ate o que esta em cada rua
     std::vector<AmostraGiro> v;
     for (float g = -90; g <= 90.01f; g += 1.0f) {
