@@ -129,12 +129,13 @@ struct Estado { double x, y, th; };   // eixo (mm), rumo (rad, 0 = +x, anti-hora
 constexpr double kPasso = 302.0, kBeco = 127.0, kLarg = 2 * kBeco + 5 * kPasso, kAlt = 2 * kBeco + 4 * kPasso;   // 1764 x 1462
 inline double xDoCruzamento(int c) { return kBeco + c * kPasso; }
 inline double yDoCruzamento(int r) { return kBeco + r * kPasso; }
-// Plataformas do ecoponto (regras 4): retangulos de 160 x 50 mm, 100 mm entre eles, CENTRADOS no ecoponto de 220 mm (equidistantes das duas bordas: 30 mm de cada lado) e na altura
-// da arena. O robo assume essa geometria (so a COR muda de um jogo para outro): dono unico dos numeros, usado pelo mundo e pelo robo.
+// Plataformas do ecoponto (regras 4): retangulos de 160 x 50 mm EM PE (50 mm em x, 160 mm em y), 100 mm entre eles (passo de 260 mm), CENTRADOS no ecoponto de 220 mm
+// (equidistantes das duas bordas: 85 mm de cada lado) e na altura da arena (cinco = 1200 mm, 130 mm de folga em cima e embaixo). O robo assume essa geometria (so a COR muda
+// de um jogo para outro): dono unico dos numeros, usado pelo mundo, pelo desenho e pelo robo.
 constexpr double kEcopontoLarg = 220.0, kEcopontoBordaX = -280.0;   // borda do ecoponto voltada para o verde
-constexpr double kPlatLarg = 160.0, kPlatAlt = 50.0, kPlatEntre = 100.0;
-constexpr double kPlatX = kEcopontoBordaX - kEcopontoLarg / 2.0;   // -390: centro, 30 mm de cada borda
-inline double yDaPlataforma(int slot) { return kAlt / 2.0 + (slot - 2) * (kPlatAlt + kPlatEntre); }   // slot 0..4, de baixo para cima
+constexpr double kPlatX_Tam = 50.0, kPlatY_Tam = 160.0, kPlatEntre = 100.0;
+constexpr double kPlatX = kEcopontoBordaX - kEcopontoLarg / 2.0;   // -390: centro, 85 mm de cada borda
+inline double yDaPlataforma(int slot) { return kAlt / 2.0 + (slot - 2) * (kPlatY_Tam + kPlatEntre); }   // slot 0..4, de baixo para cima
 
 // ================================================================ O MUNDO alem da pista: cubos, oponente, sensores configuraveis e RUIDO
 // Tudo aqui e CONFIGURAVEL e fica pronto antes dos sensores existirem no robo (ultrassom, TCS da frente). O RUIDO e aleatorio mas deterministico (semente) e
@@ -408,10 +409,10 @@ class Carro {
     if (!mundo_) return seguidor::CorCubo::Nenhuma;
     const double sx = e_.x + mundo_->cfg.usFrenteMm * cos(e_.th), sy = e_.y + mundo_->cfg.usFrenteMm * sin(e_.th);
     for (const Plataforma& p : mundo_->plataformas) {
-      // retangulo 160 (x) x 50 (y) centrado em p.x, p.y: distancia ate a borda mais proxima na direcao do carro (amostra a cada 5 mm ao longo do raio)
+      // retangulo 50 (x) x 160 (y) centrado em p.x, p.y (amostra a cada 5 mm ao longo do raio)
       for (double t = 0; t <= alcanceMm; t += 5.0) {
         const double px = sx + t * cos(e_.th), py = sy + t * sin(e_.th);
-        if (fabs(px - p.x) <= 80.0 && fabs(py - p.y) <= 25.0) return p.cor;
+        if (fabs(px - p.x) <= kPlatX_Tam / 2 && fabs(py - p.y) <= kPlatY_Tam / 2) return p.cor;
       }
     }
     return seguidor::CorCubo::Nenhuma;
@@ -1153,7 +1154,7 @@ struct Firmware {
   }
   // Anda `mm` na direcao do rumo atual, segurando o rumo pelo giroscopio; para antes se `parar()` ficar verdadeiro.
   template <class Parar>
-  void andarMm(Carro& c, double mm, Parar parar) {
+  double andarMm(Carro& c, double mm, Parar parar) {   // devolve quantos mm andou (tempo x velocidade): quem precisa voltar ao ponto de partida anda o mesmo
     const double alvoRumo = rumo;
     const unsigned long ms = static_cast<unsigned long>(mm / std::max(1.0f, velLivreMmS > 0.0f ? velLivreMmS : ajC.velMmS) * 1000.0);
     const unsigned long ini = c.agoraMs();
@@ -1166,6 +1167,7 @@ struct Firmware {
       if (parar()) break;
     }
     c.parar();
+    return (c.agoraMs() - ini) / 1000.0 * std::max(1.0f, velLivreMmS > 0.0f ? velLivreMmS : ajC.velMmS);
   }
 
   // Indo para o OESTE (pelo compasso do MPU) a azul que aparece e a do NOSSO lado (nosso portao: sair para o verde e permitido); indo para o LESTE seria a do adversario.
@@ -1176,13 +1178,14 @@ struct Firmware {
   seguidor::CorCubo olharSlotOeste(Carro& c) {
     girarPara(c, 180.0);
     bool amarelo = false;
-    andarMm(c, 300.0, [&] {
-      if (c.piso() == Pista::kPisoAmarelo) { amarelo = true; return true; }
-      return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma;
+    const double andou = andarMm(c, 330.0, [&] {
+      if (c.piso() == Pista::kPisoAmarelo) amarelo = true;
+      return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma || c.piso() == Pista::kPisoVermelho;   // a plataforma (160 mm de altura) ou a moldura vermelha da ponta
     });
     const seguidor::CorCubo vista = c.plataformaNaFrente(70.0);
     girarPara(c, 0.0);
-    andarMm(c, amarelo ? 100.0 : 60.0, [] { return false; });
+    (void)amarelo;
+    andarMm(c, andou, [] { return false; });   // volta ao x de onde saiu (o mesmo caminho: assim os 5 slots sao olhados do mesmo x)
     girarPara(c, 180.0);
     return vista;
   }
@@ -2632,7 +2635,7 @@ if(c<5){const a=P(t,xc(c),yr(r)),b=P(t,xc(c+1),yr(r));cx.strokeStyle='rgba(214,0
 if(r<4){const a=P(t,xc(c),yr(r)),b=P(t,xc(c),yr(r+1));cx.strokeStyle='rgba(214,0,170,'+(0.08+0.62*pn)+')';cx.lineWidth=34*t.k;cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()}}
 mem.b.forEach(q=>{const c=q[0],r=q[1],h=q[2];const a=P(t,xc(c)+(h?PS/2:0),yr(r)+(h?0:PS/2));cx.strokeStyle='#e02424';cx.lineWidth=4;cx.beginPath();cx.moveTo(a[0]-9,a[1]-9);cx.lineTo(a[0]+9,a[1]+9);cx.moveTo(a[0]+9,a[1]-9);cx.lineTo(a[0]-9,a[1]+9);cx.stroke();cx.fillStyle='#e02424';cx.font='bold 12px system-ui';cx.fillText('bloqueada',a[0]+14,a[1]+4)});
 cx.fillStyle=dark()?'#fff':'#111';cx.font='bold 13px system-ui';for(let c=0;c<6;c++)for(let r=0;r<R;r++){const n=mem.v[c*R+r];if(n>0){const a=P(t,xc(c)+16,yr(r)-16);cx.fillText(n,a[0],a[1])}}}
-(pista.plat||[]).forEach(q=>{const a=P(t,q[0]-80,q[1]+25),b=P(t,q[0]+80,q[1]-25);cx.fillStyle=coresCubo[q[2]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.strokeStyle='#fff';cx.lineWidth=2;cx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.fillStyle=q[2]==1||q[2]==5?'#111':'#fff';cx.font='bold 11px system-ui';cx.fillText('plataforma '+nomesCubo[q[2]],a[0]+4,a[1]+(b[1]-a[1])/2+4)});
+(pista.plat||[]).forEach(q=>{const a=P(t,q[0]-25,q[1]+80),b=P(t,q[0]+25,q[1]-80);cx.fillStyle=coresCubo[q[2]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.strokeStyle='#fff';cx.lineWidth=2;cx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.save();cx.translate(a[0]+(b[0]-a[0])/2,a[1]+(b[1]-a[1])/2);cx.rotate(-Math.PI/2);cx.fillStyle=q[2]==1||q[2]==5?'#111':'#fff';cx.font='bold 11px system-ui';cx.textAlign='center';cx.textBaseline='middle';cx.fillText(nomesCubo[q[2]],0,0);cx.restore()});
 pista.cubos&&pista.cubos.forEach((q,i)=>{if(mortoEm[i]>=0&&fr>=mortoEm[i])return;const a=P(t,q[0]-25,q[1]+25),b=P(t,q[0]+25,q[1]-25);cx.fillStyle=coresCubo[q[2]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.strokeStyle=q[3]?'#ff7a00':'#111';cx.lineWidth=q[3]?3:2;if(q[3])cx.setLineDash([4,3]);cx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.setLineDash([]);if(idents.includes(i)){cx.fillStyle='#00a86b';cx.font='bold 12px system-ui';cx.fillText('identificado',a[0]-8,a[1]-6)}});
 if(alvo[0]>=0&&frames[fr]){const f0=frames[fr],p0=P(t,f0[0],f0[1]),p1=P(t,alvo[0],alvo[1]);cx.strokeStyle='#00a86b';cx.lineWidth=2.5;cx.setLineDash([8,6]);cx.beginPath();cx.moveTo(p0[0],p0[1]);cx.lineTo(p1[0],p1[1]);cx.stroke();cx.setLineDash([]);cx.beginPath();cx.arc(p1[0],p1[1],10,0,7);cx.stroke();cx.fillStyle='#00a86b';cx.font='bold 12px system-ui';cx.fillText('destino',p1[0]+14,p1[1]-8)}
 manchas.forEach(m=>{if(fr>=m[3]&&(m[4]<0||fr<m[4])){const a=P(t,m[0],m[1]);cx.fillStyle='rgba(70,45,25,.85)';cx.beginPath();cx.arc(a[0],a[1],m[2]*t.k,0,7);cx.fill()}});
