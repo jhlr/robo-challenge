@@ -19,11 +19,11 @@ screw_d = 3.4;    // M3 clearance
 
 // Hold-down lip on the end opposite the USB, centered: it overhangs the bare PCB end (the antenna keep-out has no parts there).
 // Fit: lay the board level with its far edge `slide` short of the wall, then push it `slide` toward the far wall so the lip covers the PCB end.
-lip_w = 8.0;      // lip width
-lip_over = 2.0;   // overhang over the board end
-lip_t = 1.2;      // lip thickness
+lip_w = 14.0;     // lip width
+lip_over = 3.5;   // overhang over the board end
+lip_t = 1.6;      // lip thickness
 lip_gap = 0.5;    // air between the PCB top and the lip
-slide = 2.0;      // extra cavity length (>= lip_over) to get the board under the lip
+slide = 3.5;      // extra cavity length (>= lip_over) to get the board under the lip
 
 cav_l = board_l + 2 * clr + slide;
 cav_w = board_w + 2 * clr;
