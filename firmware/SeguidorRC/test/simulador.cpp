@@ -773,6 +773,19 @@ struct Navegador {
   }
   void liberarBloqueiosTemporarios() { for (auto& b : bloqueiosTemporarios) core::streetSlot(bloq, b.first, b.second) = false; bloqueiosTemporarios.clear(); }
 
+  // Carregando e com o oeste bloqueado: 1 = sobe, 3 = desce, ate a linha MAIS PROXIMA (na coluna atual) cuja rua para o oeste nao tem cubo. Antes era sempre "sobe, ou desce
+  // no topo", e com cubo em duas linhas vizinhas ele ficava indo e voltando entre elas (a de cima tinha cubo, a de baixo tambem). Empate: desce (o portao fica no meio da arena).
+  int qDesvio(core::Node at) const {
+    for (int d = 1; d < core::kMapRows; d++) {
+      for (const int sinal : {-1, 1}) {
+        const int r = at.r + sinal * d;
+        if (r < 0 || r >= core::kMapRows || at.c < 1) continue;
+        if (!core::streetSlot(bloq, core::Node{at.c, static_cast<int8_t>(r)}, core::Node{static_cast<int8_t>(at.c - 1), static_cast<int8_t>(r)})) return sinal > 0 ? 1 : 3;
+      }
+    }
+    return at.r < core::kMapRows - 1 ? 1 : 3;
+  }
+
   static char letra(core::Turn t) { return t == core::Turn::Left ? 'L' : t == core::Turn::Right ? 'R' : t == core::Turn::UTurn ? 'U' : 'S'; }
 
   // Cruzamento confirmado: atualiza a pose, olha as ruas (ultrassom na varredura), planeja. Devolve S/L/R/U e se vai sair pelo portao (entrega).
@@ -825,10 +838,10 @@ struct Navegador {
       const int q = ((static_cast<int>(lroundf(rumoGraus / 90.0f)) % 4) + 4) % 4;   // 0 = leste, 1 = norte, 2 = oeste, 3 = sul
       int qAlvo = 2;
       if (colSure && rowSure && core::inMap(p.at.c - 1, p.at.r) && core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r})) {
-        qAlvo = p.at.r < core::kMapRows - 1 ? 1 : 3;   // a rua para o oeste esta bloqueada por um cubo: sobe (ou desce) uma rua e tenta o oeste por outra linha
+        qAlvo = qDesvio(p.at);   // a rua para o oeste esta bloqueada por um cubo: vai para a linha mais proxima com o oeste livre
       }
       if (getenv("SIM_DEBUG")) fprintf(stderr, "    CARREGANDO em (%d,%d) rumo q=%d colSure=%d rowSure=%d oesteBloq=%d qAlvo=%d bloqTemp=%zu\n", p.at.c, p.at.r, q, colSure, rowSure, core::inMap(p.at.c - 1, p.at.r) ? (int)core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r}) : -1, qAlvo, bloqueiosTemporarios.size());
-      if (desviar) { qAlvo = p.at.r < core::kMapRows - 1 ? 1 : 3; desviar = false; }   // mesmo sem pose segura: na esquina seguinte ao cubo, sobe (ou desce) uma linha
+      if (desviar) { qAlvo = qDesvio(p.at); desviar = false; }   // mesmo sem pose segura: na esquina seguinte ao cubo, sobe (ou desce) uma linha
       *saindoPeloPortao = true;
       ultimoPlano = "entregar (vai para o oeste, pela bussola)";
       alvoX = 0; alvoY = colSure && rowSure ? yDoCruzamento(p.at.r) : -1;
@@ -891,7 +904,7 @@ struct Firmware {
   unsigned long cruzandoPortaoDesde = 0;
   bool pularVarreduraComPoseSegura = false;   // opcional: no robo real o giro nao esbarrava nos cubos (ficam no meio da rua), entao varre sempre
   unsigned long ultimaObsRaioMs = 0;
-  bool precisaAlinhar = false, velRetaMedida = false;   // acabou de ser reposicionado no verde
+  bool precisaAlinhar = false, velRetaMedida = false, inicioFeito = false;   // acabou de ser reposicionado no verde
   unsigned long semReacaoAte = 0;
   // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 302 mm.
   unsigned long tSaidaMs = 0;
@@ -1174,36 +1187,32 @@ struct Firmware {
     return c.agoraMs() - t0;
   }
 
-  // Logo no inicio: acha o x, mede a VELOCIDADE reta de verdade (de uma moldura vermelha a outra sao kAlt - 80 mm: a mesma conta da distancia entre cruzamentos, mas sem
-  // curva nem correcao) e OBSERVA as plataformas, uma a uma, de baixo para cima: so vai coletar cor que tem plataforma, e sabe onde cada uma esta.
-  void observarPlataformas(Carro& c) {
+  // Na PRIMEIRA entrega (nada de percurso no verde no inicio: ele entra direto e calibra contando cruzamentos): ja no alto do ecoponto, desce ate a moldura vermelha de baixo
+  // (a distancia entre as molduras e kAlt - 80 mm: da a VELOCIDADE reta de verdade, sem isso o y estimado erra mais que os 50 mm da plataforma) e sobe olhando os 5 slots, um a um,
+  // guardando onde esta cada cor. Daqui para a frente so coleta cor que tem plataforma. `yAtual` e atualizado (termina no slot de cima).
+  void observarPlataformas(Carro& c, double& yAtual) {
     Mundo* m = c.mundo();
-    nav.alvoX = nav.alvoY = -1;
-    olharSlotOeste(c);
-    irAteVermelho(c, true);
     const unsigned long ms = irAteVermelho(c, false);
     if (ms > 500) { velLivreMmS = static_cast<float>((kAlt - 80.0) / (ms / 1000.0)); velRetaMedida = true; }
-    m->evento(c.agoraMs(), fmt("INICIO: velocidade reta medida entre as molduras vermelhas = %.0f mm/s", velLivreMmS));
-    double yAtual = 40.0;   // com a barra na borda da faixa vermelha de baixo, o eixo esta ~40 mm acima dela
+    m->evento(c.agoraMs(), fmt("PLATAFORMAS: velocidade reta medida entre as molduras vermelhas = %.0f mm/s", velLivreMmS));
+    yAtual = 40.0;   // com a barra na borda da faixa vermelha de baixo, o eixo esta ~40 mm acima dela
     nav.plataformasVistas.clear();
     for (int k = 0; k < 5; k++) {
-      const double yk = yDaPlataforma(k);   // slots fixos na arena, centralizados
+      const double yk = yDaPlataforma(k);
       const double dy = yk - yAtual;
-      girarPara(c, 90.0);
-      andarMm(c, dy, [] { return false; });
+      if (fabs(dy) > 20.0) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
       yAtual = yk;
       const seguidor::CorCubo cor = olharSlotOeste(c);
       if (cor != seguidor::CorCubo::Nenhuma) {
         nav.plataformasVistas.push_back({yk, cor});
-        m->evento(c.agoraMs(), fmt("INICIO: plataforma %s no slot %d (y = %.0f mm)", nomeCor(cor), k + 1, yk));
+        m->evento(c.agoraMs(), fmt("PLATAFORMAS: %s no slot %d (y = %.0f mm)", nomeCor(cor), k + 1, yk));
       } else {
-        m->evento(c.agoraMs(), fmt("INICIO: slot %d vazio (sem plataforma)", k + 1));
+        m->evento(c.agoraMs(), fmt("PLATAFORMAS: slot %d vazio (sem plataforma)", k + 1));
       }
     }
     for (int i = 0; i < seguidor::kNumCoresCubo; i++) nav.coleta.coletavel[i] = false;
     for (const auto& pv : nav.plataformasVistas) nav.coleta.coletavel[static_cast<int>(pv.second)] = true;   // so se pega cor que tem plataforma
     nav.plataformasObservadas = true;
-    entrarNaCidade(c, yAtual);
   }
 
   static const char* nomeCor(seguidor::CorCubo c) {
@@ -1217,14 +1226,15 @@ struct Firmware {
   void entrarNaCidade(Carro& c, double yAtual) {
     int melhor = 0;
     for (int r = 1; r < core::kMapRows; r++) if (nav.visitas.n[0][r] < nav.visitas.n[0][melhor]) melhor = r;
-    if (usarAlinhamento) {
+    const bool sabeY = usarAlinhamento && !std::isnan(yAtual);   // NaN = entrou direto, sem subir ate o vermelho: a linha so se descobre contando cruzamentos
+    if (sabeY) {
       const double yAlvo = yDoCruzamento(melhor);
       if (fabs(yAlvo - yAtual) > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, fabs(yAlvo - yAtual), [] { return false; }); }
     }
     girarPara(c, 0.0);
     core::initInGreen(nav.loc);
     nav.naRua = false;
-    nav.linhaEntrada = usarAlinhamento ? melhor : -1;
+    nav.linhaEntrada = sabeY ? melhor : -1;
     nav.calibrando = 0;
     nav.contados = 0;
     portaoPendente = true;
@@ -1234,10 +1244,9 @@ struct Firmware {
     precisaAlinhar = false;
   }
 
-  // Depois de um reset (colocado em posicao aleatoria do verde, olhando para a cidade: o rumo do MPU volta a 0): sobe ate o vermelho para saber o y e alinha com uma rua.
+  // Depois de um reset (colocado em posicao aleatoria do verde, olhando para a cidade: o rumo do MPU volta a 0): entra direto (sem percurso no verde): o y vem de contar os cruzamentos ate o vermelho.
   void alinharNaRua(Carro& c) {   // depois de um reset (posicao aleatoria do verde, de frente para a cidade, rumo do MPU = 0): sobe ate o vermelho para saber o y e alinha com uma rua
-    irAteVermelho(c, true);
-    entrarNaCidade(c, kAlt - 40.0);
+    entrarNaCidade(c, NAN);
   }
 
   // Saiu pelo nosso portao levando 1 ou 2 cubos: vai ao ecoponto, acha a plataforma de cada cor (TCS da frente), deixa o cubo nela e volta de frente para a cidade.
@@ -1254,6 +1263,7 @@ struct Firmware {
     if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTREGAR subindo: rumo %.0f, real th %.0f, pos (%.0f,%.0f)\n", rumo, c.estado().th * 57.3, c.estado().x, c.estado().y);
     andarMm(c, 2000.0, [&] { return c.piso() == Pista::kPisoVermelho; });
     double yAtual = kAlt - 40.0;   // com a barra na borda da faixa vermelha, o eixo esta ~40 mm abaixo dela
+    if (!nav.plataformasObservadas) observarPlataformas(c, yAtual);
     for (const seguidor::CorCubo cor : std::vector<seguidor::CorCubo>(nav.carga)) {
       Plataforma plLocal{kPlatX, 0.0, cor};
       const Plataforma* pl = nullptr;
@@ -1496,7 +1506,7 @@ struct Firmware {
       }
       return;
     }
-    if (nav.ativo && nav.loc.inGreen && c.mundo() && !nav.plataformasObservadas) { observarPlataformas(c); return; }
+    if (nav.ativo && nav.loc.inGreen && c.mundo() && !inicioFeito) { inicioFeito = true; entrarNaCidade(c, NAN); return; }
     if (nav.ativo && nav.loc.inGreen && precisaAlinhar) { alinharNaRua(c); return; }
     if (nav.ativo && nav.loc.inGreen && !(p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7])) {   // no verde: sem linha, anda reto para o portao
       Comando cmd{};
@@ -1621,8 +1631,6 @@ struct Cena {
     // o oponente tem as proprias plataformas (cores diferentes) e os MESMOS cubos, espelhados
     using seguidor::CorCubo;
     b.mundo.porPlataformas({{1, CorCubo::Verde}, {2, CorCubo::Azul}, {3, CorCubo::Marrom}, {4, CorCubo::Vermelho}});
-    for (int i = 0; i < seguidor::kNumCoresCubo; i++) b.fw->nav.coleta.coletavel[i] = false;
-    for (const Plataforma& pl : b.mundo.plataformas) b.fw->nav.coleta.coletavel[static_cast<int>(pl.cor)] = true;
     for (const Cubo& cu : a.mundo.cubos) {
       Cubo e = cu;
       e.x = kLarg - cu.x; e.y = kAlt - cu.y;
@@ -2083,8 +2091,6 @@ static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool 
   using seguidor::CorCubo;
   // Plataformas do nosso ecoponto: o juiz poe de 1 a 5, cores distintas (aqui azul, vermelho, amarelo e preto); verde e marrom ficam SEM plataforma e valem como branco
   m.porPlataformas({{0, CorCubo::Azul}, {1, CorCubo::Vermelho}, {3, CorCubo::Amarelo}, {4, CorCubo::Preto}});
-  for (int i = 0; i < seguidor::kNumCoresCubo; i++) fw.nav.coleta.coletavel[i] = false;
-  for (const Plataforma& pl : m.plataformas) fw.nav.coleta.coletavel[static_cast<int>(pl.cor)] = true;
   m.semearRegras(ncubos);
   m.semearObstaculos(3);
   m.op.ativo = oponente;
