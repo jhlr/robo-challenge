@@ -37,13 +37,21 @@ O robo pode comecar em **qualquer um dos lados** (varia por partida, decisao do 
 6. **Onde ha cubo e aleatorio** (decisao do usuario, 2026-10-28): nao se sabe quais quadrados cinza recebem cubo. O mapa de crencas usa **o mesmo prior em todas as ruas** (`BeliefModel.prior`), sem zerar nenhuma. As regras identificam os quadrados cinza por letra (A e B de 1 a 5, C de 1 a 3, D a G de 1 a 3), mas isso so restringiria o prior se soubessemos a lista exata de ruas com quadrado; fica como melhoria futura.
 7. **Dois cubos por viagem**, entregar antes de coletar de novo; partida de 12 minutos; tocar no robo conta como reinicio.
 
+## 3b. Bater nos cubos marrons perde muitos pontos (decisao do usuario, 2026-10-28)
+Os cubos dos centros dos quarteiroes (marrons) nao podem ser tocados. Folga real: **125 mm** do eixo da rua ate a face do cubo (150 mm ate o centro do quarteirao menos meia aresta de 25 mm) e **~177 mm** do centro de um cruzamento ate o canto mais proximo. Robo de 170 x 200 mm: meia-diagonal ~**131 mm**.
+- **Giro no lugar no cruzamento (90 graus):** 131 < 177, folga de ~46 mm: ok, se o eixo de giro estiver perto do centro do robo.
+- **Giro de 360 graus no lugar numa rua:** 131 > 125 so por ~6 mm nos cantos, e qualquer desvio da linha estraga: marginal.
+- **Espiral:** sai da rua e abre o raio: e onde mais se bate.
+Ainda nao mudei o giro de busca nem a espiral. Proposta: espiral limitada (raio maximo menor que a folga) ou so gira no lugar ate encontrar a linha.
+
 ## 4. Localizacao: o robo nao pode andar cego
 A pose hoje e so contagem de cruzamentos, e um cruzamento perdido a desloca sem ele perceber. Com as regras acima, as ancoras ficam:
 1. **Nossa linha azul** (so ela): ao ler azul entrando na cidade, o robo sabe que esta no beco da coluna 0, voltado para dentro. Isso fixa coluna e direcao.
 2. **Contagem de cruzamentos a partir dessa ancora**, com a confirmacao pelo giro de 90 graus (ja no sketch) para rejeitar falso cruzamento.
 3. **Becos como pontos sem saida:** a linha some depois de ~127 mm. No topo/baixo/lado oposto o beco termina em vermelho/azul proibido: ao ver o fim de linha ou qualquer vermelho, **recuar na hora**, e usar o fim do beco como evidencia de borda (sem tocar a cor).
 4. **Conferencia de contagem:** de coluna 0 ao beco do lado oposto sao 5 cruzamentos; se o beco (fim de linha) aparece antes ou depois, a contagem derivou: corrige a coluna e registra o erro.
-5. **Giroscopio (MPU)** quando entrar, para manter a direcao entre curvas.
+5. **Reinicio:** o robo pode ser pego e recolocado em posicao aleatoria no verde (conta como reinicio nas regras). Ler **verde que nao era esperado** (ele achava que estava dentro da cidade) significa pose resetada: `onGreenFloor(expected = false)` apaga a pose e volta a "no verde, posicao desconhecida" (`Mode::FindBlue`: achar a linha azul de novo). O **mapa de cubos nao e apagado**: os cubos continuam onde estavam (so envelhecem). Verde esperado, na saida pelo portao numa viagem de entrega, nao reseta nada.
+6. **Giroscopio (MPU)** quando entrar, para manter a direcao entre curvas.
 
 Seguranca: a pose tem confianca; com confianca baixa o robo **nao decide por um cubo distante**, volta a uma ancora (nosso azul) para se reancorar. Nunca avanca para um fim de linha na direcao do vermelho ou do azul adversario.
 

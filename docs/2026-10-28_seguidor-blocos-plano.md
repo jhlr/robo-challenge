@@ -3,7 +3,7 @@
 Status: PLANO, nada executado alem do `core/map.h` (grafo + busca, com testes no PC). Origem: codigo do colega (ESP32-S3 + TB6612 + barra RC + TCS34725 do chao) colado na conversa, mais `docs/`, `sim/` e o PDF das regras.
 
 ## Objetivo
-O robo segue a linha preta. Em cada cruzamento (os 8 sensores no preto) ele para, olha as opcoes (ruas saindo dele), escolhe a mais proxima que leva a um bloco e vira para la. Ao chegar no bloco, pega. Entrega fica fora desta fase.
+O robo segue a linha preta. Em cada cruzamento (S1 e S8 no preto juntos) ele para, olha as opcoes (ruas saindo dele), escolhe a mais proxima que leva a um bloco e vira para la. Ao chegar no bloco, pega. Entrega fica fora desta fase.
 
 ![Mapa da arena](2026-10-28_mapa-arena.png)
 
@@ -17,7 +17,7 @@ Mapa inteiro da arena (imagem do usuario): 6 linhas pretas verticais e 5 horizon
 ## Hardware desta entrega (ESP32-S3 do colega)
 | Peca | Pinos / estado |
 |---|---|
-| Barra RC, 8 sensores | 8,7,6,5,4,3,2,1 (S1 = esquerda) |
+| Barra RC, 8 sensores | **1,2,3,4,5,6,7,8** (S1 = esquerda). A barra esta espelhada em relacao ao codigo do colega, que usava 8,7,6,5,4,3,2,1 |
 | TB6612 | AIN1 **12**, AIN2 **11**, PWMA 13, BIN1 14, BIN2 21, PWMB 47, STBY 38 |
 | TCS34725 do chao | SDA 15, SCL 16, addr 0x29 |
 | LED RGB | 48 |
@@ -42,7 +42,7 @@ Funcoes puras testaveis no PC, hardware em pecas separadas, sketch fino que liga
 | `cores` (feito, parte pura: `core/color_table.h`) | classificacao por tabela `CORES_REF` (distancia em cor normalizada) e leitura I2C do TCS34725. **Mantem a ordem BRANCO, PRETO, VERDE, AMARELO, AZUL, VERMELHO e os comentarios do colega, que o Rafael vai ler.** Modo de calibracao incluso | codigo do colega |
 | `mapa` (novo) | `core/map.h` (feito): grafo 6x5, pose (cruzamento + direcao), `turnToward`, `moveTo`, `nextTowardBestCube` (maior P / custo entre as arestas com P >= 0,3) | porta do `sim` |
 | `crenca` (novo) | `core/belief.h` (feito): P(cubo) por aresta; `forget` leva de volta ao prior com meia-vida de 60 s (o outro robo mexe nos cubos); `observeStreet` atualiza por Bayes com o ruido do sensor; `setStreet` para certeza | `sim/policies.py` (decaimento), agora probabilistico |
-| `cruzamento` (feito) | `core/crossing.h`: 8 pretos em 2 leituras, janela de saida de 300 ms | colega |
+| `cruzamento` (feito) | `SeguidorRC/src/seguidor/cruzamento.h`: **S1 e S8 no preto juntos** (decisao do usuario, 2026-10-28) em 2 leituras, janela de saida de 300 ms. A copia em `core/` foi removida (um dono so) | colega |
 | `navegador` (feito, parte pura) | `core/navigator.h`: `decideAtCrossing` devolve proximo cruzamento + curva; sem cubo provavel, explora | novo |
 | `navegador` (novo) | maquina de estados do cruzamento | novo |
 | `garra` | pega o bloco | a definir |
@@ -79,7 +79,7 @@ Ficam duas leituras de cor diferentes: a do chao (TCS34725 atual, serve para con
 
 ## Marcos
 1. (feito) `core/map.h`, `core/belief.h`, `core/navigator.h` + testes.
-2. (feito) `core/crossing.h` + testes no PC.
+2. (feito) `SeguidorRC/.../cruzamento.h` + teste no PC.
 3. (feito, falta o I2C e o modo de calibracao) `core/color_table.h` com a ordem do Rafael.
 4. Sketch S3 que segue linha, para no cruzamento e imprime o que decidiria (motores desligados, estilo `kModoTeste`).
 5. Girar e olhar as opcoes; escolher e virar.
