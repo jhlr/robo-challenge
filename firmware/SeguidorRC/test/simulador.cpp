@@ -782,7 +782,8 @@ struct Firmware {
   Navegador nav;                 // missao completa (localizador + mapa de cubos + exploracao + coleta + entrega); desligado = os cenarios de teste de sempre
   unsigned long ultimoTcsMs = 0, ultimoUsMs = 0, esperaAte = 0;
   float usAnt = -1.0f, velMmSAtual = 0.0f;
-  int verdesSeguidos = 0;
+  int verdesSeguidos = 0, proibidasSeguidas = 0;
+  unsigned long semReacaoAte = 0;
   // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 302 mm.
   unsigned long tSaidaMs = 0;
   bool medindoVel = false;
@@ -867,6 +868,7 @@ struct Firmware {
     if (acao == AcaoCruzamento::Portao) {   // nosso portao azul: segue em frente
       portoes++;
       portaoPendente = false;
+      semReacaoAte = c.agoraMs() + 1500;   // ainda esta em cima da faixa azul do portao: nao e para reagir
       if (c.mundo()) c.mundo()->evento(c.agoraMs(), fmt("PORTAO azul em (%.0f,%.0f)%s", c.estado().x, c.estado().y, nav.carregando ? " saindo com cubo" : ""));
       esquecerCor(memCor);
       esquecerUltimoComando(memoria);
@@ -1137,6 +1139,30 @@ struct Firmware {
     return true;
   }
 
+  // Linha proibida (vermelha, ou azul fora do portao) sob o sensor: para na hora e da meia-volta para dentro da cidade (ou do verde). Nao segue como se fosse uma rua.
+  void reagirAProibida(Carro& c) {
+    const bool azul = c.tcsChao() == CorLinha::Azul;
+    c.parar();
+    bordas++;
+    if (!nav.ativo && temCubo) {   // levando cubo sem navegador: so para e deixa a rota para quem decide (como na borda por cruzamento)
+      paradasNavegador++;
+      parado = true;
+      return;
+    }
+    if (c.mundo()) c.mundo()->evento(c.agoraMs(), fmt("%s sob o sensor em (%.0f,%.0f): para e da meia-volta (nao e rua)", azul ? "AZUL do outro lado" : "VERMELHO", c.estado().x, c.estado().y));
+    std::vector<AmostraGiro> est, ver;
+    if (nav.ativo && !nav.loc.inGreen) nav.aoProibido(azul ? core::Forbidden::OtherBlue : core::Forbidden::Red);
+    girarAte(c, 0.0f, 180.0f, est, ver, c.estado().th, rumo);
+    meiasVoltas++;
+    esquecerUltimoComando(memoria);
+    memoria.perdeuEm = 0;
+    esquecerCor(memCor);
+    cruz = MemoriaCruzamento{};
+    proibidasSeguidas = 0;
+    semReacaoAte = c.agoraMs() + 1500;   // deixa a barra sair da faixa antes de reagir de novo
+    tUltimoCruzamento = c.agoraMs();
+  }
+
   // Um ciclo do loop().
   void passo(Carro& c) {
     if (parado) { c.parar(); tick(c); return; }
@@ -1169,6 +1195,8 @@ struct Firmware {
     if (!c.mundo() || agora - ultimoTcsMs >= c.mundo()->cfg.tcsPeriodoMs) {   // o TCS do chao nao le a cada ciclo
       ultimoTcsMs = agora;
       const CorLinha lida = c.tcsChao();
+      const bool proibida = lida == CorLinha::Vermelho || (lida == CorLinha::Azul && !portaoPendente && !nav.entregando);   // vermelho: limite da cidade; azul fora do portao: area do outro lado
+      proibidasSeguidas = proibida ? proibidasSeguidas + 1 : 0;
       verdesSeguidos = lida == CorLinha::Verde ? verdesSeguidos + 1 : 0;   // uma leitura isolada de verde pode ser erro do sensor: so vale com varias seguidas
       if (nav.ativo && !nav.loc.inGreen && verdesSeguidos >= kVerdesParaReposicionar && reposicionadoPeloVerde(CorLinha::Verde, portaoPendente, nav.entregando)) {   // verde inesperado: o juiz pegou e pos de volta
         nav.reposicionado();
@@ -1179,6 +1207,12 @@ struct Firmware {
         portaoPendente = true;
         c.mundo()->evento(agora, fmt("VERDE inesperado em (%.0f,%.0f): reposicionado (pose e rumo reiniciados, o mapa de cubos fica)", c.estado().x, c.estado().y));
       }
+    }
+    // Regras 7: "o robo deve responder de forma imediata sempre que QUALQUER sensor detectar vermelho no chao". Vermelho e azul (fora do portao) nunca sao rota: os sensores RC
+    // leem essas linhas como preto, e antes disso o carro as seguia como se fossem uma rua (a moldura da arena). So uma leitura vale se alguma ponta da barra ve preto; sozinha, duas.
+    if (agora >= semReacaoAte && proibidasSeguidas >= ((p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7]) ? 1 : 2) && !nav.entregando) {
+      reagirAProibida(c);
+      return;
     }
     if (nav.ativo && nav.loc.inGreen && !(p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7])) {   // no verde: sem linha, anda reto para o portao
       Comando cmd{};
@@ -1822,6 +1856,22 @@ static Resultado cenarioDuasEquipes(bool ruido, int meta) {
               fb.nav.pontos, fb.nav.coletados, fb.nav.entregues, fb.nav.brancosIdentificados, cena->reinicios)};
 }
 
+// A linha vermelha NUNCA e rota: a rua preta chega na moldura vermelha em angulo e, se a barra a lesse como preto e a seguisse, o carro correria pela moldura.
+static Resultado cenarioVermelhoDeLado() {
+  Pista p;
+  p.reta(0, 0, 400, 400);                          // rua preta a 45 graus
+  p.reta(400, 400, 1400, 400, kVermelha);          // moldura vermelha: a rua morre nela
+  p.reta(0, 400, 400, 400);                         // (um pedaco preto antes, para a rua nao acabar em ponta)
+  Carro c(p, {20, 20, 45.0 * M_PI / 180.0});
+  Firmware fw;
+  fw.ligarImu(c);
+  double maxX = 0;
+  rodar(fw, c, [&](const Carro& k) { maxX = std::max(maxX, k.estado().x); return fw.meiasVoltas >= 1 || k.estado().x > 900; });
+  svg("vermelho_de_lado", p, c);
+  const bool ok = fw.meiasVoltas >= 1 && maxX < 520.0;
+  return {"linha vermelha a 45 graus: nao segue pela moldura", ok, fmt("%s | meias-voltas %d | foi ate x = %.0f mm (a rua acaba em 400; seguir a moldura passaria de 900)", ok ? "parou e deu meia-volta" : "SEGUIU a moldura vermelha", fw.meiasVoltas, maxX)};
+}
+
 // 3b. Depois do cruzamento o carro tem de seguir a linha do outro lado (rua e beco longos).
 static Resultado cenarioAtravessa() {
   Pista p;
@@ -2329,6 +2379,7 @@ int main(int argc, char** argv) {
     rs.push_back(cenarioLacunaImu(l));
     rs.back().informativo = l > 100.0;
   }
+  rs.push_back(cenarioVermelhoDeLado());
   rs.push_back(cenarioTabuleiro());
   rs.push_back(cenarioMissao(false, 2));
   rs.back().informativo = true;   // a localizacao ainda deriva depois de colisoes e curvas nao verificadas (veja o README): mostra, nao derruba

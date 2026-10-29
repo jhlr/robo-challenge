@@ -20,7 +20,7 @@ using namespace seguidor;
 constexpr int tcsSda = -1, tcsScl = -1;   // DEFINA
 static_assert(tcsSda >= 0 && tcsScl >= 0, "defina os pinos do TCS34725 (tcsSda, tcsScl)");
 Adafruit_TCS34725 tcs(TCS34725_INTEGRATIONTIME_24MS, TCS34725_GAIN_4X);
-core::Cor corAnterior = core::DESCONHECIDA, corAceita = core::DESCONHECIDA;
+core::Cor corAnterior = core::DESCONHECIDA, corAceita = core::DESCONHECIDA, corBruta = core::DESCONHECIDA;
 #endif
 MemoriaCor memCor;
 
@@ -59,6 +59,7 @@ constexpr unsigned long kJanelaCorMs = 400;   // a cor da borda vale por este te
 bool temCubo = false;   // carregando um cubo para guardar: na borda nao da meia-volta, deixa para o navegador (ainda nao ligado)
 bool parado = false;
 bool portaoPendente = true;   // ainda nao passou pelo nosso portao azul (a primeira azul lida e a nossa)
+unsigned long semReacaoAte = 0;   // depois de reagir a uma linha proibida (ou de passar o portao) espera a barra sair da faixa
 
 // A cada ~60 ms (a leitura do TCS leva 24 ms: nao ler a cada volta do loop, a correcao precisa de ciclos curtos).
 void lerCor() {
@@ -68,7 +69,8 @@ void lerCor() {
   ultima = millis();
   uint16_t r, g, b, c;
   tcs.getRawData(&r, &g, &b, &c);
-  corAceita = core::filtrarCor(core::classificarCor(r, g, b, c), corAnterior, corAceita);   // so acredita se repetir em duas leituras
+  corBruta = core::classificarCor(r, g, b, c);
+  corAceita = core::filtrarCor(corBruta, corAnterior, corAceita);   // so acredita se repetir em duas leituras
   anotarCor(memCor, corAceita == core::VERMELHO ? CorLinha::Vermelho : (corAceita == core::AZUL ? CorLinha::Azul : CorLinha::Outra), millis());
 #endif
 }
@@ -218,6 +220,7 @@ void bordaDoMapa(AcaoCruzamento acao) {
   if (acao == AcaoCruzamento::Portao) {
     Serial.println(">>> PORTAO azul (nosso): segue em frente");
     portaoPendente = false;
+    semReacaoAte = millis() + 1500;   // ainda em cima da faixa azul do portao
     esquecerCor(memCor);
     esquecerUltimoComando(memoria);
     tUltimoCruzamento = millis();
@@ -338,6 +341,21 @@ void loop() {
   if (parado) { parar(ponte); return; }
   ler(barra);
   lerCor();
+#if USA_COR
+  // Regras 7: "responder de forma imediata sempre que QUALQUER sensor detectar vermelho no chao". Vermelho (limite da cidade) e azul fora do portao (area do outro lado) NUNCA sao
+  // rota: os sensores RC leem essas linhas como preto e o carro as seguia como uma rua. Uma leitura crua vale se alguma ponta da barra ve preto; sozinha, a leitura filtrada.
+  {
+    bool algum = false;
+    for (int i = 0; i < kSensores; i++) algum = algum || barra.preto[i];
+    const core::Cor viu = algum ? corBruta : corAceita;
+    if (millis() >= semReacaoAte && (viu == core::VERMELHO || (viu == core::AZUL && !portaoPendente))) {
+      parar(ponte);
+      bordaDoMapa(temCubo ? AcaoCruzamento::Navegador : AcaoCruzamento::MeiaVolta);
+      semReacaoAte = millis() + 1500;
+      return;
+    }
+  }
+#endif
 #if USA_IMU
   lerImu();
   const EventoPostura evento = atualizarPickup(pickup, imu, millis(), ajustesInercial);
