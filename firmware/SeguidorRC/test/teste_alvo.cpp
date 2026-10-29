@@ -7,7 +7,7 @@
 using namespace seguidor;
 
 int main() {
-  assert(ruaTemCubo(180.0f) && !ruaTemCubo(500.0f) && !ruaTemCubo(-1.0f) && !ruaTemCubo(0.0f));
+  assert(ruaTemCubo(100.0f) && ruaTemCubo(200.0f) && !ruaTemCubo(327.0f) && !ruaTemCubo(500.0f) && !ruaTemCubo(-1.0f) && !ruaTemCubo(0.0f));   // 327 mm = cubo da rua DEPOIS da esquina
   // cubo parado: andando 100 mm/s para ele, em 500 ms a distancia cai 50 mm
   assert(!ecoMovel(300.0f, 250.0f, 500.0f, 100.0f));
   // oponente vindo ao nosso encontro: a distancia cai mais do que o nosso movimento explica

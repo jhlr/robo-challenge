@@ -326,8 +326,8 @@ class Carro {
     for (const Cubo& c : m.cubos) {
       if (!c.vivo) continue;
       const double d = hypot(c.x - sx, c.y - sy) - 25.0;
-      const double dif = fabs(remainder(atan2(c.y - sy, c.x - sx) - e_.th, 2 * M_PI)) * 180.0 / M_PI;
-      if (d <= m.cfg.tcsFrenteAlcanceMm && dif <= m.cfg.tcsFrenteConeGraus / 2.0) return c.cor;
+      const double lat = fabs(-(c.x - sx) * sin(e_.th) + (c.y - sy) * cos(e_.th)), fre = (c.x - sx) * cos(e_.th) + (c.y - sy) * sin(e_.th);
+      if (fre > -30.0 && d <= m.cfg.tcsFrenteAlcanceMm && lat <= 28.0) return c.cor;   // o campo do sensor perto do cubo e uma faixa estreita, nao um angulo
     }
     return seguidor::CorCubo::Nenhuma;
   }
@@ -342,8 +342,8 @@ class Carro {
       const Cubo& c = m.cubos[i];
       if (!c.vivo) continue;
       const double d = hypot(c.x - sx, c.y - sy) - 25.0;
-      const double dif = fabs(remainder(atan2(c.y - sy, c.x - sx) - e_.th, 2 * M_PI)) * 180.0 / M_PI;
-      if (d <= alcanceMm && dif <= 20.0 && d < dm) { dm = d; melhor = static_cast<int>(i); }
+      const double lat = fabs(-(c.x - sx) * sin(e_.th) + (c.y - sy) * cos(e_.th)), fre = (c.x - sx) * cos(e_.th) + (c.y - sy) * sin(e_.th);   // lateral e a frente, em relacao a ponta do carro
+      if (fre > -30.0 && d <= alcanceMm && lat <= 30.0 && d < dm) { dm = d; melhor = static_cast<int>(i); }
     }
     return melhor;
   }
@@ -532,6 +532,7 @@ struct Navegador {
   unsigned long ultimoForgetMs = 0;
   int coletados = 0, entregues = 0, bloqueios = 0, reposicoes = 0, cuboPerdidoNaReposicao = 0;
   std::string ultimoPlano;
+  const Mundo* verdade = nullptr;   // so para depurar: compara o que observa com a realidade
 
   void iniciar() {
     ativo = true;
@@ -565,16 +566,23 @@ struct Navegador {
     if (loc.inGreen) return 'S';
     const core::Estimate est = core::estimate(loc);
     const core::Pose& p = est.pose;
-    core::markVisited(visitas, p.at);
+    const bool colSure = core::columnMass(loc, p.at.c) >= core::kMinCoordBelief, rowSure = core::rowMass(loc, p.at.r) >= core::kMinCoordBelief;
+    if (colSure && rowSure) core::markVisited(visitas, p.at);   // so conta o que sabe onde esta
     // olha as ruas: frente, esquerda, direita (o ultrassom mediu na varredura). Os cubos so ficam em ruas, nunca no cruzamento.
     const int dirs[3][2] = {{p.dc, p.dr}, {-p.dr, p.dc}, {p.dr, -p.dc}};
     const float us[3] = {v.usFrente, v.usEsq, v.usDir};
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < 3 && colSure && rowSure; k++) {   // sem saber onde esta, o que o ultrassom ve nao pode ir para a memoria (iria para a rua errada)
       const int c = p.at.c + dirs[k][0], r = p.at.r + dirs[k][1];
       if (!core::inMap(c, r)) continue;
       core::observeStreet(cubos, p.at, core::Node{static_cast<int8_t>(c), static_cast<int8_t>(r)}, seguidor::ruaTemCubo(us[k], alvo), bm);
+      if (verdade && getenv("SIM_DEBUG")) {
+        const int ca = std::min<int>(p.at.c, c), ra = std::min<int>(p.at.r, r);
+        const bool leste = p.at.r == r;
+        bool real = false;
+        for (const Cubo& cu : verdade->cubos) real |= cu.vivo && cu.c == ca && cu.r == ra && cu.leste == leste;
+        fprintf(stderr, "    OBS pose (%d,%d) %s para (%d,%d): us=%.0f -> %s | realidade: %s\n", p.at.c, p.at.r, k == 0 ? "frente" : k == 1 ? "esq" : "dir", c, r, us[k], seguidor::ruaTemCubo(us[k], alvo) ? "CUBO" : "vazia", real ? "CUBO" : "vazia");
+      }
     }
-    const bool colSure = core::columnMass(loc, p.at.c) >= core::kMinCoordBelief, rowSure = core::rowMass(loc, p.at.r) >= core::kMinCoordBelief;
     core::Decision d;
     if (carregando && colSure && rowSure) {
       bool noPortao = false;
@@ -722,7 +730,7 @@ struct Firmware {
         meiasVoltas++;
         esquecerUltimoComando(memoria);
         esquecerCor(memCor);
-        comecarASair(cruz, c.agoraMs());
+        cruz = MemoriaCruzamento{};   // depois dos 180 graus a barra ja nao esta sobre a faixa da borda: o cruzamento do beco (a 127 mm) tem de ser detectado, o debounce de 300 ms o engolia
       } else {
         paradasNavegador++;
         parado = true;
@@ -771,6 +779,13 @@ struct Firmware {
       if (nav.ativo) {
         bool saindo = false;
         a = nav.aoCruzamento(c.agoraMs(), varr.ruas, &saindo);
+        if (getenv("SIM_DEBUG") && !nav.loc.inGreen) {   // depuracao: a pose estimada bate com o cruzamento onde o carro realmente esta?
+          const double rx = paradaEm.x + 38.0 * cos(paradaEm.th), ry = paradaEm.y + 38.0 * sin(paradaEm.th);
+          const int rc = static_cast<int>(lround((rx - kBeco) / kPasso)), rr = static_cast<int>(lround((ry - kBeco) / kPasso));
+          const core::Estimate es = core::estimate(nav.loc);
+          const int th90 = static_cast<int>(lround(paradaEm.th * 2.0 / M_PI)) & 3, thEst = es.pose.dc == 1 ? 0 : es.pose.dr == 1 ? 1 : es.pose.dc == -1 ? 2 : 3;
+          fprintf(stderr, "    POSE t=%.0fs estimada (%d,%d) rumo %d | real (%d,%d) rumo %d %s\n", c.agoraMs() / 1000.0, es.pose.at.c, es.pose.at.r, thEst, rc, rr, th90, (rc == es.pose.at.c && rr == es.pose.at.r && th90 == thEst) ? "" : "<<< ERRADA");
+        }
         if (saindo) portaoPendente = true;   // vai sair pelo nosso portao de proposito: a azul nao e borda
         c.mundo()->evento(c.agoraMs(), fmt("plano: %s | seguir '%c' (pose %s, coluna %.0f%%, linha %.0f%%)", nav.ultimoPlano.c_str(), a, nav.loc.inGreen ? "no verde" : fmt("(%d,%d)", core::estimate(nav.loc).pose.at.c, core::estimate(nav.loc).pose.at.r).c_str(), nav.loc.inGreen ? 0.0 : 100.0 * core::columnMass(nav.loc, core::estimate(nav.loc).pose.at.c), nav.loc.inGreen ? 0.0 : 100.0 * core::rowMass(nav.loc, core::estimate(nav.loc).pose.at.r)));
       }
@@ -1305,6 +1320,25 @@ static Resultado cenarioEndireitar(bool imu) {
           fmt("%s | endireitou %d vez(es), cruzamentos %d, falsos alarmes %d | fim em (%.0f, %.0f), erro %.1f mm", chegou ? "chegou ao fim da linha" : "NAO chegou", fw.endireitou, fw.cruzamentos, fw.falsosAlarmes, c.estado().x, c.estado().y, c.erroBarra())};
 }
 
+// Quanto a memoria do carrinho bate com a realidade: para cada rua, ele acha que tem cubo (P > 0,5) e tem de fato?
+struct PrecisaoMemoria { int certo = 0, falsoPositivo = 0, perdeu = 0, total = 0; };
+static PrecisaoMemoria precisaoMemoria(const Mundo& m, const core::CubeBelief& b) {
+  PrecisaoMemoria r;
+  for (int c = 0; c < core::kMapCols; c++)
+    for (int rr = 0; rr < core::kMapRows; rr++)
+      for (int leste = 0; leste < 2; leste++) {
+        if (leste ? c + 1 >= core::kMapCols : rr + 1 >= core::kMapRows) continue;
+        bool tem = false;
+        for (const Cubo& cu : m.cubos) tem |= cu.vivo && cu.c == c && cu.r == rr && cu.leste == (leste == 1);
+        const float p = leste ? b.east[c][rr] : b.north[c][rr];
+        r.total++;
+        if (tem && p > 0.5f) r.certo++;
+        else if (!tem && p > 0.5f) r.falsoPositivo++;
+        else if (tem) r.perdeu++;
+      }
+  return r;
+}
+
 // Monta a missao no tabuleiro: cubos de varias cores nas ruas, oponente andando, ruido (sinalizado) opcional, e o navegador ligado.
 static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool oponente, bool ruido, int linhaInicial = 2) {
   m.semearCubos(ncubos, {seguidor::CorCubo::Azul, seguidor::CorCubo::Vermelho, seguidor::CorCubo::Branco, seguidor::CorCubo::Verde, seguidor::CorCubo::Amarelo});
@@ -1328,7 +1362,8 @@ static Resultado cenarioMissao(bool ruido, int meta) {
   Mundo m;
   Carro c(p, {-140, yDoCruzamento(2), 0.0});
   Firmware fw;
-  configurarMissao(m, fw, c, 8, true, ruido);
+  configurarMissao(m, fw, c, 8, false, ruido);
+  fw.nav.verdade = &m;
   const bool fim = rodar(fw, c, [&](const Carro&) { return fw.nav.entregues >= meta; });
   svg(ruido ? "missao_com_ruido" : "missao", p, c);
   int visitados = 0;
@@ -1338,6 +1373,8 @@ static Resultado cenarioMissao(bool ruido, int meta) {
     const Estado e = c.estado();
     fprintf(stderr, "    FIM: robo (%.0f,%.0f) th %.0f | oponente (%.0f,%.0f) | carregando %d | pose (%d,%d) conf %.2f | levantado %d parado %d buscando ciclos %d\n", e.x, e.y, e.th * 57.3, m.op.x, m.op.y, fw.nav.carregando, core::estimate(fw.nav.loc).pose.at.c, core::estimate(fw.nav.loc).pose.at.r, core::estimate(fw.nav.loc).confidence, c.levantado(), fw.parado, fw.ticksBuscando);
   }
+  const PrecisaoMemoria pm = precisaoMemoria(m, fw.nav.cubos);
+  if (getenv("SIM_DEBUG")) fprintf(stderr, "    MEMORIA: acertou %d, achou cubo onde nao ha %d, nao lembra de %d (de %d ruas)\n", pm.certo, pm.falsoPositivo, pm.perdeu, pm.total);
   return {ruido ? "missao completa com ruido: explora, coleta, entrega" : "missao completa: explora, coleta, entrega", fim,
           fmt("%s em %.0f s | coletou %d, entregou %d, bloqueou %d rua(s) com cubo que nao se pega | cruzamentos %d (falsos %d), reposicoes %d | visitou %d de 30 cruzamentos | oponente levou %d cubo(s), colisoes %d",
               fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.coletados, fw.nav.entregues, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, m.pegosPeloOponente, m.colisoesOponente)};

@@ -12,7 +12,10 @@
 namespace seguidor {
 
 struct AjustesAlvo {
-  float ruaMm = 330.0f;          // rua de 302 mm + folga: eco mais perto que isto esta NA rua
+  // O ultrassom fica na ponta da frente (eixo + 100 mm) e o eixo para ~38 mm ANTES do centro do cruzamento: o proximo cruzamento esta a ~240 mm da ponta, e os cubos da
+  // rua do lado (a 112 a 190 mm do cruzamento) dao eco de 25 a 103 mm. Os cubos da rua SEGUINTE (alem do cruzamento) dao eco de 327 mm para cima: so vale como cubo NESTA rua
+  // o eco ate aqui (senao ele 've' a rua de tras da esquina e a memoria enche de cubo onde nao ha).
+  float ruaMm = 230.0f;
   float ecoMovelToleranciaMm = 25.0f;   // diferenca entre a variacao esperada (parado) e a medida que ja conta como alvo que se mexe
   float cuboParaDePertoMm = 60.0f;      // distancia em que o robo para e olha a cor do cubo
   float velMinimaMmS = 20.0f;           // abaixo disto o robo conta como parado

@@ -236,7 +236,7 @@ void bordaDoMapa(AcaoCruzamento acao) {
   esquecerUltimoComando(memoria);
   tUltimoCruzamento = millis();
   fimDeBecoAvisado = false;
-  comecarASair(cruzamento, millis());
+  cruzamento = MemoriaCruzamento{};   // depois dos 180 graus a barra nao esta mais na faixa da borda: o cruzamento do beco (a 127 mm) precisa ser detectado, o debounce de 300 ms o engolia
 }
 
 // As duas pontas acesas (S1 e S8), ACIMA DE TODAS AS OUTRAS REGRAS, em qualquer situacao (inclusive perdido/buscando): para e varre 90 graus, comecando pelo
