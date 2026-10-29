@@ -2175,8 +2175,8 @@ static PrecisaoMemoria precisaoMemoria(const Mundo& m, const core::CubeBelief& b
 // Monta a missao no tabuleiro: cubos de varias cores nas ruas, oponente andando, ruido (sinalizado) opcional, e o navegador ligado.
 static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool oponente, bool ruido) {
   using seguidor::CorCubo;
-  // Plataformas do nosso ecoponto: o juiz poe de 1 a 5, cores distintas (aqui azul, vermelho, amarelo e preto); verde e marrom ficam SEM plataforma e valem como branco
-  m.porPlataformas({{0, CorCubo::Azul}, {1, CorCubo::Vermelho}, {3, CorCubo::Amarelo}, {4, CorCubo::Preto}});
+  // Plataformas do nosso ecoponto: o juiz poe de 1 a 5, cores distintas (aqui azul, vermelho, amarelo e preto, em marcas vizinhas); verde e marrom ficam SEM plataforma e valem como branco
+  m.porPlataformas({{0, CorCubo::Azul}, {1, CorCubo::Vermelho}, {2, CorCubo::Amarelo}, {3, CorCubo::Preto}});   // 4 plataformas em marcas vizinhas: equidistantes (260 mm)
   m.semearRegras(ncubos);
   m.semearObstaculos(3);
   m.op.ativo = oponente;
