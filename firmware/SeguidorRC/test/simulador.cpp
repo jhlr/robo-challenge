@@ -749,7 +749,9 @@ struct Navegador {
   void aoProibido(core::Forbidden k) { core::onForbidden(loc, k); core::onTurn(loc, 2); pularProximo = true; }   // meia-volta no fim da rua: volta ao cruzamento que deixou
   void aposVirar(char a) { core::onTurn(loc, a == 'L' ? 1 : a == 'R' ? -1 : a == 'U' ? 2 : 0); }
   bool ruaValida() const { return core::inMap(ruaDe.c, ruaDe.r) && core::inMap(ruaPara.c, ruaPara.r) && (abs(ruaDe.c - ruaPara.c) + abs(ruaDe.r - ruaPara.r)) == 1; }
-  void aoBloquear() { if (ruaValida()) { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); core::streetSlot(bloq, ruaDe, ruaPara) = true; } bloqueios++; core::onTurn(loc, 2); pularProximo = true; }
+  bool ancorando = false;   // o ultimo cruzamento foi decidido no modo ANCORAR (linha desconhecida)
+  int ancorarBloq = 0;      // cubos que fecharam o caminho ate a vermelha sem a linha ter sido achada
+  void aoBloquear() { if (ancorando) ancorarBloq++; if (ruaValida()) { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); core::streetSlot(bloq, ruaDe, ruaPara) = true; } bloqueios++; core::onTurn(loc, 2); pularProximo = true; }
   void aoColetar(seguidor::CorCubo cor) { if (ruaValida()) core::setStreet(cubos, ruaDe, ruaPara, 0.0f); carga.push_back(cor); carregando = true; coletados++; }
 
   // Rua que ja foi vista VAZIA: la nunca mais aparece cubo (ninguem poe cubo de volta), entao qualquer eco ali so pode ser o OUTRO ROBO.
@@ -792,9 +794,11 @@ struct Navegador {
     desviar = true;
     if (ruaValida()) core::setStreet(cubos, ruaDe, ruaPara, 1.0f);   // sabe que tem cubo la (para pegar depois da entrega)
     if (ruaValida()) { core::streetSlot(bloq, ruaDe, ruaPara) = true; bloqueiosTemporarios.push_back({ruaDe, ruaPara}); }
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    BLOQ-TEMP rua (%d,%d)-(%d,%d) valida=%d pose (%d,%d)\n", ruaDe.c, ruaDe.r, ruaPara.c, ruaPara.r, (int)ruaValida(), core::estimate(loc).pose.at.c, core::estimate(loc).pose.at.r);
     core::onTurn(loc, 2);
     pularProximo = true;
   }
+  bool bloqTemporariosVazio() const { return bloqueiosTemporarios.empty(); }
   void liberarBloqueiosTemporarios() { for (auto& b : bloqueiosTemporarios) core::streetSlot(bloq, b.first, b.second) = false; bloqueiosTemporarios.clear(); }
 
   // Carregando e com o oeste bloqueado: 1 = sobe, 3 = desce, ate a linha MAIS PROXIMA (na coluna atual) cuja rua para o oeste nao tem cubo. Antes era sempre "sobe, ou desce
@@ -842,16 +846,20 @@ struct Navegador {
     }
     core::Decision d;
     alvoX = alvoY = -1;
+    ancorando = !carregando && !rowSure;
+    if (!ancorando) ancorarBloq = 0;
     if (!carregando && !rowSure) {
       // Depois de um reset ele nao sabe a linha: vai ate a linha VERMELHA de um dos lados (a mais perto da linha de entrada) CONTANDO os cruzamentos que viu; ao chegar, o localizador
       // sabe a linha (cruzamentos contados + vermelho) e a velocidade sai de cada trecho de 400 mm. Nao varre: so anda reto.
       const int qAtual = ((static_cast<int>(lroundf(rumoGraus / 90.0f)) % 4) + 4) % 4;   // 0 = leste, 1 = norte, 2 = oeste, 3 = sul
-      const int qAlvo = (qAtual == 1 || qAtual == 3) ? qAtual : 1;                       // segue na vertical em que ja esta; se estava na horizontal, sobe
+      int qAlvo = (qAtual == 1 || qAtual == 3) ? qAtual : 1;                             // segue na vertical em que ja esta; se estava na horizontal, sobe
+      // Cubos nos dois sentidos da coluna (sobe e desce voltavam ao mesmo cruzamento para sempre): anda UMA coluna para o leste e tenta a vertical de la.
+      if (ancorarBloq >= 2) { qAlvo = 0; ancorarBloq = 0; }
       const int dq = ((qAlvo - qAtual) % 4 + 4) % 4;                                       // giros a esquerda
-      ultimoPlano = fmt("ANCORAR: ate a linha vermelha de %s contando os cruzamentos (ja contou %d) e olhando longe pelo ultrassom", qAlvo == 1 ? "cima" : "baixo", contados + 1);
+      ultimoPlano = fmt("ANCORAR: ate a linha vermelha de %s contando os cruzamentos (ja contou %d) e olhando longe pelo ultrassom", qAlvo == 0 ? "leste (cubos nos dois sentidos da coluna)" : qAlvo == 1 ? "cima" : "baixo", contados + 1);
       contados++;
       ruaDe = p.at;
-      ruaPara = core::Node{p.at.c, static_cast<int8_t>(p.at.r + (qAlvo == 1 ? 1 : -1))};
+      ruaPara = qAlvo == 0 ? core::Node{static_cast<int8_t>(p.at.c + 1), p.at.r} : core::Node{p.at.c, static_cast<int8_t>(p.at.r + (qAlvo == 1 ? 1 : -1))};
       naRua = true;
       ruaUsada = core::inMap(ruaPara.c, ruaPara.r);
       return dq == 0 ? 'S' : dq == 1 ? 'L' : dq == 3 ? 'R' : 'U';
@@ -866,13 +874,35 @@ struct Navegador {
       if (colSure && rowSure && core::inMap(p.at.c - 1, p.at.r) && core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r})) {
         qAlvo = qDesvio(p.at);   // a rua para o oeste esta bloqueada por um cubo: vai para a linha mais proxima com o oeste livre
       }
+      if (colSure && rowSure && (!bloqTemporariosVazio() || desviar)) {
+        // Pose segura e ruas bloqueadas por cubos: nao basta subir ou descer (a rua vertical tambem pode ter cubo, e ele ia e voltava ate o fim da partida). Menor caminho PELAS RUAS LIVRES ate
+        // qualquer cruzamento da coluna 0, de onde a rua para o oeste leva ao portao (a propria rua do oeste da coluna 0 nunca esta bloqueada: e o beco).
+        core::Routes rotas;
+        core::routesFrom(p.at, nullptr, &bloq, rotas);
+        int melhorR = -1;
+        float melhorCusto = 1e9f;
+        for (int r = 0; r < core::kMapRows; r++) {
+          const core::Node alvo{0, static_cast<int8_t>(r)};
+          if (!core::reachable(rotas, alvo)) continue;
+          if (rotas.dist[0][r] < melhorCusto) { melhorCusto = rotas.dist[0][r]; melhorR = r; }
+        }
+        if (melhorR >= 0) {
+          const core::Node alvo{0, static_cast<int8_t>(melhorR)};
+          if (alvo == p.at) qAlvo = 2;
+          else {
+            const core::Node prox = core::firstStepTo(rotas, p.at, alvo);
+            qAlvo = prox.c > p.at.c ? 0 : prox.c < p.at.c ? 2 : prox.r > p.at.r ? 1 : 3;
+          }
+          desviar = false;
+        }
+      }
       if (getenv("SIM_DEBUG")) fprintf(stderr, "    CARREGANDO em (%d,%d) rumo q=%d colSure=%d rowSure=%d oesteBloq=%d qAlvo=%d bloqTemp=%zu\n", p.at.c, p.at.r, q, colSure, rowSure, core::inMap(p.at.c - 1, p.at.r) ? (int)core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r}) : -1, qAlvo, bloqueiosTemporarios.size());
       if (desviar) { qAlvo = qDesvio(p.at); desviar = false; }   // mesmo sem pose segura: na esquina seguinte ao cubo, sobe (ou desce) uma linha
       *saindoPeloPortao = true;
       ultimoPlano = "entregar (vai para o oeste, pela bussola)";
       alvoX = 0; alvoY = colSure && rowSure ? yDoCruzamento(p.at.r) : -1;
       ruaDe = p.at;
-      ruaPara = core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r};
+      ruaPara = core::Node{static_cast<int8_t>(p.at.c + (qAlvo == 0 ? 1 : qAlvo == 2 ? -1 : 0)), static_cast<int8_t>(p.at.r + (qAlvo == 1 ? 1 : qAlvo == 3 ? -1 : 0))};   // a rua que vai usar de fato (um cubo achado nela bloqueia ELA, nao a do oeste)
       naRua = true;
       ruaUsada = false;
       const int dq = ((qAlvo - q) % 4 + 4) % 4;   // giros a esquerda
@@ -1411,6 +1441,10 @@ struct Firmware {
       }
       if (vista != seguidor::CorCubo::Nenhuma) {
         reancorarOeste();
+        // De frente para uma plataforma o y do eixo e o centro dela, e as plataformas so ficam na grade de 130 mm centrada no mapa (as duas disposicoes, 4 ou 5 marcas): a conta por
+        // tempo (meio do mapa -> plataforma -> plataforma) erra ate ~65 mm, e esse erro fazia a volta ao portao errar a rua. Encaixa na grade.
+        yAtual = kAlt / 2.0 + std::round((yAtual - kAlt / 2.0) / 130.0) * 130.0;
+        yt = yAtual;
         nav.platConhecidas.push_back({yt, vista});
         nav.plataformasVistas.push_back({yt, vista});
         m->evento(c.agoraMs(), fmt("PLATAFORMAS: %s em y = %.0f mm", nomeCor(vista), yt));
