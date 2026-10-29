@@ -17,6 +17,10 @@
 
 #include <algorithm>
 #include <array>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -143,13 +147,15 @@ struct Plataforma { double x, y; seguidor::CorCubo cor; };   // 160 x 50 mm no e
 
 struct Oponente {
   bool ativo = false;
+  bool externo = false;   // movido por outro agente (outro robo igual ao nosso), nao pelo passeio aleatorio
   double x = 0, y = 0, th = 0, v = 150.0;
   int c = 0, r = 0, alvoC = 0, alvoR = 0;
   unsigned long paradoAte = 0;
 };
 
-struct Mancha {   // sujeira escura no chao: os sensores RC leem como linha
+struct Mancha {   // sujeira escura (parece linha) ou desgaste branco na fita (a linha some): os sensores RC leem isso
   double x, y, raio;
+  bool branca = false;
   size_t desde, ate = static_cast<size_t>(-1);   // quadros em que existe
   unsigned long expiraMs;
 };
@@ -175,7 +181,7 @@ struct Mundo {
   std::vector<std::string> log;
   std::vector<std::array<float, 3>> opQuadros;   // oponente em cada quadro gravado
   unsigned long long seed = 777;
-  unsigned long proxMancha = 20000, proxPatina = 15000, proxAtraso = 25000, fimPatina = 0, fimAtraso = 0;
+  unsigned long prox[10] = {20000, 15000, 25000, 30000, 18000, 35000, 50000, 60000, 40000, 45000}, fimPatina = 0, fimAtraso = 0, fimMotor = 0;
   unsigned long cooldownColisao = 0;
   int pegosPeloOponente = 0, colisoesOponente = 0;
 
@@ -192,9 +198,9 @@ struct Mundo {
       if (c.vivo && fabs(x - c.x) < 22 && fabs(y - c.y) < 22) return true;
     return false;
   }
-  bool manchaEm(double x, double y) const {
+  bool manchaEm(double x, double y, bool branca = false) const {
     for (const Mancha& m : manchas)
-      if (m.ate == static_cast<size_t>(-1) && hypot(x - m.x, y - m.y) < m.raio) return true;
+      if (m.branca == branca && m.ate == static_cast<size_t>(-1) && hypot(x - m.x, y - m.y) < m.raio) return true;
     return false;
   }
   // Espalha n cubos em ruas diferentes (nunca no cruzamento), no meio da rua +- 40 mm, com as cores dadas em ordem.
@@ -242,7 +248,7 @@ struct Mundo {
   // Plataformas no nosso ecoponto (x = -390): ate 5 posicoes; coloca as cores dadas nos slots dados.
   void porPlataformas(const std::vector<std::pair<int, seguidor::CorCubo>>& slots) {
     plataformas.clear();
-    for (const auto& sl : slots) plataformas.push_back({-390.0, 200.0 + sl.first * 265.0, sl.second});
+    for (const auto& sl : slots) plataformas.push_back({-390.0, kAlt / 2.0 - 300.0 + sl.first * 150.0, sl.second});   // 5 retangulos de 50 mm, 100 mm entre eles, centralizados (regras 4): slots de 150 mm
   }
   const Plataforma* plataformaDaCor(seguidor::CorCubo c) const {
     for (const Plataforma& p : plataformas) if (p.cor == c) return &p;
@@ -263,12 +269,18 @@ class Carro {
   Mundo* mundo() const { return mundo_; }
   void fatorRodas(double f) { fatorRodas_ = f; }          // patinagem / ganho das rodas (ruido)
   void atrasoLeitura(int ticks) { atrasoTicks_ = ticks; }  // atraso dos sensores RC em ciclos (ruido)
+  void fatorLados(double esq, double dir) { fE_ = esq; fD_ = dir; }   // motor de um lado mais fraco (ruido)
+  void prenderSensor(int i, bool preto, unsigned long ateMs) { presoAte_[i] = ateMs; presoValor_[i] = preto ? 1 : 0; }   // sensor RC preso (ruido)
+  void ultrassomFalso(unsigned long ateMs, double mm) { usFalsoAte_ = ateMs; usFalsoMm_ = mm; }   // eco falso (mm > 0) ou perda de eco (-1) por um tempo (ruido)
+  void saltarVies(double grausS) { extraVies_ += grausS; }   // o viés do giroscopio anda (temperatura)
+  void chutar(double graus) { e_.th += graus * M_PI / 180.0; }   // solavanco: o carro gira sem comando (ruido)
+  double velNominalMmS(int pwm) const { return pwm * f_.mmSPorPwm; }
 
   Estado estado() const { return e_; }
 
   // ---- MPU simulado (gz em rad/s COM vies, aceleracao em g). Ruido deterministico (LCG): o mesmo resultado a cada execucao.
   Imu imu() {
-    const double vies = (f_.viesGzGrauS + f_.derivaViesGrauS * (levantado_ ? 0.0 : t_ / 1000.0)) / 57.29578;
+    const double vies = (f_.viesGzGrauS + extraVies_ + f_.derivaViesGrauS * (levantado_ ? 0.0 : t_ / 1000.0)) / 57.29578;
     Imu m;
     if (levantado_) {   // nas maos: inclinado ~35 graus, balancando
       m.gzRadS = static_cast<float>(vies + 0.3 * ruido());
@@ -293,6 +305,7 @@ class Carro {
   bool levantado() const { return levantado_; }
   double roda(bool esquerda) const { return esquerda ? alvoE_ : alvoD_; }   // alvo da roda (mm/s) para conferir que parou
   unsigned long agoraMs() const { return t_; }
+  double velMmS() const { return vMmS_; }
   const std::vector<Estado>& rastro() const { return rastro_; }
   const std::vector<uint8_t>& bits() const { return bits_; }
   double erroMax() const { return erroMax_; }
@@ -308,7 +321,8 @@ class Carro {
       double x, y;
       ponto(i, x, y);
       bool p = pista_.preto(x, y);
-      if (mundo_) p = (p && !mundo_->cuboEm(x, y)) || mundo_->manchaEm(x, y);   // cubo cobre a linha; mancha parece linha
+      if (mundo_) p = (p && !mundo_->cuboEm(x, y) && !mundo_->manchaEm(x, y, true)) || mundo_->manchaEm(x, y, false);   // cubo e desgaste cobrem a linha; sujeira parece linha
+      if (presoAte_[i] > t_) p = presoValor_[i] != 0;                                                              // sensor RC preso (ruido)
       preto[i] = p;
     }
   }
@@ -341,6 +355,7 @@ class Carro {
   // Ultrassom a frente: distancia (mm) ate o alvo mais proximo dentro do cone (cubos vivos r = 25, oponente r = 95), ou -1.
   double us() {
     if (!mundo_ || !mundo_->cfg.us) return -1.0;
+    if (usFalsoAte_ > t_) return usFalsoMm_;   // eco falso ou perda de eco (ruido)
     const Mundo& m = *mundo_;
     const double sx = e_.x + m.cfg.usFrenteMm * cos(e_.th), sy = e_.y + m.cfg.usFrenteMm * sin(e_.th);
     double melhor = -1.0;
@@ -431,7 +446,8 @@ class Carro {
     const double dt = f_.dtMs / 1000.0, k = 1.0 - exp(-f_.dtMs / f_.tauMs);
     vE_ += (alvoE_ - vE_) * k;
     vD_ += (alvoD_ - vD_) * k;
-    const double v = (vE_ + vD_) / 2.0 * fatorRodas_, w = (vD_ - vE_) / f_.bitolaMm * f_.derrapagem * fatorRodas_;   // w > 0 = anti-horario (esquerda)
+    const double ve = vE_ * fE_, vd = vD_ * fD_;
+    const double v = (ve + vd) / 2.0 * fatorRodas_, w = (vd - ve) / f_.bitolaMm * f_.derrapagem * fatorRodas_;   // w > 0 = anti-horario (esquerda)
     aMmS2_ = (v - vMmS_) / dt;
     vMmS_ = v;
     wRadS_ = w;
@@ -479,7 +495,10 @@ class Carro {
   int impulsoTicks_ = 0;
   bool levantado_ = false;
   Mundo* mundo_ = nullptr;
-  double fatorRodas_ = 1.0;
+  double fatorRodas_ = 1.0, fE_ = 1.0, fD_ = 1.0, extraVies_ = 0.0, usFalsoMm_ = 0.0;
+  unsigned long presoAte_[8] = {};
+  int presoValor_[8] = {};
+  unsigned long usFalsoAte_ = 0;
   int atrasoTicks_ = 0;
   uint8_t ring_[32] = {};
   int ringI_ = 0, ringN_ = 0;
@@ -494,7 +513,7 @@ class Carro {
 inline void Mundo::tick(Carro& c) {
   const unsigned long t = c.agoraMs();
   const Estado e = c.estado();
-  if (op.ativo) {
+  if (op.ativo && !op.externo) {
     if (t >= op.paradoAte) {
       const double tx = xDoCruzamento(op.alvoC), ty = yDoCruzamento(op.alvoR);
       const double d = hypot(tx - op.x, ty - op.y);
@@ -533,10 +552,11 @@ inline void Mundo::tick(Carro& c) {
     }
   }
   if (!ruidoLigado) return;
-  // --- ruido aleatorio: cada evento entra no log (a pagina mostra) e a mancha e desenhada
+  // --- ruido aleatorio: cada evento entra no log (a pagina mostra) e a mancha e desenhada. Cada tipo tem o seu relogio.
   for (Mancha& m : manchas)
     if (m.ate == static_cast<size_t>(-1) && t >= m.expiraMs) m.ate = c.quadro();
-  if (t >= proxMancha) {
+  auto agenda = [&](int k, unsigned long de, unsigned long ate) { prox[k] = t + de + static_cast<unsigned long>(rnd() * (ate - de)); };
+  if (t >= prox[0]) {   // mancha de sujeira: parece linha
     const double dist = 200 + rnd() * 150, lat = (rnd() - 0.5) * 80;
     Mancha m;
     m.x = e.x + dist * cos(e.th) - lat * sin(e.th);
@@ -545,25 +565,79 @@ inline void Mundo::tick(Carro& c) {
     m.desde = c.quadro();
     m.expiraMs = t + 25000;
     manchas.push_back(m);
-    evento(t, fmt("RUIDO: mancha escura de %.0f mm apareceu a %.0f mm a frente (parece linha para a barra)", m.raio * 2, dist));
-    proxMancha = t + 15000 + static_cast<unsigned long>(rnd() * 20000);
+    evento(t, fmt("RUIDO: mancha de SUJEIRA de %.0f mm a %.0f mm a frente (parece linha para a barra)", m.raio * 2, dist));
+    agenda(0, 15000, 35000);
   }
-  if (t >= proxPatina) {
+  if (t >= prox[1]) {   // patinagem
     const double f = 0.75 + 0.35 * rnd();
     c.fatorRodas(f);
     fimPatina = t + 600;
-    evento(t, fmt("RUIDO: patinagem, rodas a %.0f%% por 0,6 s", f * 100));
-    proxPatina = t + 12000 + static_cast<unsigned long>(rnd() * 12000);
+    evento(t, fmt("RUIDO: PATINAGEM, rodas a %.0f%% por 0,6 s", f * 100));
+    agenda(1, 12000, 24000);
   }
   if (fimPatina && t >= fimPatina) { c.fatorRodas(1.0); fimPatina = 0; }
-  if (t >= proxAtraso) {
+  if (t >= prox[2]) {   // sensores RC atrasados
     const int ticks = 2 + static_cast<int>(rnd() * 4);
     c.atrasoLeitura(ticks);
     fimAtraso = t + 1000;
-    evento(t, fmt("RUIDO: sensores atrasados %d ms por 1 s", ticks * 5));
-    proxAtraso = t + 20000 + static_cast<unsigned long>(rnd() * 15000);
+    evento(t, fmt("RUIDO: sensores ATRASADOS %d ms por 1 s", ticks * 5));
+    agenda(2, 20000, 35000);
   }
   if (fimAtraso && t >= fimAtraso) { c.atrasoLeitura(0); fimAtraso = 0; }
+  if (t >= prox[3]) {   // um sensor RC preso
+    const int i = static_cast<int>(rnd() * 8) % 8;
+    const bool preto = rnd() < 0.5;
+    c.prenderSensor(i, preto, t + 1500);
+    evento(t, fmt("RUIDO: sensor S%d PRESO em %s por 1,5 s", i + 1, preto ? "preto" : "branco"));
+    agenda(3, 25000, 45000);
+  }
+  if (t >= prox[4]) {   // ultrassom: eco falso ou perda de eco
+    const bool perda = rnd() < 0.5;
+    const double mm = perda ? -1.0 : 80 + rnd() * 220;
+    c.ultrassomFalso(t + 400, mm);
+    evento(t, perda ? "RUIDO: ULTRASSOM perdeu o eco por 0,4 s" : fmt("RUIDO: ULTRASSOM deu um eco FALSO de %.0f mm por 0,4 s", mm));
+    agenda(4, 18000, 32000);
+  }
+  if (t >= prox[5]) {   // um motor mais fraco
+    const bool esq = rnd() < 0.5;
+    const double f = 0.86 + 0.08 * rnd();
+    c.fatorLados(esq ? f : 1.0, esq ? 1.0 : f);
+    fimMotor = t + 2000;
+    evento(t, fmt("RUIDO: MOTOR %s a %.0f%% por 2 s (o carro puxa para um lado)", esq ? "esquerdo" : "direito", f * 100));
+    agenda(5, 25000, 40000);
+  }
+  if (fimMotor && t >= fimMotor) { c.fatorLados(1.0, 1.0); fimMotor = 0; }
+  if (t >= prox[6]) {   // queda de tensao da bateria
+    c.fatorRodas(0.85);
+    fimPatina = t + 4000;
+    evento(t, "RUIDO: BATERIA caiu: todas as rodas a 85% por 4 s");
+    agenda(6, 40000, 70000);
+  }
+  if (t >= prox[7]) {   // o vies do giroscopio anda
+    const double d = (rnd() - 0.5) * 3.0;
+    c.saltarVies(d);
+    evento(t, fmt("RUIDO: o VIES do giroscopio andou %+.1f graus/s (o rumo vai derivar ate a ancora na grade corrigir)", d));
+    agenda(7, 45000, 80000);
+  }
+  if (t >= prox[8]) {   // solavanco
+    const double g = (rnd() - 0.5) * 14.0;
+    c.chutar(g);
+    evento(t, fmt("RUIDO: SOLAVANCO girou o carro %+.0f graus sem comando", g));
+    agenda(8, 30000, 55000);
+  }
+  if (t >= prox[9]) {   // desgaste branco na fita: a linha some por um trecho
+    const double dist = 180 + rnd() * 120;
+    Mancha m;
+    m.x = e.x + dist * cos(e.th);
+    m.y = e.y + dist * sin(e.th);
+    m.raio = 14 + rnd() * 6;
+    m.branca = true;
+    m.desde = c.quadro();
+    m.expiraMs = t + 25000;
+    manchas.push_back(m);
+    evento(t, fmt("RUIDO: DESGASTE na fita de %.0f mm a %.0f mm a frente (a linha some)", m.raio * 2, dist));
+    agenda(9, 30000, 55000);
+  }
 }
 
 // ---------------------------------------------------------------- firmware simulado (espelha SeguidorBasico.ino)
@@ -709,6 +783,11 @@ struct Firmware {
   unsigned long ultimoTcsMs = 0, ultimoUsMs = 0, esperaAte = 0;
   float usAnt = -1.0f, velMmSAtual = 0.0f;
   int verdesSeguidos = 0;
+  // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 302 mm.
+  unsigned long tSaidaMs = 0;
+  bool medindoVel = false;
+  int amostrasVel = 0;
+  float ultimaVelMedida = 0.0f, velLivreMmS = 0.0f;
   static constexpr int kVerdesParaReposicionar = 3;
 
   // ---- MPU (inercial.h). Desligado por padrao: os cenarios antigos rodam como antes.
@@ -735,14 +814,17 @@ struct Firmware {
     ajustes.lacunaMs = 450;
   }
 
+  std::function<void()> ceder;   // quando ha outro robo na cena: devolve a vez a cada ciclo (os dois andam juntos)
+
   // Avanca um ciclo e le o MPU (integra o rumo com o vies estimado).
   void tick(Carro& c) {
     c.avancar();
-    if (!usaImu) return;
+    if (!usaImu) { if (ceder) ceder(); return; }
     ultimoImu = c.imu();
     const unsigned long agora = c.agoraMs();
     rumo += (ultimoImu.gzRadS - vies) * kRadParaGrau * static_cast<float>(agora - ultimoMsImu) / 1000.0f;
     ultimoMsImu = agora;
+    if (ceder) ceder();
   }
 
   static void apaga(int& v, float x) { v = static_cast<int>(x); }
@@ -815,6 +897,20 @@ struct Firmware {
       tUltimoCruzamento = c.agoraMs();
       return;
     }
+    // Chegou a um cruzamento depois de sair do ANTERIOR em linha reta (sem virar): a distancia e de 302 mm (o eixo para sempre no mesmo ponto antes do centro), entao
+    // 302 mm / tempo andando = velocidade REAL. Media movel; vira a velocidade usada para tempos de perda de linha, fim de beco e deslocamentos fora da cidade.
+    if (medindoVel && tSaidaMs != 0 && !nav.loc.inGreen) {
+      const float dtS = static_cast<float>(c.agoraMs() - tSaidaMs) / 1000.0f;
+      const float v = static_cast<float>(kPasso) / dtS;
+      if (dtS > 0.3f && v > 80.0f && v < 600.0f) {
+        ajC.velMmS = amostrasVel == 0 ? v : 0.7f * ajC.velMmS + 0.3f * v;
+        ultimaVelMedida = v;
+        velLivreMmS = std::max(v, velLivreMmS * 0.98f);   // a mais rapida das ultimas (decai devagar): as medicoes incluem partida, correcoes e parada; o deslocamento SEM linha anda reto, perto da maxima
+        amostrasVel++;
+        if (getenv("SIM_DEBUG")) fprintf(stderr, "    VEL amostra %.0f mm/s (media %.0f, livre %.0f)\n", v, ajC.velMmS, velLivreMmS);
+      }
+    }
+    medindoVel = false;
     // As duas pontas acesas, em QUALQUER situacao (inclusive perdido/buscando): varredura de 90 graus a partir do lado menos explorado
     const bool vinhaSeguindo = vinhaSeguindoLinha(memoria, c.agoraMs(), ajustes);
     const int lado = ladoMenosExplorado(expl, rumo, usaImu, memoria.ultimoLado);
@@ -866,10 +962,15 @@ struct Firmware {
         if (saindo) portaoPendente = true;   // vai sair pelo nosso portao de proposito: a azul nao e borda
         c.mundo()->evento(c.agoraMs(), fmt("plano: %s | seguir '%c' (pose %s, coluna %.0f%%, linha %.0f%%)", nav.ultimoPlano.c_str(), a, nav.loc.inGreen ? "no verde" : fmt("(%d,%d)", core::estimate(nav.loc).pose.at.c, core::estimate(nav.loc).pose.at.r).c_str(), nav.loc.inGreen ? 0.0 : 100.0 * core::columnMass(nav.loc, core::estimate(nav.loc).pose.at.c), nav.loc.inGreen ? 0.0 : 100.0 * core::rowMass(nav.loc, core::estimate(nav.loc).pose.at.r)));
       }
+      medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a 302 mm
+      tSaidaMs = c.agoraMs();
       if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
       else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
+      if (a == 'S') comecarASair(cruz, c.agoraMs());   // reto: a barra ainda esta em cima da faixa do cruzamento, o debounce evita contar de novo
+      else cruz = MemoriaCruzamento{};                 // virou (L, R, U): a barra ja nao esta na faixa; o debounce de 300 ms (75 mm) engolia a BORDA a 49 mm do beco (o carro passou da linha vermelha)
+    } else {
+      comecarASair(cruz, c.agoraMs());
     }
-    comecarASair(cruz, c.agoraMs());
   }
 
   // Vira para a rua do lado. A barra para na BORDA da rua que cruza e o eixo ainda esta ~40 mm antes do centro: girar dali poe a rua a 40 mm do eixo,
@@ -900,11 +1001,11 @@ struct Firmware {
   template <class Parar>
   void andarMm(Carro& c, double mm, Parar parar) {
     const double alvoRumo = rumo;
-    const unsigned long ms = static_cast<unsigned long>(mm / std::max(1.0f, ajC.velMmS) * 1000.0);
+    const unsigned long ms = static_cast<unsigned long>(mm / std::max(1.0f, velLivreMmS > 0.0f ? velLivreMmS : ajC.velMmS) * 1000.0);
     const unsigned long ini = c.agoraMs();
     while (c.agoraMs() - ini < ms) {
       Comando cmd{};
-      cmd.esq = cmd.dir = ajustes.velReto / 2 < ajustes.velMinima ? ajustes.velMinima : ajustes.velReto / 2;
+      cmd.esq = cmd.dir = ajustes.velReto;   // a MESMA velocidade em que se mediu a velocidade (distancia entre cruzamentos / tempo): senao o tempo nao vira distancia
       if (usaImu) segurarRumoNaLacuna(cmd, rumo, static_cast<float>(alvoRumo), ajustes, ai);
       c.comandar(cmd.esq, cmd.dir);
       tick(c);
@@ -918,21 +1019,40 @@ struct Firmware {
   void entregarNaPlataforma(Carro& c) {
     nav.entregando = true;
     Mundo* m = c.mundo();
-    const double yRua = yDoCruzamento(core::estimate(nav.loc).pose.at.r);   // a linha por onde saiu
-    double yAtual = nav.loc.inGreen ? yRua : yRua;
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTREGAR t=%.0fs: rumo %.0f, real th %.0f, pos (%.0f,%.0f)\n", c.agoraMs() / 1000.0, rumo, c.estado().th * 57.3, c.estado().x, c.estado().y);
     // 1) entra no verde: continua para o oeste ate x ~ -150
     girarPara(c, 180.0);
     andarMm(c, 150.0, [] { return false; });
+    // 2) acha a altura (y) SEM depender da pose estimada, que as vezes esta errada: sobe ate a linha VERMELHA do alto (TCS do chao: vermelho = para na hora) e conta a partir dela
+    girarPara(c, 90.0);
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTREGAR subindo: rumo %.0f, real th %.0f, pos (%.0f,%.0f)\n", rumo, c.estado().th * 57.3, c.estado().x, c.estado().y);
+    andarMm(c, 2000.0, [&] { return c.piso() == Pista::kPisoVermelho; });
+    double yAtual = kAlt - 40.0;   // com a barra na borda da faixa vermelha, o eixo esta ~40 mm abaixo dela
     for (const seguidor::CorCubo cor : std::vector<seguidor::CorCubo>(nav.carga)) {
       const Plataforma* pl = m->plataformaDaCor(cor);
       if (!pl) { nav.pontos -= 10; nav.perdidos++; m->evento(c.agoraMs(), "cubo sem plataforma da cor: perdido"); continue; }
       nav.alvoX = pl->x; nav.alvoY = pl->y;
-      // 2) vai ate a altura da plataforma (norte/sul), 3) vira para o oeste, 4) anda ate a plataforma aparecer a ~6 cm
+      // 3) vai ate a altura ESPERADA da plataforma (os slots sao retangulos fixos na arena; a cor e que muda), 4) vira para o oeste e olha; como a conta de distancia por tempo
+      //    erra algumas dezenas de mm e a plataforma tem so 50 mm de altura, 5) varre para cima e para baixo de 60 em 60 mm ate ver a plataforma da cor do cubo.
       const double dy = pl->y - yAtual;
       if (fabs(dy) > 20.0) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
-      girarPara(c, 180.0);
       yAtual = pl->y;
-      andarMm(c, 400.0, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma; });
+      girarPara(c, 180.0);
+      auto achou = [&] {
+        andarMm(c, 150.0, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma; });
+        const bool ok = c.plataformaNaFrente(70.0) == cor;
+        if (!ok) { girarPara(c, 0.0); andarMm(c, 90.0, [] { return false; }); girarPara(c, 180.0); }   // nao e ela: recua para o verde para varrer sem bater
+        return ok;
+      };
+      bool encontrou = achou();
+      static const double passos[8] = {60, -120, 180, -240, 300, -360, 420, -480};   // cada passo e relativo ao anterior: +60, -60, +120, -120, ...
+      for (int k = 0; k < 8 && !encontrou; k++) {
+        girarPara(c, passos[k] > 0 ? 90.0 : -90.0);
+        andarMm(c, fabs(passos[k]), [] { return false; });
+        yAtual += passos[k];
+        girarPara(c, 180.0);
+        encontrou = achou();
+      }
       const seguidor::CorCubo vista = c.plataformaNaFrente(70.0);
       if (vista == cor) {
         nav.pontos += 100;
@@ -945,11 +1065,12 @@ struct Firmware {
       }
       girarPara(c, 0.0);                // de costas para a plataforma: volta para o verde
       andarMm(c, 120.0, [] { return false; });
+      girarPara(c, 180.0);
     }
     nav.carga.clear();
     nav.carregando = false;
     m->carga0 = m->carga1 = 0;
-    // 5) volta de frente para a cidade, na altura do cruzamento mais proximo, e procura o portao de novo
+    // 6) volta de frente para a cidade, na altura do cruzamento mais proximo, e procura o portao de novo
     int rr = static_cast<int>(lround((yAtual - kBeco) / kPasso));
     rr = std::max(0, std::min(core::kMapRows - 1, rr));
     const double yAlvo = yDoCruzamento(rr);
@@ -1113,6 +1234,171 @@ struct Firmware {
     c.comandar(cmd.parar ? 0 : cmd.esq, cmd.parar ? 0 : cmd.dir);
     velMmSAtual = (cmd.esq > 0 && cmd.dir > 0 && !cmd.parar) ? ajC.velMmS * static_cast<float>(cmd.esq + cmd.dir) / (2.0f * static_cast<float>(ajustes.velReto)) : 0.0f;
     tick(c);
+  }
+};
+
+// ---------------------------------------------------------------- DOIS ROBOS IGUAIS na mesma arena (o oponente e outro robo com o MESMO firmware)
+// Cada robo roda a sua logica numa thread e entrega a vez a cada ciclo de 5 ms (tick), entao os dois andam juntos sem mexer no firmware. O oponente usa a arena no
+// referencial DELE (comeca no verde da esquerda, a mesma pista): o mundo real e o dele girado 180 graus em torno do centro. Os cubos sao os mesmos (copias espelhadas,
+// sincronizadas a cada ciclo). Colisao (regras 7.1): quem estava avancando contra o outro leva -10 e volta ao ponto de partida (verde); o atingido e recolocado onde estava.
+static Pista tabuleiro();
+static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool oponente, bool ruido);
+static Estado espelho(const Estado& e) { return {kLarg - e.x, kAlt - e.y, e.th + M_PI}; }
+
+struct Agente {
+  std::string nome;
+  Pista* pista = nullptr;
+  Mundo mundo;
+  std::unique_ptr<Carro> carro;
+  std::unique_ptr<Firmware> fw;
+  std::thread th;
+  std::mutex mu;
+  std::condition_variable cv;
+  bool vez = false, morto = false;
+
+  void iniciar() {
+    fw->ceder = [this] {
+      std::unique_lock<std::mutex> l(mu);
+      vez = false;
+      cv.notify_all();
+      cv.wait(l, [this] { return vez || morto; });
+    };
+    th = std::thread([this] {
+      { std::unique_lock<std::mutex> l(mu); cv.wait(l, [this] { return vez || morto; }); }
+      while (!morto) fw->passo(*carro);
+    });
+  }
+  void retomar() {   // roda ate o proximo tick
+    std::unique_lock<std::mutex> l(mu);
+    vez = true;
+    cv.notify_all();
+    cv.wait(l, [this] { return !vez || morto; });
+  }
+  ~Agente() {
+    { std::lock_guard<std::mutex> l(mu); morto = true; vez = true; }
+    cv.notify_all();
+    if (th.joinable()) th.join();
+  }
+};
+
+struct Cena {
+  Pista pista = tabuleiro();
+  Agente a, b;   // a = nos (lado esquerdo do mundo), b = o outro robo (lado direito, mas simulado no referencial dele)
+  std::vector<char> vivoMundo;
+  unsigned long cooldown = 0;
+  int reinicios = 0;
+
+  bool dois = true;
+  void montar(int ncubos, bool ruido, bool comOponente = true) {
+    dois = comOponente;
+    a.nome = "nos"; b.nome = "oponente";
+    a.pista = b.pista = &pista;
+    a.carro = std::make_unique<Carro>(pista, Estado{-140, yDoCruzamento(2), 0.0});
+    b.carro = std::make_unique<Carro>(pista, Estado{-140, yDoCruzamento(1), 0.0});   // no referencial dele: tambem de frente para a cidade
+    a.fw = std::make_unique<Firmware>();
+    configurarMissao(a.mundo, *a.fw, *a.carro, ncubos, false, ruido);
+    if (!dois) { vivoMundo.assign(a.mundo.cubos.size(), 1); a.iniciar(); return; }
+    b.fw = std::make_unique<Firmware>();
+    // o oponente tem as proprias plataformas (cores diferentes) e os MESMOS cubos, espelhados
+    using seguidor::CorCubo;
+    b.mundo.porPlataformas({{1, CorCubo::Verde}, {2, CorCubo::Azul}, {3, CorCubo::Marrom}, {4, CorCubo::Vermelho}});
+    for (int i = 0; i < seguidor::kNumCoresCubo; i++) b.fw->nav.coleta.coletavel[i] = false;
+    for (const Plataforma& pl : b.mundo.plataformas) b.fw->nav.coleta.coletavel[static_cast<int>(pl.cor)] = true;
+    for (const Cubo& cu : a.mundo.cubos) {
+      Cubo e = cu;
+      e.x = kLarg - cu.x; e.y = kAlt - cu.y;
+      if (!cu.obstaculo) { if (cu.leste) { e.c = core::kMapCols - 2 - cu.c; e.r = core::kMapRows - 1 - cu.r; } else { e.c = core::kMapCols - 1 - cu.c; e.r = core::kMapRows - 2 - cu.r; } }
+      else { e.c = 4 - cu.c; e.r = 3 - cu.r; }
+      b.mundo.cubos.push_back(e);
+    }
+    b.mundo.ruidoLigado = ruido;
+    b.mundo.seed = 9191;
+    b.mundo.cfg.tcsChaoErro = ruido ? 0.02 : 0.0;
+    b.carro->usarMundo(&b.mundo);
+    b.fw->ligarImu(*b.carro);
+    b.fw->nav.iniciar();
+    b.fw->portaoPendente = true;
+    a.mundo.op.ativo = b.mundo.op.ativo = true;
+    a.mundo.op.externo = b.mundo.op.externo = true;
+    vivoMundo.assign(a.mundo.cubos.size(), 1);
+    a.iniciar();
+    b.iniciar();
+  }
+
+  // Um ciclo de 5 ms para os dois.
+  void ciclo() {
+    a.retomar();
+    if (dois) b.retomar();
+    sincronizar();
+  }
+
+  // Regras 7 e 8: sair da arena, passar da linha vermelha ou da azul do OUTRO lado = robo perdido: -5 e o capitao o recoloca na area livre (verde).
+  // Cada robo e testado no proprio referencial (a arena e a mesma): permitido x de -500 a kLarg (a azul do outro lado) e y de 0 a kAlt (as vermelhas).
+  void conferirLimites(Agente& g) {
+    const Estado e = g.carro->estado();
+    if (e.x < -520.0 || e.x > kLarg + 20.0 || e.y < -20.0 || e.y > kAlt + 20.0) {
+      g.mundo.evento(g.carro->agoraMs(), fmt("SAIU DA ARENA em (%.0f,%.0f) [fazendo: %s%s]", e.x, e.y, g.fw->nav.ultimoPlano.c_str(), g.fw->nav.entregando ? ", entregando" : ""));
+      reiniciarNoVerde(g, "saiu da arena (robo perdido)", 5);
+    }
+  }
+
+  static double fechamento(const Estado& de, double vDe, const Estado& para) {   // velocidade com que `de` se aproxima de `para` (mm/s)
+    const double ang = atan2(para.y - de.y, para.x - de.x);
+    return vDe * cos(remainder(ang - de.th, 2 * M_PI));
+  }
+
+  void reiniciarNoVerde(Agente& g, const char* motivo, int penalidade = 10) {
+    const int linha = static_cast<int>(g.mundo.rnd() * core::kMapRows) % core::kMapRows;
+    g.carro->colocarEm({-140, yDoCruzamento(linha), 0.0});
+    g.carro->parar();
+    g.fw->nav.reposicionado();
+    g.fw->nav.pontos += 15;   // reposicionado() ja cobra o reinicio (-15); a colisao cobra os seus -10 (regras 7.1), nao os dois
+    g.fw->nav.pontos -= penalidade;
+    g.fw->reposicionados++;
+    g.fw->rumo = 0.0f;
+    g.fw->memoria = Memoria{};
+    g.fw->cruz = MemoriaCruzamento{};
+    esquecerCor(g.fw->memCor);
+    g.fw->portaoPendente = true;
+    g.mundo.carga0 = g.mundo.carga1 = 0;
+    g.mundo.evento(g.carro->agoraMs(), fmt("%s: voltou ao ponto de partida (verde), -%d", motivo, penalidade));
+  }
+
+  void sincronizar() {
+    conferirLimites(a);
+    if (!dois) return;
+    conferirLimites(b);
+    // cubos
+    for (size_t i = 0; i < vivoMundo.size(); i++) {
+      if (!vivoMundo[i]) continue;
+      if (!a.mundo.cubos[i].vivo) { vivoMundo[i] = 0; b.mundo.cubos[i].vivo = false; b.mundo.cubos[i].mortoEm = b.carro->quadro(); }
+      else if (!b.mundo.cubos[i].vivo) {
+        vivoMundo[i] = 0;
+        a.mundo.cubos[i].vivo = false;
+        a.mundo.cubos[i].mortoEm = a.carro->quadro();
+        a.mundo.pegosPeloOponente++;
+        a.mundo.evento(a.carro->agoraMs(), fmt("o OPONENTE coletou um cubo da rua (%d,%d)", a.mundo.cubos[i].c, a.mundo.cubos[i].r));
+      }
+    }
+    // um enxerga o outro como obstaculo (ultrassom) e como alvo que se mexe
+    const Estado ea = a.carro->estado(), eb = espelho(b.carro->estado());
+    a.mundo.op.x = eb.x; a.mundo.op.y = eb.y; a.mundo.op.th = eb.th;
+    b.mundo.op.x = kLarg - ea.x; b.mundo.op.y = kAlt - ea.y; b.mundo.op.th = ea.th + M_PI;
+    // colisao
+    const unsigned long t = a.carro->agoraMs();
+    if (hypot(ea.x - eb.x, ea.y - eb.y) < 170.0 && t >= cooldown) {
+      cooldown = t + 3000;
+      const double fa = fechamento(ea, a.carro->velMmS(), eb), fb = fechamento(eb, b.carro->velMmS(), ea);
+      a.carro->bater(2.5, 4);
+      b.carro->bater(2.5, 4);
+      reinicios++;
+      Agente& culpado = fa >= fb ? a : b;
+      Agente& vitima = fa >= fb ? b : a;
+      a.mundo.evento(t, fmt("COLISAO entre os robos: %s vinha avancando mais (%.0f contra %.0f mm/s)", culpado.nome.c_str(), std::max(fa, fb), std::min(fa, fb)));
+      reiniciarNoVerde(culpado, "colisao (regras 7.1)");
+      const std::vector<Estado>& r = vitima.carro->rastro();
+      if (r.size() > 80) vitima.carro->colocarEm(r[r.size() - 80]);   // o capitao recoloca o atingido onde estava ~1,6 s antes
+    }
   }
 };
 
@@ -1515,8 +1801,25 @@ static Resultado cenarioMissao(bool ruido, int meta) {
   const PrecisaoMemoria pm = precisaoMemoria(m, fw.nav.cubos);
   if (getenv("SIM_DEBUG")) fprintf(stderr, "    MEMORIA: acertou %d, achou cubo onde nao ha %d, nao lembra de %d (de %d ruas)\n", pm.certo, pm.falsoPositivo, pm.perdeu, pm.total);
   return {ruido ? "missao completa com ruido: explora, coleta, entrega" : "missao completa: explora, coleta, entrega", fim,
-          fmt("%s em %.0f s | PONTOS %d | coletou %d, entregou %d, brancos identificados %d, bloqueou %d rua(s) | cruzamentos %d (falsos %d), reposicoes %d | visitou %d de 30 cruzamentos | oponente levou %d cubo(s), colisoes %d",
-              fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.pontos, fw.nav.coletados, fw.nav.entregues, fw.nav.brancosIdentificados, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, m.pegosPeloOponente, m.colisoesOponente)};
+          fmt("%s em %.0f s | PONTOS %d | coletou %d, entregou %d, brancos identificados %d, bloqueou %d rua(s) | cruzamentos %d (falsos %d), reposicoes %d | visitou %d de 30 cruzamentos | velocidade medida pela distancia entre cruzamentos %.0f mm/s (%d amostras; real a 110 de PWM: %.0f) | oponente levou %d cubo(s), colisoes %d",
+              fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.pontos, fw.nav.coletados, fw.nav.entregues, fw.nav.brancosIdentificados, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, fw.ajC.velMmS, fw.amostrasVel, c.velNominalMmS(fw.ajustes.velReto), m.pegosPeloOponente, m.colisoesOponente)};
+}
+
+// Dois robos IGUAIS na mesma arena (regras): cada um com o mesmo firmware; colisao leva -10 e volta ao ponto de partida (regras 7.1). Roda ate os dois terem entregue `meta`
+// cubos (ou o teto de seguranca).
+static Resultado cenarioDuasEquipes(bool ruido, int meta) {
+  auto cena = std::make_unique<Cena>();
+  cena->montar(18, ruido);
+  const unsigned long inicio = cena->a.carro->agoraMs();
+  bool fim = false;
+  while (cena->a.carro->agoraMs() - inicio < kTetoSegurancaMs && !(fim = cena->a.fw->nav.entregues >= meta && cena->b.fw->nav.entregues >= meta)) cena->ciclo();
+  if (getenv("SIM_DEBUG")) for (const std::string& l : cena->a.mundo.log) fprintf(stderr, "    NOS %s\n", l.c_str());
+  const Firmware& fa = *cena->a.fw;
+  const Firmware& fb = *cena->b.fw;
+  return {ruido ? "dois robos iguais, com ruido" : "dois robos iguais na arena", fim,
+          fmt("%s em %.0f s | NOS: %d pontos (coletou %d, entregou %d, brancos %d) | OPONENTE: %d pontos (coletou %d, entregou %d, brancos %d) | colisoes %d",
+              fim ? "os dois entregaram a meta" : "meta nao atingida", cena->a.carro->agoraMs() / 1000.0, fa.nav.pontos, fa.nav.coletados, fa.nav.entregues, fa.nav.brancosIdentificados,
+              fb.nav.pontos, fb.nav.coletados, fb.nav.entregues, fb.nav.brancosIdentificados, cena->reinicios)};
 }
 
 // 3b. Depois do cruzamento o carro tem de seguir a linha do outro lado (rua e beco longos).
@@ -1618,21 +1921,27 @@ static Resultado cenarioBusca(double dist, double rumoGraus) {
 
 struct Sessao {
   std::string nome;
-  std::unique_ptr<Pista> pista;
-  std::unique_ptr<Mundo> mundo;   // cubos, oponente, ruido (so nas sessoes de missao)
-  std::unique_ptr<Carro> carro;
-  std::unique_ptr<Firmware> fw;
-  double frenteGraus = 90.0;   // para onde e "de frente" depois de levantado e solto
+  std::shared_ptr<Pista> pista;
+  std::shared_ptr<Mundo> mundo;   // cubos, oponente, ruido (so nas sessoes de missao)
+  std::shared_ptr<Carro> carro;
+  std::shared_ptr<Firmware> fw;
+  std::shared_ptr<Cena> cena;     // dois robos iguais: a = nos, b = o outro (mundo, carro e fw acima apontam para o `a`)
+  double frenteGraus = 90.0;      // para onde e "de frente" depois de levantado e solto
+  // Simula ate o robo ter `quadros` quadros gravados (cada um e 20 ms).
+  void avancarAte(size_t quadros) {
+    if (cena) { while (carro->rastro().size() < quadros) cena->ciclo(); }
+    else { while (carro->rastro().size() < quadros) fw->passo(*carro); }
+  }
 };
 
-struct Receita { std::string nome; std::function<std::unique_ptr<Sessao>()> cria; };
+struct Receita { std::string nome; std::function<std::shared_ptr<Sessao>()> cria; };
 
-static std::unique_ptr<Sessao> sessaoSimples(const std::string& nome, Pista&& pista, Estado e, bool mpu, double frente = 90.0) {
-  auto s = std::make_unique<Sessao>();
+static std::shared_ptr<Sessao> sessaoSimples(const std::string& nome, Pista&& pista, Estado e, bool mpu, double frente = 90.0) {
+  auto s = std::make_shared<Sessao>();
   s->nome = nome;
-  s->pista = std::make_unique<Pista>(std::move(pista));
-  s->carro = std::make_unique<Carro>(*s->pista, e);
-  s->fw = std::make_unique<Firmware>();
+  s->pista = std::make_shared<Pista>(std::move(pista));
+  s->carro = std::make_shared<Carro>(*s->pista, e);
+  s->fw = std::make_shared<Firmware>();
   s->frenteGraus = frente;
   if (mpu) s->fw->ligarImu(*s->carro);
   return s;
@@ -1640,17 +1949,20 @@ static std::unique_ptr<Sessao> sessaoSimples(const std::string& nome, Pista&& pi
 
 static std::vector<Receita> receitas() {
   std::vector<Receita> r;
-  for (const bool ruido : {false, true}) {
-    const std::string nome = ruido ? "MISSAO COMPLETA com RUIDO aleatorio (sinalizado): explora, coleta, entrega" : "MISSAO COMPLETA: explora, coleta, entrega";
-    r.push_back({nome, [nome, ruido] {
-      auto s = std::make_unique<Sessao>();
+  for (const int variante : {0, 1, 2}) {   // 0 = 2 robos, 1 = 2 robos com ruido, 2 = so nos (sem oponente)
+    const bool ruido = variante == 1, dois = variante != 2;
+    const std::string nome = variante == 0 ? "MISSAO COMPLETA: dois robos iguais na arena (explora, coleta, entrega)" : variante == 1 ? "MISSAO COMPLETA com RUIDO aleatorio (sinalizado), dois robos iguais" : "MISSAO COMPLETA: so o nosso robo (sem oponente)";
+    r.push_back({nome, [nome, ruido, dois] {
+      auto s = std::make_shared<Sessao>();
       s->nome = nome;
-      s->pista = std::make_unique<Pista>(tabuleiro());
-      s->mundo = std::make_unique<Mundo>();
-      s->carro = std::make_unique<Carro>(*s->pista, Estado{-140, yDoCruzamento(2), 0.0});
-      s->fw = std::make_unique<Firmware>();
       s->frenteGraus = 0.0;
-      configurarMissao(*s->mundo, *s->fw, *s->carro, 8, true, ruido);
+      auto cena = std::make_shared<Cena>();
+      cena->montar(dois ? 18 : 14, ruido, dois);
+      s->pista = std::shared_ptr<Pista>(cena, &cena->pista);
+      s->mundo = std::shared_ptr<Mundo>(cena, &cena->a.mundo);
+      s->carro = std::shared_ptr<Carro>(cena, cena->a.carro.get());
+      s->fw = std::shared_ptr<Firmware>(cena, cena->a.fw.get());
+      s->cena = cena;
       return s;
     }});
   }
@@ -1717,7 +2029,13 @@ static std::vector<Receita> receitas() {
 
 static std::string jsonCubos(const Mundo* m) {
   std::string o = "[";
-  if (m) for (size_t i = 0; i < m->cubos.size(); i++) o += fmt("%s[%.0f,%.0f,%d]", i ? "," : "", m->cubos[i].x, m->cubos[i].y, static_cast<int>(m->cubos[i].cor));
+  if (m) for (size_t i = 0; i < m->cubos.size(); i++) o += fmt("%s[%.0f,%.0f,%d,%d]", i ? "," : "", m->cubos[i].x, m->cubos[i].y, static_cast<int>(m->cubos[i].cor), m->cubos[i].obstaculo ? 1 : 0);
+  return o + "]";
+}
+
+static std::string jsonPlataformas(const Mundo* m) {
+  std::string o = "[";
+  if (m) for (size_t i = 0; i < m->plataformas.size(); i++) o += fmt("%s[%.0f,%.0f,%d]", i ? "," : "", m->plataformas[i].x, m->plataformas[i].y, static_cast<int>(m->plataformas[i].cor));
   return o + "]";
 }
 
@@ -1765,7 +2083,7 @@ static int servir(int porta) {
   addr.sin_port = htons(static_cast<uint16_t>(porta));
   if (bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0 || listen(srv, 8) != 0) { perror("bind/listen"); return 1; }
   const std::vector<Receita> lista = receitas();
-  std::map<int, std::unique_ptr<Sessao>> sessoes;
+  std::map<int, std::shared_ptr<Sessao>> sessoes;
   auto pega = [&](int i) -> Sessao& {
     if (!sessoes.count(i)) sessoes[i] = lista[static_cast<size_t>(i)].cria();
     return *sessoes[i];
@@ -1797,30 +2115,36 @@ static int servir(int porta) {
       Sessao& s = pega(i);
       std::string js = jsonSegs(*s.pista);
       js.pop_back();   // reabre o objeto para acrescentar os cubos
-      responder(fd, "application/json", js + ",\"cubos\":" + jsonCubos(s.mundo.get()) + ",\"ruidoDisponivel\":" + (s.mundo ? "true" : "false") + "}");
+      responder(fd, "application/json", js + ",\"cubos\":" + jsonCubos(s.mundo.get()) + ",\"plat\":" + jsonPlataformas(s.mundo.get()) + ",\"ruidoDisponivel\":" + (s.mundo ? "true" : "false") + "}");
     } else if (rota == "/frames") {   // quadros [desde, desde+n): simula so ate aqui
       Sessao& s = pega(i);
       const size_t desde = static_cast<size_t>(std::max(0, atoi(valor(q, "desde", "0").c_str())));
       const size_t n2 = static_cast<size_t>(std::max(1, std::min(500, atoi(valor(q, "n", "50").c_str()))));
-      while (s.carro->rastro().size() < desde + n2) s.fw->passo(*s.carro);
+      s.avancarAte(desde + n2);
       std::string o = "{\"f\":[";
       const Mundo* mu = s.mundo.get();
       for (size_t k = desde; k < desde + n2; k++) {
         const Estado& e = s.carro->rastro()[k];
         o += fmt("%s[%.1f,%.1f,%.2f,%d", k > desde ? "," : "", e.x, e.y, e.th * 180.0 / M_PI, s.carro->bits()[k]);
-        if (mu && mu->op.ativo && k < mu->opQuadros.size()) o += fmt(",%.1f,%.1f,%.1f", mu->opQuadros[k][0], mu->opQuadros[k][1], mu->opQuadros[k][2] * 180.0 / M_PI);
+        if (s.cena && s.cena->dois && k < s.cena->b.carro->rastro().size()) {   // o OUTRO robo, no mundo real (referencial espelhado)
+          const Estado ob = espelho(s.cena->b.carro->rastro()[k]);
+          o += fmt(",%.1f,%.1f,%.1f", ob.x, ob.y, ob.th * 180.0 / M_PI);
+        } else if (mu && mu->op.ativo && k < mu->opQuadros.size()) o += fmt(",%.1f,%.1f,%.1f", mu->opQuadros[k][0], mu->opQuadros[k][1], mu->opQuadros[k][2] * 180.0 / M_PI);
+        else o += ",-9999,-9999,0";
+        if (mu && k < mu->cargaQuadros.size()) o += fmt(",%d,%d", mu->cargaQuadros[k][0], mu->cargaQuadros[k][1]);
         o += "]";
       }
       const Firmware& f = *s.fw;
       std::string info = fmt("cruzamentos %d | falsos alarmes %d | endireitou %d | bordas %d (meias-voltas %d) | portao %d | levantado %s", f.cruzamentos, f.falsosAlarmes, f.endireitou, f.bordas, f.meiasVoltas, f.portoes, s.carro->levantado() ? "SIM" : "nao");
-      if (f.nav.ativo) info += fmt(" | COLETOU %d, ENTREGOU %d, bloqueou %d | plano: %s | %s", f.nav.coletados, f.nav.entregues, f.nav.bloqueios, f.nav.ultimoPlano.c_str(), f.nav.carregando ? "carregando cubo" : "sem cubo");
+      if (f.nav.ativo) info += fmt(" | NOS: %d PONTOS (coletou %d, entregou %d, brancos identificados %d, bloqueou %d rua(s)) | plano: %s | %s | velocidade medida %.0f mm/s", f.nav.pontos, f.nav.coletados, f.nav.entregues, f.nav.brancosIdentificados, f.nav.bloqueios, f.nav.ultimoPlano.c_str(), f.nav.carregando ? fmt("levando %d cubo(s)", static_cast<int>(f.nav.carga.size())).c_str() : "sem cubo", f.ajC.velMmS);
+      if (s.cena && s.cena->dois) { const Firmware& g = *s.cena->b.fw; info += fmt(" | OPONENTE: %d PONTOS (coletou %d, entregou %d, brancos %d) | colisoes entre os robos %d", g.nav.pontos, g.nav.coletados, g.nav.entregues, g.nav.brancosIdentificados, s.cena->reinicios); }
       o += "],\"i\":\"" + info + "\"";
       if (mu) {
         o += ",\"ruido\":" + std::string(mu->ruidoLigado ? "true" : "false") + ",\"cubos\":[";
         for (size_t k = 0; k < mu->cubos.size(); k++) o += fmt("%s%ld", k ? "," : "", mu->cubos[k].mortoEm == static_cast<size_t>(-1) ? -1L : static_cast<long>(mu->cubos[k].mortoEm));
         o += "],\"manchas\":[";
         for (size_t k = 0; k < mu->manchas.size(); k++) o += fmt("%s[%.0f,%.0f,%.0f,%zu,%ld]", k ? "," : "", mu->manchas[k].x, mu->manchas[k].y, mu->manchas[k].raio, mu->manchas[k].desde, mu->manchas[k].ate == static_cast<size_t>(-1) ? -1L : static_cast<long>(mu->manchas[k].ate));
-        o += "],\"ev\":[";
+        o += fmt("],\"alvo\":[%.0f,%.0f],\"ev\":[", f.nav.alvoX, f.nav.alvoY);
         const size_t ini = mu->log.size() > 12 ? mu->log.size() - 12 : 0;
         for (size_t k = ini; k < mu->log.size(); k++) { std::string l = mu->log[k]; for (char& ch : l) if (ch == '"' || ch == '\\') ch = '\''; o += fmt("%s\"%s\"", k > ini ? "," : "", l.c_str()); }
         o += "]";
@@ -1881,17 +2205,18 @@ button{cursor:pointer}canvas{width:100%;background:var(--card);border:1px solid 
 <button id="lev">Levantar o robo</button><button id="sol">Soltar de frente</button><button id="bat">Pancada forte</button><label><input type="checkbox" id="seg" checked> camera segue o robo</label><label id="lbM"><input type="checkbox" id="memchk" checked> mostrar a memoria do carrinho</label><label id="lbR"><input type="checkbox" id="rui"> ruido aleatorio (sinalizado)</label></div>
 <div id="alerta" style="display:none;background:#e02424;color:#fff;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-weight:600">RUIDO LIGADO: manchas, patinagem e atraso de sensores acontecem de forma aleatoria. Cada evento aparece no registro abaixo.</div>
 <canvas id="c" width="1100" height="640"></canvas><div id="sens"></div><div id="info"></div><pre id="ev" style="white-space:pre-wrap;font-size:12px;max-height:190px;overflow:auto;background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:8px;margin:8px 0"></pre>
-<small>Simulacao AO VIVO, sem fim: nada e gravado, o servidor C++ simula o que voce esta vendo. Clique no mapa para soltar o robo ali (apontando para o lado escolhido). Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Setas: 0,1 s; shift + seta: 1 s; espaco: pausa. Memoria: rosa = chance de cubo na rua (o que o carrinho lembra e esquece com o tempo), X vermelho = rua bloqueada por cubo que nao se pega, numero = vezes que passou no cruzamento. Quadrados coloridos = cubos (branco e cor sem plataforma nao se pegam); retangulo cinza = oponente; circulos marrons = manchas de ruido.</small></main><script>
+<small>Simulacao AO VIVO, sem fim: nada e gravado, o servidor C++ simula o que voce esta vendo. Clique no mapa para soltar o robo ali (apontando para o lado escolhido). Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Setas: 0,1 s; shift + seta: 1 s; espaco: pausa. LEGENDA. Rosa na rua = a chance de cubo que o carrinho LEMBRA (esquece com o tempo); numero no cruzamento = quantas vezes passou ali; circulo vermelho cortado + 'bloqueada' = rua com um cubo que NAO se pega (branco ou cor sem plataforma: pelas regras so se identifica, sinaliza e desvia); linha verde tracejada + 'destino' = para onde esta indo agora; quadradinhos sobre o carro = cubos que esta carregando (no maximo 2); retangulos coloridos no ecoponto amarelo = plataformas; quadrados com borda laranja tracejada = cubos de quadrado marrom (so obstaculo); retangulo cinza 'outro robo' = o oponente (outro robo igual ao nosso); circulos marrons = manchas de ruido (preto = sujeira que parece linha; o desgaste branco na fita some com a linha).</small></main><script>
 const cv=document.getElementById('c'),cx=cv.getContext('2d'),sel=document.getElementById('sel'),sens=document.getElementById('sens');
 const cores=['#111','#e02424','#1c64f2'],zonas=['#2e8b3d','#f2d024','#8b4a1f'];
 let cur=0,pista=null,frames=[],fr=0,play=true,pedindo=false,last=0,vel=1,info='',trilha0=0,mortoEm=[],manchas=[],mem=null,ruido=false;
-const coresCubo=['#999','#ffffff','#e02424','#1c64f2','#2e8b3d','#f2d024'];
+const coresCubo=['#999','#ffffff','#e02424','#1c64f2','#2e8b3d','#f2d024','#111111','#8b4a1f'],nomesCubo=['','branco','vermelho','azul','verde','amarelo','preto','marrom'];
+let alvo=[-1,-1];
 const BE=127,PS=302;
 for(let i=0;i<8;i++){const s=document.createElement('span');s.textContent='S'+(i+1);sens.appendChild(s)}
 const dark=()=>matchMedia('(prefers-color-scheme: dark)').matches;
 async function j(u){return (await fetch(u)).json()}
 async function carrega(i){cur=i;frames=[];fr=0;trilha0=0;play=true;pp.textContent='Pausar';mortoEm=[];manchas=[];mem=null;pista=await j('/sessao?s='+i);document.getElementById('lbR').style.display=pista.ruidoDisponivel?'':'none';document.getElementById('lbM').style.display=pista.ruidoDisponivel?'':'none';rui.checked=false;await mais()}
-async function mais(){if(pedindo)return;pedindo=true;try{const r=await j(`/frames?s=${cur}&desde=${frames.length}&n=25`);for(const f of r.f)frames.push(f);info=r.i;if(r.cubos)mortoEm=r.cubos;manchas=r.manchas||[];if(r.ev)document.getElementById('ev').textContent=r.ev.join('\n');mem=r.mem||null;ruido=!!r.ruido;rui.checked=ruido;document.getElementById('alerta').style.display=ruido?'block':'none'}finally{pedindo=false}}
+async function mais(){if(pedindo)return;pedindo=true;try{const r=await j(`/frames?s=${cur}&desde=${frames.length}&n=25`);for(const f of r.f)frames.push(f);info=r.i;if(r.cubos)mortoEm=r.cubos;manchas=r.manchas||[];if(r.ev)document.getElementById('ev').textContent=r.ev.join('\n');mem=r.mem||null;alvo=r.alvo||[-1,-1];ruido=!!r.ruido;rui.checked=ruido;document.getElementById('alerta').style.display=ruido?'block':'none'}finally{pedindo=false}}
 let vista=null;
 function tela(){const f=frames[fr]||[0,0,0,0];
 if(seg.checked){const k=cv.width/900;return{k,ox:cv.width/2-f[0]*k,oy:cv.height/2+f[1]*k}}
@@ -1906,16 +2231,19 @@ if(mem&&memchk.checked){const R=5;const xc=c=>BE+c*PS,yr=r=>BE+r*PS;
 for(let c=0;c<6;c++)for(let r=0;r<R;r++){const pe=mem.e[c*R+r],pn=mem.n[c*R+r];
 if(c<5){const a=P(t,xc(c),yr(r)),b=P(t,xc(c+1),yr(r));cx.strokeStyle='rgba(214,0,170,'+(0.08+0.62*pe)+')';cx.lineWidth=34*t.k;cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()}
 if(r<4){const a=P(t,xc(c),yr(r)),b=P(t,xc(c),yr(r+1));cx.strokeStyle='rgba(214,0,170,'+(0.08+0.62*pn)+')';cx.lineWidth=34*t.k;cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()}}
-mem.b.forEach(q=>{const c=q[0],r=q[1],h=q[2];const a=P(t,xc(c)+(h?PS/2:0),yr(r)+(h?0:PS/2));cx.strokeStyle='#e02424';cx.lineWidth=4;cx.beginPath();cx.moveTo(a[0]-9,a[1]-9);cx.lineTo(a[0]+9,a[1]+9);cx.moveTo(a[0]+9,a[1]-9);cx.lineTo(a[0]-9,a[1]+9);cx.stroke()});
+mem.b.forEach(q=>{const c=q[0],r=q[1],h=q[2];const a=P(t,xc(c)+(h?PS/2:0),yr(r)+(h?0:PS/2));cx.strokeStyle='#e02424';cx.lineWidth=4;cx.beginPath();cx.arc(a[0],a[1],12,0,7);cx.moveTo(a[0]-9,a[1]-9);cx.lineTo(a[0]+9,a[1]+9);cx.stroke();cx.fillStyle='#e02424';cx.font='bold 12px system-ui';cx.fillText('bloqueada',a[0]+16,a[1]+4)});
 cx.fillStyle=dark()?'#fff':'#111';cx.font='bold 13px system-ui';for(let c=0;c<6;c++)for(let r=0;r<R;r++){const n=mem.v[c*R+r];if(n>0){const a=P(t,xc(c)+16,yr(r)-16);cx.fillText(n,a[0],a[1])}}}
-pista.cubos&&pista.cubos.forEach((q,i)=>{if(mortoEm[i]>=0&&fr>=mortoEm[i])return;const a=P(t,q[0]-22,q[1]+22),b=P(t,q[0]+22,q[1]-22);cx.fillStyle=coresCubo[q[2]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.strokeStyle='#111';cx.lineWidth=2;cx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1])});
+(pista.plat||[]).forEach(q=>{const a=P(t,q[0]-80,q[1]+25),b=P(t,q[0]+80,q[1]-25);cx.fillStyle=coresCubo[q[2]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.strokeStyle='#fff';cx.lineWidth=2;cx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.fillStyle=q[2]==1||q[2]==5?'#111':'#fff';cx.font='bold 11px system-ui';cx.fillText('plataforma '+nomesCubo[q[2]],a[0]+4,a[1]+(b[1]-a[1])/2+4)});
+pista.cubos&&pista.cubos.forEach((q,i)=>{if(mortoEm[i]>=0&&fr>=mortoEm[i])return;const a=P(t,q[0]-25,q[1]+25),b=P(t,q[0]+25,q[1]-25);cx.fillStyle=coresCubo[q[2]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.strokeStyle=q[3]?'#ff7a00':'#111';cx.lineWidth=q[3]?3:2;if(q[3])cx.setLineDash([4,3]);cx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.setLineDash([])});
+if(alvo[0]>=0&&frames[fr]){const f0=frames[fr],p0=P(t,f0[0],f0[1]),p1=P(t,alvo[0],alvo[1]);cx.strokeStyle='#00a86b';cx.lineWidth=2.5;cx.setLineDash([8,6]);cx.beginPath();cx.moveTo(p0[0],p0[1]);cx.lineTo(p1[0],p1[1]);cx.stroke();cx.setLineDash([]);cx.beginPath();cx.arc(p1[0],p1[1],10,0,7);cx.stroke();cx.fillStyle='#00a86b';cx.font='bold 12px system-ui';cx.fillText('destino',p1[0]+14,p1[1]-8)}
 manchas.forEach(m=>{if(fr>=m[3]&&(m[4]<0||fr<m[4])){const a=P(t,m[0],m[1]);cx.fillStyle='rgba(70,45,25,.85)';cx.beginPath();cx.arc(a[0],a[1],m[2]*t.k,0,7);cx.fill()}});
 cx.strokeStyle='#e02424';cx.lineWidth=1.5;cx.beginPath();for(let i=Math.max(0,fr-1500);i<=fr;i++){const p=P(t,frames[i][0],frames[i][1]);i==Math.max(0,fr-1500)?cx.moveTo(p[0],p[1]):cx.lineTo(p[0],p[1])}cx.stroke();
-if(frames[fr].length>4){const o=frames[fr],ot=o[6]*Math.PI/180,oc=Math.cos(ot),os=Math.sin(ot);const OW=(fx,fy)=>P(t,o[4]+fx*oc-fy*os,o[5]+fx*os+fy*oc);cx.fillStyle='rgba(120,120,120,.55)';cx.strokeStyle='#555';cx.lineWidth=2;cx.beginPath();[[-100,-85],[100,-85],[100,85],[-100,85]].forEach((q,i)=>{const p=OW(q[0],q[1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])});cx.closePath();cx.fill();cx.stroke();const lp=OW(0,0);cx.fillStyle=dark()?'#fff':'#111';cx.font='12px system-ui';cx.fillText('oponente',lp[0]-24,lp[1]+4)}
+if(frames[fr].length>6&&frames[fr][4]>-9000){const o=frames[fr],ot=o[6]*Math.PI/180,oc=Math.cos(ot),os=Math.sin(ot);const OW=(fx,fy)=>P(t,o[4]+fx*oc-fy*os,o[5]+fx*os+fy*oc);cx.fillStyle='rgba(120,120,120,.55)';cx.strokeStyle='#555';cx.lineWidth=2;cx.beginPath();[[-100,-85],[100,-85],[100,85],[-100,85]].forEach((q,i)=>{const p=OW(q[0],q[1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])});cx.closePath();cx.fill();cx.stroke();const lp=OW(0,0);cx.fillStyle=dark()?'#fff':'#111';cx.font='12px system-ui';cx.fillText('outro robo',lp[0]-26,lp[1]+4)}
 const f=frames[fr],th=f[2]*Math.PI/180,c=Math.cos(th),s=Math.sin(th);const W=(fx,fy)=>P(t,f[0]+fx*c-fy*s,f[1]+fx*s+fy*c);
 cx.fillStyle=dark()?'rgba(110,160,255,.35)':'rgba(42,109,244,.25)';cx.strokeStyle='#2a6df4';cx.lineWidth=2;cx.beginPath();[[-100,-85],[100,-85],[100,85],[-100,85]].forEach((q,i)=>{const p=W(q[0],q[1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])});cx.closePath();cx.fill();cx.stroke();
 const fr0=W(100,0),to=W(60,0);cx.beginPath();cx.moveTo(to[0],to[1]);cx.lineTo(fr0[0],fr0[1]);cx.stroke();
 const e=W(0,0);cx.fillStyle='#2a6df4';cx.beginPath();cx.arc(e[0],e[1],4,0,7);cx.fill();
+[7,8].forEach((ix,k)=>{const cor=f[ix];if(cor>0){const a=W(-35,(k?1:-1)*28),sz=22*t.k;cx.fillStyle=coresCubo[cor];cx.fillRect(a[0]-sz/2,a[1]-sz/2,sz,sz);cx.strokeStyle='#111';cx.lineWidth=2;cx.strokeRect(a[0]-sz/2,a[1]-sz/2,sz,sz)}});
 for(let i=0;i<8;i++){const lat=37.5-i*75/7,p=W(30,lat),on=(f[3]>>i)&1;cx.fillStyle=on?'#ffb000':(dark()?'#555':'#ddd');cx.strokeStyle=on?'#a06000':'#888';cx.lineWidth=1;cx.beginPath();cx.arc(p[0],p[1],Math.max(3,5*t.k*2),0,7);cx.fill();cx.stroke()}
 [...sens.children].forEach((s,i)=>s.classList.toggle('on',((f[3]>>i)&1)==1));
 tt.textContent='t = '+(fr*0.02).toFixed(2)+' s';document.getElementById('info').textContent=info}
@@ -2005,6 +2333,8 @@ int main(int argc, char** argv) {
   rs.push_back(cenarioMissao(false, 2));
   rs.back().informativo = true;   // a localizacao ainda deriva depois de colisoes e curvas nao verificadas (veja o README): mostra, nao derruba
   rs.push_back(cenarioMissao(true, 2));
+  rs.back().informativo = true;
+  rs.push_back(cenarioDuasEquipes(false, 2));
   rs.back().informativo = true;
   rs.push_back(cenarioEndireitar(true));
   rs.push_back(cenarioEndireitar(false));
