@@ -17,7 +17,15 @@ tab_out = 8.0;    // how far the tab sticks out of the wall
 tab_t = 3.0;
 screw_d = 3.4;    // M3 clearance
 
-cav_l = board_l + 2 * clr;
+// Hold-down lip on the end opposite the USB, centered: it overhangs the bare PCB end (the antenna keep-out has no parts there).
+// Fit: lay the board level with its far edge `slide` short of the wall, then push it `slide` toward the far wall so the lip covers the PCB end.
+lip_w = 8.0;      // lip width
+lip_over = 2.0;   // overhang over the board end
+lip_t = 1.2;      // lip thickness
+lip_gap = 0.5;    // air between the PCB top and the lip
+slide = 2.0;      // extra cavity length (>= lip_over) to get the board under the lip
+
+cav_l = board_l + 2 * clr + slide;
 cav_w = board_w + 2 * clr;
 out_l = cav_l + 2 * wall;
 out_w = cav_w + 2 * wall;
@@ -31,6 +39,7 @@ module tab(side) {   // side = +1 (y = out_w) or -1 (y = 0)
   }
 }
 
+union() {
 difference() {
   union() {
     cube([out_l, out_w, H]);
@@ -39,4 +48,6 @@ difference() {
   }
   translate([wall, wall, floor_t]) cube([cav_l, cav_w, H]);                                   // cavity
   translate([-1, out_w / 2 - usb_w / 2, floor_t + pin_tip - 0.5]) cube([wall + 2, usb_w, H]);   // USB notch, open to the top
+}
+translate([out_l - wall - lip_over, out_w / 2 - lip_w / 2, floor_t + pin_tip + board_t + lip_gap]) cube([lip_over + wall / 2, lip_w, lip_t]);   // hold-down lip
 }
