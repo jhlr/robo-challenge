@@ -167,7 +167,7 @@ struct ConfigSensoresSim {
   bool tcsFrente = true;       // TCS34725 da frente: cor do cubo a ~5 cm
   double tcsFrenteAlcanceMm = 90.0, tcsFrenteConeGraus = 14.0;
   double tcsChaoErro = 0.0;    // probabilidade de errar a cor do chao numa leitura (so com ruido ligado)
-  unsigned long tcsPeriodoMs = 60;   // leitura de ~24 ms: nao dá a cada ciclo
+  unsigned long tcsPeriodoMs = 30;   // leitura de ~24 ms: a faixa vermelha de 20 mm dura ~80 ms a 250 mm/s, entao precisa de 2 leituras seguidas dentro dela
 };
 
 struct Mundo {
@@ -1265,9 +1265,9 @@ struct Firmware {
     nav.carregando = false;
     nav.liberarBloqueiosTemporarios();
     m->carga0 = m->carga1 = 0;
-    // 6) volta de frente para a cidade: sobe ate o vermelho (o y de verdade, sem depender das varreduras acima) e alinha com uma rua
+    // 6) volta de frente para a cidade: alinha com uma rua a partir do y da plataforma
     m->carga0 = m->carga1 = 0;
-    alinharNaRua(c);
+    entrarNaCidade(c, yAtual);   // a velocidade reta foi medida entre as molduras e o y vem da plataforma que acabou de ver: nao precisa subir ate o vermelho de novo
     nav.alvoX = nav.alvoY = -1;
     nav.entregando = false;
   }
@@ -1434,7 +1434,7 @@ struct Firmware {
     }
     // Regras 7: "o robo deve responder de forma imediata sempre que QUALQUER sensor detectar vermelho no chao". Vermelho e azul (fora do portao) nunca sao rota: os sensores RC
     // leem essas linhas como preto, e antes disso o carro as seguia como se fossem uma rua (a moldura da arena). So uma leitura vale se alguma ponta da barra ve preto; sozinha, duas.
-    if (agora >= semReacaoAte && proibidasSeguidas >= ((p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7]) ? 1 : 2) && !nav.entregando) {
+    if (agora >= semReacaoAte && proibidasSeguidas >= 2 && !nav.entregando) {   // duas leituras seguidas: uma so pode ser erro do sensor (e o carro dava meia-volta no meio da rua)
       reagirAProibida(c);
       return;
     }
@@ -2058,6 +2058,11 @@ static Resultado cenarioMissao(bool ruido, int meta) {
     for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str());
     const Estado e = c.estado();
     fprintf(stderr, "    FIM: robo (%.0f,%.0f) th %.0f | oponente (%.0f,%.0f) | carregando %d | pose (%d,%d) conf %.2f | levantado %d parado %d buscando ciclos %d\n", e.x, e.y, e.th * 57.3, m.op.x, m.op.y, fw.nav.carregando, core::estimate(fw.nav.loc).pose.at.c, core::estimate(fw.nav.loc).pose.at.r, core::estimate(fw.nav.loc).confidence, c.levantado(), fw.parado, fw.ticksBuscando);
+  }
+  if (getenv("SIM_DEBUG")) {   // quanto tempo anda perto das molduras vermelhas (y ~ 0 ou kAlt, ou x < -440) e onde
+    size_t perto = 0, topo = 0, base = 0, esq = 0;
+    for (const Estado& e : c.rastro()) { const bool t = e.y > kAlt - 90, b = e.y < 90, l = e.x < -430; topo += t; base += b; esq += l; perto += t || b || l; }
+    fprintf(stderr, "    VERMELHO: %.0f%% do tempo perto das molduras (topo %.0f%%, base %.0f%%, esquerda %.0f%%) de %.0f s\n", 100.0 * perto / c.rastro().size(), 100.0 * topo / c.rastro().size(), 100.0 * base / c.rastro().size(), 100.0 * esq / c.rastro().size(), c.agoraMs() / 1000.0);
   }
   const PrecisaoMemoria pm = precisaoMemoria(m, fw.nav.cubos);
   if (getenv("SIM_DEBUG")) fprintf(stderr, "    MEMORIA: acertou %d, achou cubo onde nao ha %d, nao lembra de %d (de %d ruas)\n", pm.certo, pm.falsoPositivo, pm.perdeu, pm.total);
