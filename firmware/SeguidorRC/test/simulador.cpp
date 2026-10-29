@@ -135,7 +135,7 @@ inline double yDoCruzamento(int r) { return kBeco + r * kPasso; }
 constexpr double kEcopontoLarg = 220.0, kEcopontoBordaX = -280.0;   // borda do ecoponto voltada para o verde
 constexpr double kPlatX_Tam = 50.0, kPlatY_Tam = 160.0, kPlatEntre = 100.0;
 constexpr double kPlatX = kEcopontoBordaX - kEcopontoLarg / 2.0;   // -390: centro, 85 mm de cada borda
-inline double yDaPlataforma(int slot) { return kAlt / 2.0 + (slot - 2) * (kPlatY_Tam + kPlatEntre); }   // slot 0..4, de baixo para cima
+inline double yDaPlataforma(double slot) { return kAlt / 2.0 + (slot - 2) * (kPlatY_Tam + kPlatEntre); }   // slot 0..4, de baixo para cima
 
 // ================================================================ O MUNDO alem da pista: cubos, oponente, sensores configuraveis e RUIDO
 // Tudo aqui e CONFIGURAVEL e fica pronto antes dos sensores existirem no robo (ultrassom, TCS da frente). O RUIDO e aleatorio mas deterministico (semente) e
@@ -264,7 +264,7 @@ struct Mundo {
     }
   }
   // Plataformas no nosso ecoponto (x = kPlatX): ate 5 posicoes; coloca as cores dadas nos slots dados.
-  void porPlataformas(const std::vector<std::pair<int, seguidor::CorCubo>>& slots) {
+  void porPlataformas(const std::vector<std::pair<double, seguidor::CorCubo>>& slots) {   // slot 0..4 = as 5 marcas; 0,5 / 1,5 ... = centradas entre elas
     plataformas.clear();
     for (const auto& sl : slots) plataformas.push_back({kPlatX, yDaPlataforma(sl.first), sl.second});
   }
@@ -744,7 +744,7 @@ struct Navegador {
   struct PlatPend { int off; seguidor::CorCubo cor; };
   std::vector<PlatPend> platPend;
   int offLinha = 0;
-  int slotsOlhados = 0;   // marcas do ecoponto ja vistas de perto (bit k = marca k, de baixo para cima)
+  std::vector<double> yOlhados;   // alturas do ecoponto ja vistas de perto (ou ao longe, pelo eco): nao olha de novo
   std::vector<std::pair<double, seguidor::CorCubo>> platConhecidas;   // (y do slot, cor) ja lidas de perto
   void resolverPlataformas(int linhaAgora) {
     for (const PlatPend& q : platPend) {
@@ -752,7 +752,7 @@ struct Navegador {
       if (linha < 0 || linha >= core::kMapRows) continue;
       bool ja = false;
       for (const auto& pc : platConhecidas) if (fabs(pc.first - yDaPlataforma(linha)) < 1.0) ja = true;
-      if (!ja) { platConhecidas.push_back({yDaPlataforma(linha), q.cor}); slotsOlhados |= 1 << linha; }   // a rua da linha r aponta para o slot r (linhas 1 a 3: no centro da plataforma)
+      if (!ja) { platConhecidas.push_back({yDaPlataforma(linha), q.cor}); yOlhados.push_back(yDaPlataforma(linha)); }   // a rua da linha r aponta para o slot r (linhas 1 a 3: no centro da plataforma)
     }
     platPend.clear();
   }
@@ -1030,7 +1030,7 @@ struct Firmware {
       portoes++;
       portaoPendente = false;
       semReacaoAte = c.agoraMs() + 1500;   // ainda esta em cima da faixa azul do portao: nao e para reagir
-      if (c.mundo()) c.mundo()->evento(c.agoraMs(), fmt("PORTAO azul em (%.0f,%.0f)%s", c.estado().x, c.estado().y, nav.carregando ? " saindo com cubo" : ""));
+      if (c.mundo()) c.mundo()->evento(c.agoraMs(), fmt("PORTAO azul em (%.0f,%.0f) rumo %.0f%s", c.estado().x, c.estado().y, rumo, nav.carregando ? " saindo com cubo" : ""));
       esquecerCor(memCor);
       esquecerUltimoComando(memoria);
       tUltimoCruzamento = c.agoraMs();
@@ -1104,7 +1104,7 @@ struct Firmware {
       // Completa (os dois lados) quando precisa VER as ruas (ultrassom) ou escolher uma.
       bool soUmLado = false;
       int ladoVarredura = lado;
-      if (nav.ativo && nav.carregando && vinhaSeguindo && !nav.loc.inGreen) {
+      if (nav.ativo && nav.carregando && vinhaSeguindo && !nav.loc.inGreen && !nav.desviar && nav.bloqueiosTemporarios.empty()) {   // com desvio/rua bloqueada ele PRECISA ver: varredura completa
         const double sr = sin(rumo * M_PI / 180.0);
         if (fabs(sr) > 0.7) { soUmLado = true; ladoVarredura = sr > 0 ? 1 : -1; }   // indo para o norte o oeste fica a esquerda; para o sul, a direita
       }
@@ -1253,7 +1253,7 @@ struct Firmware {
 
   // ---- inicio da partida e depois de cada reposicionamento: ele esta em posicao ALEATORIA do verde, olhando para a cidade (de frente = rumo 0, calibra o MPU)
   // Anda ate achar o chao amarelo ou uma plataforma a ~6 cm olhando para o oeste e volta para x ~ -150 (a mesma distancia das duas formas): isso da o x. Devolve a cor da plataforma vista.
-  seguidor::CorCubo olharSlotOeste(Carro& c) {
+  seguidor::CorCubo olharSlotOeste(Carro& c, bool ficar = false) {   // ficar: se ha plataforma, fica parado de frente para ela (olhando oeste) em vez de voltar
     girarPara(c, 180.0);
     bool amarelo = false;
     const double andou = andarMm(c, 330.0, [&] {
@@ -1261,6 +1261,7 @@ struct Firmware {
       return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma || c.piso() == Pista::kPisoVermelho;   // a plataforma (160 mm de altura) ou a moldura vermelha da ponta
     });
     const seguidor::CorCubo vista = c.plataformaNaFrente(70.0);
+    if (ficar && vista != seguidor::CorCubo::Nenhuma) return vista;
     girarPara(c, 0.0);
     (void)amarelo;
     andarMm(c, andou, [] { return false; });   // volta ao x de onde saiu (o mesmo caminho: assim os 5 slots sao olhados do mesmo x)
@@ -1287,24 +1288,62 @@ struct Firmware {
   // quais cores tem plataforma e so passa a coletar essas. `yAtual` e atualizado.
   bool procurarPlataforma(Carro& c, seguidor::CorCubo cor, double& yAtual) {
     Mundo* m = c.mundo();
-    for (int k = 4; k >= 0; k--) {
-      const double yk = yDaPlataforma(k);
-      if ((nav.slotsOlhados >> k) & 1) continue;
-      const double dy = yk - yAtual;
-      if (fabs(dy) > 20.0) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
-      yAtual = yk;
-      const seguidor::CorCubo vista = olharSlotOeste(c);
-      nav.slotsOlhados |= 1 << k;
+    constexpr double kFolga = 60.0;   // a ponta para a ~60 mm da face da plataforma ao ler a cor
+    auto jaOlhou = [&](double y) { for (const double o : nav.yOlhados) if (fabs(o - y) < 40.0) return true; return false; };
+    // Onde ainda pode haver plataforma: sem nenhuma conhecida, de 130 em 130 mm (as 5 marcas E as centradas entre elas); achada uma, o passo e o das plataformas (260 mm) a partir dela.
+    auto candidatos = [&] {
+      std::vector<double> v;
+      auto poe = [&](double y) { if (fabs(y - kAlt / 2.0) <= 525.0 && !jaOlhou(y)) { for (const double o : v) if (fabs(o - y) < 40.0) return; v.push_back(y); } };
+      if (nav.platConhecidas.empty()) for (int i = 0; i < 9; i++) poe(kAlt / 2.0 + (i - 4) * 130.0);
+      else for (const auto& pc : nav.platConhecidas) for (int k = -4; k <= 4; k++) poe(pc.first + k * (kPlatY_Tam + kPlatEntre));
+      return v;
+    };
+    bool deFrente = false;   // parado olhando oeste, a ~60 mm de uma plataforma
+    for (int guarda = 0; guarda < 20; guarda++) {
+      const std::vector<double> cand = candidatos();
+      if (cand.empty()) break;
+      double yt = cand[0];
+      for (const double y : cand) if (fabs(y - yAtual) < fabs(yt - yAtual)) yt = y;
+      const double dy = yt - yAtual;
+      seguidor::CorCubo vista = seguidor::CorCubo::Nenhuma;
+      if (deFrente && fabs(dy) >= 100.0) {
+        // De frente para uma plataforma: 1) RODA para a diagonal que aponta para a proxima marca e IDENTIFICA pelo ultrassom (eco perto da distancia esperada = ha plataforma; sem eco
+        // = marca vazia, nem anda); 2) REALINHA (vira para cima/baixo); 3) PITAGORAS: o eco e a hipotenusa e o cateto ate a face (eixo - face) e conhecido, entao o outro cateto e a
+        // distancia a andar, sem depender da velocidade; 4) anda, roda para o oeste e le a cor. A distancia do eixo a face vem do proprio ultrassom de frente (a ponta fica a ~50 mm).
+        const int sentido = dy > 0 ? 1 : -1;
+        const double aFace = c.us();   // de frente: ponta -> face
+        const double cateto = (aFace > 0 ? aFace : kFolga) + 100.0;   // eixo -> face (a ponta fica 100 mm a frente do eixo)
+        const double phi = atan2(fabs(dy), cateto) * 180.0 / M_PI;
+        girarPara(c, sentido > 0 ? 180.0 - phi : 180.0 + phi);
+        const double esperado = hypot(cateto, fabs(dy)) - 100.0;
+        const double eco = c.us();
+        nav.yOlhados.push_back(yt);
+        if (!(eco > 0.0 && eco > esperado - 90.0 && eco < esperado + 40.0)) { m->evento(c.agoraMs(), fmt("PLATAFORMAS: y = %.0f mm sem eco (marca vazia)", yt)); continue; }
+        const double hip = eco + 100.0;
+        const double leg = hip > cateto ? sqrt(hip * hip - cateto * cateto) : fabs(dy);
+        girarPara(c, sentido > 0 ? 90.0 : -90.0);
+        andarMm(c, leg, [] { return false; });
+        yAtual += sentido * leg;
+        girarPara(c, 180.0);
+        vista = c.plataformaNaFrente(70.0);
+        deFrente = vista != seguidor::CorCubo::Nenhuma;
+      } else {
+        if (fabs(dy) > 20.0) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
+        yAtual = yt;
+        nav.yOlhados.push_back(yt);
+        vista = olharSlotOeste(c, true);
+        deFrente = vista != seguidor::CorCubo::Nenhuma;
+      }
       if (vista != seguidor::CorCubo::Nenhuma) {
-        nav.platConhecidas.push_back({yk, vista});
-        nav.plataformasVistas.push_back({yk, vista});
-        m->evento(c.agoraMs(), fmt("PLATAFORMAS: %s na marca %d (y = %.0f mm)", nomeCor(vista), k + 1, yk));
+        nav.platConhecidas.push_back({yt, vista});
+        nav.plataformasVistas.push_back({yt, vista});
+        m->evento(c.agoraMs(), fmt("PLATAFORMAS: %s em y = %.0f mm", nomeCor(vista), yt));
         if (vista == cor) break;
       } else {
-        m->evento(c.agoraMs(), fmt("PLATAFORMAS: marca %d vazia", k + 1));
+        m->evento(c.agoraMs(), fmt("PLATAFORMAS: y = %.0f mm vazia", yt));
       }
     }
-    if (nav.slotsOlhados == 31) {   // as 5 marcas vistas: so se pega cor que tem plataforma
+    if (candidatos().empty()) {   // tudo olhado: so se pega cor que tem plataforma
       for (int i = 0; i < seguidor::kNumCoresCubo; i++) nav.coleta.coletavel[i] = false;
       for (const auto& pv : nav.plataformasVistas) nav.coleta.coletavel[static_cast<int>(pv.second)] = true;
       nav.plataformasObservadas = true;
@@ -1482,7 +1521,8 @@ struct Firmware {
       if (movel && d > 0.0f && d < 450.0f) { esperaAte = agora + 700; m->evento(agora, fmt("eco que SE MEXE a %.0f mm: e o outro robo, espera", d)); }
       return false;
     }
-    if (movel) { esperaAte = agora + 700; m->evento(agora, fmt("eco que SE MEXE a %.0f mm: e o outro robo, espera", d)); return true; }
+    // Eco PERTO (na distancia de parar): para e identifica de qualquer jeito. "Se mexe" nao vale aqui: no comeco da rua o cone varre de lado enquanto o carro corrige e o eco de um
+    // CUBO parado muda de valor (o carro ficava "esperando o outro robo" e depois passava por cima do cubo). Se nao for cubo, a identificacao abaixo espera e tenta de novo.
     c.parar();
     velMmSAtual = 0.0f;
     for (int i = 0; i < 6; i++) tick(c);   // le a cor parado
@@ -1751,7 +1791,7 @@ struct Cena {
     b.fw = std::make_unique<Firmware>();
     // o oponente tem as proprias plataformas (cores diferentes) e os MESMOS cubos, espelhados
     using seguidor::CorCubo;
-    b.mundo.porPlataformas({{1, CorCubo::Verde}, {2, CorCubo::Azul}, {3, CorCubo::Marrom}, {4, CorCubo::Vermelho}});
+    b.mundo.porPlataformas({{0.5, CorCubo::Verde}, {1.5, CorCubo::Azul}, {2.5, CorCubo::Marrom}, {3.5, CorCubo::Vermelho}});
     for (const Cubo& cu : a.mundo.cubos) {
       Cubo e = cu;
       e.x = kLarg - cu.x; e.y = kAlt - cu.y;
@@ -2211,7 +2251,7 @@ static PrecisaoMemoria precisaoMemoria(const Mundo& m, const core::CubeBelief& b
 static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool oponente, bool ruido) {
   using seguidor::CorCubo;
   // Plataformas do nosso ecoponto: o juiz poe de 1 a 5, cores distintas (aqui azul, vermelho, amarelo e preto, em marcas vizinhas); verde e marrom ficam SEM plataforma e valem como branco
-  m.porPlataformas({{0, CorCubo::Azul}, {1, CorCubo::Vermelho}, {2, CorCubo::Amarelo}, {3, CorCubo::Preto}});   // 4 plataformas em marcas vizinhas: equidistantes (260 mm)
+  m.porPlataformas({{0.5, CorCubo::Azul}, {1.5, CorCubo::Vermelho}, {2.5, CorCubo::Amarelo}, {3.5, CorCubo::Preto}});   // 4 plataformas CENTRADAS entre as bordas, equidistantes (260 mm)
   m.semearRegras(ncubos);
   m.semearObstaculos(3);
   m.op.ativo = oponente;
