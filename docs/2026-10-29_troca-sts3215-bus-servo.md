@@ -46,3 +46,8 @@ Conferido no SCServo: `Mode()` escreve o registrador 33 direto, sem unlock; so a
 - Shoulder begin follows Waveshare's own `setMode(servo)`: unlock, max angle limit (reg 11) = 4095, mode 0, lock. A servo left in wheel/motor mode has limit 0 and would not move.
 - Bench result: with the official library, ping of ids 0-253 at 1M/500k/250k/115200/57600/38400 baud and both wirings of GPIO16/17 got ZERO replies. So it is not the driver, the id or the baud: power (9-12.6 V on the adapter), jumper A, common GND, servo cable, or the adapter's logic level.
 - The ESP32 also showed a serial flood of garbage (repeating 16-byte pattern) with the adapter wired: same symptom as the 2026-10-28 handoff (signal wire on the board corrupts UART0 / boot loop). Suspect: adapter signal lines idling at 5 V into 3.3 V GPIOs, or a power back-feed. To check with a multimeter before wiring again.
+
+## Conflict found in `~/Downloads/HANDOFF.md` (line follower from another machine, STS3215 + same adapter, validated on a robot)
+- That handoff says: jumper on **B** = UART control, A = USB. The Waveshare wiki text I fetched says the opposite (A = UART). The handoff is empirical (Ping, WheelMode, WriteSpe worked), so try **B** first.
+- Same handoff wires it crossed: GPIO17 (TX2) -> adapter RXD, GPIO16 (RX2) <- adapter TXD, common GND, servos on an external 6-12 V supply (never from the ESP32). That is the wiring originally tried here, so the wiki's "RX-RX, TX-TX" advice was a detour.
+- It also confirms: SCServo unmodified, `Serial2.begin(1000000, SERIAL_8N1, 16, 17)`, wheel mode (MODE=1) written with unlock/lock and checked with `ReadMode`, no `SyncWriteSpe` in the library (two `WriteSpe` calls), mode 3 (step) unreliable on this hardware.
