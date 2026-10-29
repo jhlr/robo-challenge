@@ -218,7 +218,7 @@ struct Mundo {
       ruas.erase(ruas.begin() + static_cast<long>(k));
       Cubo cu;
       cu.c = rua[0]; cu.r = rua[1]; cu.leste = rua[2] == 1;
-      const double meio = 0.5 + (rnd() - 0.5) * 0.26;   // 0,37 a 0,63 da rua
+      const double meio = 0.5;   // os quadrados cinza ficam no MEIO da rua (a ~151 mm do cruzamento): ai o giro do carro no cruzamento nao encosta (no robo real nao encostava)
       cu.x = xDoCruzamento(cu.c) + (cu.leste ? meio * kPasso : 0.0);
       cu.y = yDoCruzamento(cu.r) + (cu.leste ? 0.0 : meio * kPasso);
       cu.cor = cores[static_cast<size_t>(i) % cores.size()];
@@ -697,24 +697,23 @@ struct Navegador {
     carregando = false;
     linhaEntrada = -1;
     calibrando = 0;
+    contados = 0;
     reposicoes++;
     pontos -= 15;   // cada reinicio custa 15
   }
   // Depois de cada reset o robo se ALINHA com uma rua pela referencia vermelha (sabe a linha de verdade): no portao a coluna e 0 e a linha e a escolhida, sem precisar achar a
   // borda vermelha para descobrir. E mede + varre os 5 primeiros cruzamentos em linha reta (calibracao): velocidade, rumo e as ruas dessa linha entram na memoria.
   void aoPortao() {
-    core::onOwnBlue(loc);
-    if (linhaEntrada >= 0) {
-      for (int r = 0; r < core::kMapRows; r++) if (r != linhaEntrada) loc.p[0][r][0] = 0.0f;
-      core::normalize(loc);
-    }
+    core::onOwnBlue(loc);   // coluna 0; a linha ele descobre indo ate a linha vermelha de um dos lados e contando os cruzamentos que viu
   }
   int linhaEntrada = -1;   // a linha pela qual entrou (conhecida pela moldura vermelha); -1 = nao sabe
-  int calibrando = 0;      // cruzamentos que faltam da calibracao pos-reset
+  int calibrando = 0;      // (nao usado: a calibracao pos-reset agora e ir ate a linha vermelha contando cruzamentos)
+  int contados = 0;        // cruzamentos contados nesse trecho ate a linha vermelha
   void aoProibido(core::Forbidden k) { core::onForbidden(loc, k); core::onTurn(loc, 2); pularProximo = true; }   // meia-volta no fim da rua: volta ao cruzamento que deixou
   void aposVirar(char a) { core::onTurn(loc, a == 'L' ? 1 : a == 'R' ? -1 : a == 'U' ? 2 : 0); }
-  void aoBloquear() { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); if (core::inMap(ruaDe.c, ruaDe.r)) core::streetSlot(bloq, ruaDe, ruaPara) = true; bloqueios++; core::onTurn(loc, 2); pularProximo = true; }
-  void aoColetar(seguidor::CorCubo cor) { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); carga.push_back(cor); carregando = true; coletados++; }
+  bool ruaValida() const { return core::inMap(ruaDe.c, ruaDe.r) && core::inMap(ruaPara.c, ruaPara.r) && (abs(ruaDe.c - ruaPara.c) + abs(ruaDe.r - ruaPara.r)) == 1; }
+  void aoBloquear() { if (ruaValida()) { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); core::streetSlot(bloq, ruaDe, ruaPara) = true; } bloqueios++; core::onTurn(loc, 2); pularProximo = true; }
+  void aoColetar(seguidor::CorCubo cor) { if (ruaValida()) core::setStreet(cubos, ruaDe, ruaPara, 0.0f); carga.push_back(cor); carregando = true; coletados++; }
 
   // Rua que ja foi vista VAZIA: la nunca mais aparece cubo (ninguem poe cubo de volta), entao qualquer eco ali so pode ser o OUTRO ROBO.
   bool ruaVaziaCerta(core::Node a, core::Node b) const {
@@ -749,9 +748,11 @@ struct Navegador {
   int ecosLongeVistos = 0;
   int oponenteVisto = 0, esperasSeguidas = 0;
   std::vector<std::pair<core::Node, core::Node>> bloqueiosTemporarios;   // ruas com cubo que NAO da para pegar agora (carregando): voltam a valer depois da entrega
+  bool desviar = false;   // acabou de voltar de um cubo no caminho: na proxima esquina vai por outra linha
   void aoBloquearTemporario() {
-    core::setStreet(cubos, ruaDe, ruaPara, 1.0f);   // sabe que tem cubo la (para pegar depois da entrega)
-    if (core::inMap(ruaDe.c, ruaDe.r) && core::inMap(ruaPara.c, ruaPara.r)) { core::streetSlot(bloq, ruaDe, ruaPara) = true; bloqueiosTemporarios.push_back({ruaDe, ruaPara}); }
+    desviar = true;
+    if (ruaValida()) core::setStreet(cubos, ruaDe, ruaPara, 1.0f);   // sabe que tem cubo la (para pegar depois da entrega)
+    if (ruaValida()) { core::streetSlot(bloq, ruaDe, ruaPara) = true; bloqueiosTemporarios.push_back({ruaDe, ruaPara}); }
     core::onTurn(loc, 2);
     pularProximo = true;
   }
@@ -787,15 +788,19 @@ struct Navegador {
     }
     core::Decision d;
     alvoX = alvoY = -1;
-    if (calibrando > 0 && !carregando && colSure && rowSure) {   // calibracao: 5 primeiros cruzamentos, sempre em frente (para leste), medindo e varrendo
-      calibrando--;
-      ultimoPlano = fmt("CALIBRACAO pos-reset: faltam %d cruzamentos (mede a velocidade e varre as ruas)", calibrando);
+    if (!carregando && !rowSure) {
+      // Depois de um reset ele nao sabe a linha: vai ate a linha VERMELHA de um dos lados (a mais perto da linha de entrada) CONTANDO os cruzamentos que viu; ao chegar, o localizador
+      // sabe a linha (cruzamentos contados + vermelho) e a velocidade sai de cada trecho de 302 mm. Nao varre: so anda reto.
+      const int qAtual = ((static_cast<int>(lroundf(rumoGraus / 90.0f)) % 4) + 4) % 4;   // 0 = leste, 1 = norte, 2 = oeste, 3 = sul
+      const int qAlvo = (qAtual == 1 || qAtual == 3) ? qAtual : 1;                       // segue na vertical em que ja esta; se estava na horizontal, sobe
+      const int dq = ((qAlvo - qAtual) % 4 + 4) % 4;                                       // giros a esquerda
+      ultimoPlano = fmt("ANCORAR: ate a linha vermelha de %s contando os cruzamentos (ja contou %d) e olhando longe pelo ultrassom", qAlvo == 1 ? "cima" : "baixo", contados + 1);
+      contados++;
       ruaDe = p.at;
-      ruaPara = core::Node{static_cast<int8_t>(p.at.c + 1), p.at.r};
+      ruaPara = core::Node{p.at.c, static_cast<int8_t>(p.at.r + (qAlvo == 1 ? 1 : -1))};
       naRua = true;
       ruaUsada = core::inMap(ruaPara.c, ruaPara.r);
-      alvoX = ruaUsada ? xDoCruzamento(ruaPara.c) : -1; alvoY = ruaUsada ? yDoCruzamento(ruaPara.r) : -1;
-      return p.dc == 1 ? 'S' : (p.dc == -1 ? 'U' : (p.dr == 1 ? 'R' : 'L'));
+      return dq == 0 ? 'S' : dq == 1 ? 'L' : dq == 3 ? 'R' : 'U';
     }
     // Capacidade 2 (regras): com 1 cubo so continua coletando se ha cubo provavel; com 2 vai entregar. Entregar e obrigatorio antes de coletar de novo.
     core::Plan plano = core::planAtCrossing(loc, cubos, core::kMinCoordBelief, &visitas, &bloq);
@@ -803,6 +808,12 @@ struct Navegador {
       // Carregando 1 cubo: ENTREGA JA, e sem depender de saber onde esta: a bussola do MPU diz para onde aponta e o nosso portao fica a OESTE (toda rua horizontal leva a ele).
       // Em cada esquina vira para o oeste e segue por ela; a azul no fim e o nosso portao (portaoPendente fica ligado enquanto carrega).
       const int q = ((static_cast<int>(lroundf(rumoGraus / 90.0f)) % 4) + 4) % 4;   // 0 = leste, 1 = norte, 2 = oeste, 3 = sul
+      int qAlvo = 2;
+      if (colSure && rowSure && core::inMap(p.at.c - 1, p.at.r) && core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r})) {
+        qAlvo = p.at.r < core::kMapRows - 1 ? 1 : 3;   // a rua para o oeste esta bloqueada por um cubo: sobe (ou desce) uma rua e tenta o oeste por outra linha
+      }
+      if (getenv("SIM_DEBUG")) fprintf(stderr, "    CARREGANDO em (%d,%d) rumo q=%d colSure=%d rowSure=%d oesteBloq=%d qAlvo=%d bloqTemp=%zu\n", p.at.c, p.at.r, q, colSure, rowSure, core::inMap(p.at.c - 1, p.at.r) ? (int)core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r}) : -1, qAlvo, bloqueiosTemporarios.size());
+      if (desviar) { qAlvo = p.at.r < core::kMapRows - 1 ? 1 : 3; desviar = false; }   // mesmo sem pose segura: na esquina seguinte ao cubo, sobe (ou desce) uma linha
       *saindoPeloPortao = true;
       ultimoPlano = "entregar (vai para o oeste, pela bussola)";
       alvoX = 0; alvoY = colSure && rowSure ? yDoCruzamento(p.at.r) : -1;
@@ -810,7 +821,8 @@ struct Navegador {
       ruaPara = core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r};
       naRua = true;
       ruaUsada = false;
-      return q == 2 ? 'S' : q == 1 ? 'L' : q == 3 ? 'R' : 'U';
+      const int dq = ((qAlvo - q) % 4 + 4) % 4;   // giros a esquerda
+      return dq == 0 ? 'S' : dq == 1 ? 'L' : dq == 3 ? 'R' : 'U';
     }
     {
       d = plano.move;
@@ -860,6 +872,7 @@ struct Firmware {
   unsigned long ultimoTcsMs = 0, ultimoUsMs = 0, esperaAte = 0;
   float usAnt = -1.0f, velMmSAtual = 0.0f;
   int verdesSeguidos = 0, proibidasSeguidas = 0, semVarreduras = 0;
+  bool pularVarreduraComPoseSegura = false;   // opcional: no robo real o giro nao esbarrava nos cubos (ficam no meio da rua), entao varre sempre
   unsigned long ultimaObsRaioMs = 0;
   bool precisaAlinhar = false, velRetaMedida = false;   // acabou de ser reposicionado no verde
   unsigned long semReacaoAte = 0;
@@ -1003,7 +1016,7 @@ struct Firmware {
     // cruzamento ESPERADO (andou ~302 mm desde o anterior) nao se gira: S1+S8 e a cor bastam. As ruas do lado entram na memoria pelo eco ao longe e ao passar. Varre so
     // perdido, em duvida, quando o cruzamento nao era esperado, e na calibracao pos-reset.
     bool pularVarredura = false;
-    if (nav.ativo && nav.calibrando == 0 && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo) {
+    if (pularVarreduraComPoseSegura && nav.ativo && nav.calibrando == 0 && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo) {
       const core::Estimate es = core::estimate(nav.loc);
       const bool segura = core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && core::rowMass(nav.loc, es.pose.at.r) >= core::kMinCoordBelief;
       const double andado = (c.agoraMs() - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
@@ -1042,7 +1055,7 @@ struct Firmware {
     if (getenv("SIM_DEBUG")) fprintf(stderr, "  [t=%.1fs] parou em (%.0f, %.0f) rumo %.0f, %s, 1o lado %s: ruas esq %d dir %d -> %s\n", c.agoraMs() / 1000.0, paradaEm.x, paradaEm.y, paradaEm.th * 57.29578, vinhaSeguindo ? "seguindo" : "PERDIDO", lado > 0 ? "esq" : "dir", r.ruaEsquerda, r.ruaDireita,
                                        varr.resultado == Oito::Cruzamento ? "CRUZAMENTO" : (varr.resultado == Oito::Endireitou ? "ENDIREITOU" : "falso alarme"));
     if (varr.resultado == Oito::Cruzamento) { cruzamentos++; registrarCruzamento(expl, rumo); }
-    else if (varr.resultado == Oito::Endireitou) endireitou++;
+    else if (varr.resultado == Oito::Endireitou) { endireitou++; if (nav.ativo) nav.aposVirar(varr.ladoEndireitou > 0 ? 'L' : 'R'); trechoRestante0 = -1.0; tSaidaMs = c.agoraMs(); }
     else falsosAlarmes++;
     esquecerUltimoComando(memoria);
     if (varr.resultado == Oito::Endireitou) memoria.perdeuEm = 0;   // estava de lado em cima da linha e agora esta alinhado: volta a seguir
@@ -1180,17 +1193,22 @@ struct Firmware {
     return n[static_cast<int>(c)];
   }
 
-  // Alinha com a rua de uma linha de cruzamentos (a menos visitada na coluna 0) e vira de frente para a cidade: depois e so andar para leste ate a azul do portao.
+  // Alinha com a rua de uma linha de cruzamentos (a menos visitada na coluna 0) e vira de frente para a cidade. A linha so serve para escolher o lado da moldura vermelha mais perto:
+  // quem descobre a linha de verdade e CONTAR os cruzamentos ate a linha vermelha (Navegador::aoCruzamento). `usarAlinhamento = false` entra reto (primeira rua vertical, de lado).
+  bool usarAlinhamento = true;
   void entrarNaCidade(Carro& c, double yAtual) {
     int melhor = 0;
     for (int r = 1; r < core::kMapRows; r++) if (nav.visitas.n[0][r] < nav.visitas.n[0][melhor]) melhor = r;
-    const double yAlvo = yDoCruzamento(melhor);
-    if (fabs(yAlvo - yAtual) > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, fabs(yAlvo - yAtual), [] { return false; }); }
+    if (usarAlinhamento) {
+      const double yAlvo = yDoCruzamento(melhor);
+      if (fabs(yAlvo - yAtual) > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, fabs(yAlvo - yAtual), [] { return false; }); }
+    }
     girarPara(c, 0.0);
     core::initInGreen(nav.loc);
     nav.naRua = false;
-    nav.linhaEntrada = melhor;
-    nav.calibrando = 5;   // medir + varrer os 5 primeiros cruzamentos depois de cada reset
+    nav.linhaEntrada = usarAlinhamento ? melhor : -1;
+    nav.calibrando = 0;
+    nav.contados = 0;
     portaoPendente = true;
     memoria = Memoria{};
     cruz = MemoriaCruzamento{};
@@ -1199,10 +1217,8 @@ struct Firmware {
   }
 
   // Depois de um reset (colocado em posicao aleatoria do verde, olhando para a cidade: o rumo do MPU volta a 0): sobe ate o vermelho para saber o y e alinha com uma rua.
-  void alinharNaRua(Carro& c) {
-    if (getenv("SIM_DEBUG")) fprintf(stderr, "    ALINHAR t=%.0fs: rumo %.0f (mod360 %.0f), real th %.0f, pos (%.0f,%.0f)\n", c.agoraMs() / 1000.0, rumo, remainder(rumo, 360.0), remainder(c.estado().th * 57.3, 360.0), c.estado().x, c.estado().y);
+  void alinharNaRua(Carro& c) {   // depois de um reset (posicao aleatoria do verde, de frente para a cidade, rumo do MPU = 0): sobe ate o vermelho para saber o y e alinha com uma rua
     irAteVermelho(c, true);
-    if (getenv("SIM_DEBUG")) fprintf(stderr, "    ALINHAR no vermelho: rumo %.0f, real th %.0f, pos (%.0f,%.0f)\n", rumo, remainder(c.estado().th * 57.3, 360.0), c.estado().x, c.estado().y);
     entrarNaCidade(c, kAlt - 40.0);
   }
 

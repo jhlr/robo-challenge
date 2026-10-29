@@ -119,3 +119,9 @@ Descobertas do simulador: o ultrassom na ponta ve cubos da rua SEGUINTE se o lim
 - **Rua vazia e caminho normal**, so nao e alvo (nao insiste nela). `kEmptyStreetPenalty = 0` (parametro, caso queira preferir ruas nao vistas).
 - **Depois de cada reset** (posicao aleatoria do verde, olhando para a cidade, rumo do MPU = 0): sobe ate a moldura vermelha para saber o y, alinha com uma rua (a linha de entrada fica conhecida) e **mede + varre os 5 primeiros cruzamentos** (velocidade, ruas, memoria).
 - **Girar 90 graus no cruzamento VARRE o corpo do carro** (~130 mm de raio) por cima das ruas do lado: um cubo a 112-140 mm do centro e atingido. Com a pose segura e o cruzamento esperado nao gira: S1+S8 e a cor bastam. Varre so perdido, em duvida e na calibracao.
+
+## Correcoes do mundo real e calibracao por contagem (decididas com o usuario)
+
+- **Cubos no MEIO da rua** (os quadrados cinza ficam a ~151 mm do cruzamento): no robo real o giro de 90 graus no cruzamento NAO esbarrava nos cubos; o simulador colocava cubos a 112-190 mm do cruzamento e o corpo do carro (130 mm de raio) os atingia. Agora varre sempre (`pularVarreduraComPoseSegura = false`, opcional).
+- **Calibracao depois de um reset**: nao varre 5 cruzamentos. Vai ate a linha VERMELHA de um dos lados CONTANDO os cruzamentos que viu (o localizador fixa a linha com a contagem + o vermelho) e mede a velocidade em cada trecho de 302 mm; o ultrassom olha longe (ate 3 ruas) no caminho, entao ja acha cubos distantes.
+- **Pendente**: depois de calibrado nao precisaria mais subir ate a moldura vermelha no verde para saber o y (`usarAlinhamento = false` entra reto e a primeira rua vertical, de lado, o alinha: endireita 90 graus e conta ate o vermelho). No simulador essa variante ainda perde o portao em alguns casos (sai da cidade pela azul depois de desviar de um cubo): por isso o padrao continua alinhando.
