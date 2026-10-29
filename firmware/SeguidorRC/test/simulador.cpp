@@ -722,6 +722,31 @@ struct Navegador {
     core::CubeBelief copia = cubos;
     return core::streetSlot(copia, a, b) < core::kKnownEmpty;
   }
+  // Um raio do ultrassom ao longo de uma linha de ruas a partir de `origem` na direcao (dc, dr). `andadoMm` = quanto o eixo ja andou desde a parada na origem (0 parado).
+  // Com eco: as ruas ANTES dele estao vazias e a rua do eco tem cubo (a nao ser que ja fosse vazia de certeza: ali so pode ser o outro robo). Sem eco: as ruas inteiras ao alcance
+  // estao vazias. Serve de INFORMACAO e de OBJETIVO: um cubo a duas ruas ja entra na memoria e o navegador vai ate la.
+  void observarRaio(core::Node origem, int dc, int dr, float usMm, float andadoMm, bool comSemEco) {
+    auto rua = [&](int j, core::Node* a, core::Node* b) {
+      *a = core::Node{static_cast<int8_t>(origem.c + dc * j), static_cast<int8_t>(origem.r + dr * j)};
+      *b = core::Node{static_cast<int8_t>(origem.c + dc * (j + 1)), static_cast<int8_t>(origem.r + dr * (j + 1))};
+      return core::inMap(a->c, a->r) && core::inMap(b->c, b->r);
+    };
+    if (usMm > 0.0f) {
+      const int k = seguidor::ruaDoEco(usMm, andadoMm);
+      if (k < 0) return;   // perto de um cruzamento: ambiguo
+      const int j0 = seguidor::primeiraRuaAindaAFrente(andadoMm);
+      for (int j = j0; j < k; j++) { core::Node a, b; if (rua(j, &a, &b) && !ruaVaziaCerta(a, b)) core::observeStreet(cubos, a, b, false, bm); }
+      core::Node a, b;
+      if (rua(k, &a, &b)) {
+        if (ruaVaziaCerta(a, b)) oponenteVisto++;   // rua que ja era vazia de certeza: o eco so pode ser o outro robo
+        else { core::observeStreet(cubos, a, b, true, bm); ecosLongeVistos++; }
+      }
+    } else if (comSemEco) {
+      const int j0 = seguidor::primeiraRuaAindaAFrente(andadoMm), j1 = seguidor::ultimaRuaVistaVazia(andadoMm, 900.0f);
+      for (int j = j0; j <= j1 && j < 3; j++) { core::Node a, b; if (rua(j, &a, &b)) core::observeStreet(cubos, a, b, false, bm); }
+    }
+  }
+  int ecosLongeVistos = 0;
   int oponenteVisto = 0, esperasSeguidas = 0;
   std::vector<std::pair<core::Node, core::Node>> bloqueiosTemporarios;   // ruas com cubo que NAO da para pegar agora (carregando): voltam a valer depois da entrega
   void aoBloquearTemporario() {
@@ -752,23 +777,13 @@ struct Navegador {
     const core::Pose& p = est.pose;
     const bool colSure = core::columnMass(loc, p.at.c) >= core::kMinCoordBelief, rowSure = core::rowMass(loc, p.at.r) >= core::kMinCoordBelief;
     if (colSure && rowSure) core::markVisited(visitas, p.at);   // so conta o que sabe onde esta
-    // olha as ruas: frente, esquerda, direita (o ultrassom mediu na varredura). Os cubos so ficam em ruas, nunca no cruzamento.
+    // olha as ruas pelo ultrassom: frente, esquerda e direita. Cada leitura e um RAIO ao longo de uma linha reta de ruas (ate ~3 ruas: o eco ve cubos ALEM do proximo cruzamento).
+    // -2 = nao mediu (nao girou). Os cubos so ficam em ruas, nunca no cruzamento.
     const int dirs[3][2] = {{p.dc, p.dr}, {-p.dr, p.dc}, {p.dr, -p.dc}};
     const float us[3] = {v.usFrente, v.usEsq, v.usDir};
     for (int k = 0; k < 3 && colSure && rowSure; k++) {   // sem saber onde esta, o que o ultrassom ve nao pode ir para a memoria (iria para a rua errada)
-      const int c = p.at.c + dirs[k][0], r = p.at.r + dirs[k][1];
-      if (!core::inMap(c, r)) continue;
-      const core::Node viz{static_cast<int8_t>(c), static_cast<int8_t>(r)};
-      const bool eco = seguidor::ruaTemCubo(us[k], alvo);
-      if (eco && ruaVaziaCerta(p.at, viz)) { oponenteVisto++; continue; }   // eco numa rua VAZIA de certeza = o outro robo: nao vira cubo na memoria
-      core::observeStreet(cubos, p.at, viz, eco, bm);
-      if (verdade && getenv("SIM_DEBUG")) {
-        const int ca = std::min<int>(p.at.c, c), ra = std::min<int>(p.at.r, r);
-        const bool leste = p.at.r == r;
-        bool real = false;
-        for (const Cubo& cu : verdade->cubos) real |= cu.vivo && cu.c == ca && cu.r == ra && cu.leste == leste;
-        fprintf(stderr, "    OBS pose (%d,%d) %s para (%d,%d): us=%.0f -> %s | realidade: %s\n", p.at.c, p.at.r, k == 0 ? "frente" : k == 1 ? "esq" : "dir", c, r, us[k], seguidor::ruaTemCubo(us[k], alvo) ? "CUBO" : "vazia", real ? "CUBO" : "vazia");
-      }
+      if (us[k] == -2.0f) continue;
+      observarRaio(p.at, dirs[k][0], dirs[k][1], us[k], 0.0f, true);
     }
     core::Decision d;
     alvoX = alvoY = -1;
@@ -844,7 +859,8 @@ struct Firmware {
   Navegador nav;                 // missao completa (localizador + mapa de cubos + exploracao + coleta + entrega); desligado = os cenarios de teste de sempre
   unsigned long ultimoTcsMs = 0, ultimoUsMs = 0, esperaAte = 0;
   float usAnt = -1.0f, velMmSAtual = 0.0f;
-  int verdesSeguidos = 0, proibidasSeguidas = 0;
+  int verdesSeguidos = 0, proibidasSeguidas = 0, semVarreduras = 0;
+  unsigned long ultimaObsRaioMs = 0;
   bool precisaAlinhar = false, velRetaMedida = false;   // acabou de ser reposicionado no verde
   unsigned long semReacaoAte = 0;
   // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 302 mm.
@@ -983,19 +999,37 @@ struct Firmware {
     const int lado = ladoMenosExplorado(expl, rumo, usaImu, memoria.ultimoLado);
     const double th0 = c.estado().th;   // angulo verdadeiro medido a partir de como chegou
     const float rumo0 = rumo;
-    iniciarVarredura(varr, lado, vinhaSeguindo);
+    // Girar 90 graus no cruzamento VARRE o corpo do carro (~130 mm de raio) por cima das ruas do lado, e um cubo a 112-140 mm do centro seria atingido. Com a pose SEGURA e o
+    // cruzamento ESPERADO (andou ~302 mm desde o anterior) nao se gira: S1+S8 e a cor bastam. As ruas do lado entram na memoria pelo eco ao longe e ao passar. Varre so
+    // perdido, em duvida, quando o cruzamento nao era esperado, e na calibracao pos-reset.
+    bool pularVarredura = false;
+    if (nav.ativo && nav.calibrando == 0 && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo) {
+      const core::Estimate es = core::estimate(nav.loc);
+      const bool segura = core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && core::rowMass(nav.loc, es.pose.at.r) >= core::kMinCoordBelief;
+      const double andado = (c.agoraMs() - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
+      pularVarredura = segura && trechoRestante0 > 0.0 && fabs(andado - trechoRestante0) < 110.0;
+    }
     float estimado = 0.0f;   // sem MPU: angulo estimado por tempo girando
-    AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto), static_cast<float>(c.us())};
-    for (int i = 0; i < 4000; i++) {   // 20 s no maximo
-      const ComandoVarredura k = passoVarredura(varr, leitura, c.agoraMs(), ajustes.velBuscaExterna, ajG, bufVarr, kBufVarr);
-      c.comandar(k.esq, k.dir);
-      if (k.terminou) break;
-      tick(c);
-      bool p[kSensores];
-      c.ler(p);
-      if (usaImu) estimado = rumo - rumo0;
-      else estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;
-      leitura = {estimado, p[0], p[7], acesos(p), static_cast<float>(c.us())};
+    if (pularVarredura) {
+      iniciarVarredura(varr, lado, vinhaSeguindo);
+      varr.ruas = ResultadoGiro{true, 1, 1, false, false, -2.0f, -2.0f, static_cast<float>(c.us())};   // -2 = "nao medi" (sem giro): so a frente tem leitura
+      varr.resultado = Oito::Cruzamento;
+      varr.fase = Varredura::Pronta;
+      semVarreduras++;
+    } else {
+      iniciarVarredura(varr, lado, vinhaSeguindo);
+      AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto), static_cast<float>(c.us())};
+      for (int i = 0; i < 4000; i++) {   // 20 s no maximo
+        const ComandoVarredura k = passoVarredura(varr, leitura, c.agoraMs(), ajustes.velBuscaExterna, ajG, bufVarr, kBufVarr);
+        c.comandar(k.esq, k.dir);
+        if (k.terminou) break;
+        tick(c);
+        bool p[kSensores];
+        c.ler(p);
+        if (usaImu) estimado = rumo - rumo0;
+        else estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;
+        leitura = {estimado, p[0], p[7], acesos(p), static_cast<float>(c.us())};
+      }
     }
     c.parar();
     giroDriftGraus = static_cast<float>(remainder(c.estado().th - th0, 2 * M_PI) * 180.0 / M_PI);
@@ -1253,6 +1287,12 @@ struct Firmware {
     const float d = static_cast<float>(c.us());
     const bool movel = ecoMovel(usAnt, d, dt, velMmSAtual, nav.alvo);
     usAnt = d;
+    // O eco enquanto anda tambem e informacao (ate ~3 ruas a frente na mesma linha): atualiza a memoria a cada 300 ms.
+    if (trechoRestante0 > 0.0 && nav.ruaUsada && agora - ultimaObsRaioMs >= 300 && !movel) {
+      ultimaObsRaioMs = agora;
+      const double andadoRaio = (agora - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
+      nav.observarRaio(nav.ruaDe, nav.ruaPara.c - nav.ruaDe.c, nav.ruaPara.r - nav.ruaDe.r, d, static_cast<float>(andadoRaio), d <= 0.0f);
+    }
     // O eco esta NESTA rua se a superficie dele fica antes do proximo cruzamento: da ponta (eixo + 100) ate o cruzamento faltam (trecho restante + 38 - 100) e um cubo da rua fica a 112+ mm
     // antes dele. Conta-se o que ja andou pela velocidade MEDIDA; se nao da para contar (meia-volta no meio da rua), a regra fica desligada.
     const double andado = (agora - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
@@ -2022,8 +2062,8 @@ static Resultado cenarioMissao(bool ruido, int meta) {
   const PrecisaoMemoria pm = precisaoMemoria(m, fw.nav.cubos);
   if (getenv("SIM_DEBUG")) fprintf(stderr, "    MEMORIA: acertou %d, achou cubo onde nao ha %d, nao lembra de %d (de %d ruas)\n", pm.certo, pm.falsoPositivo, pm.perdeu, pm.total);
   return {ruido ? "missao completa com ruido: explora, coleta, entrega" : "missao completa: explora, coleta, entrega", fim,
-          fmt("%s em %.0f s | PONTOS %d | coletou %d, entregou %d, brancos identificados %d, bloqueou %d rua(s) | cruzamentos %d (falsos %d), reposicoes %d | visitou %d de 30 cruzamentos | velocidade medida pela distancia entre cruzamentos %.0f mm/s (%d amostras; real a 110 de PWM: %.0f) | oponente levou %d cubo(s), colisoes %d",
-              fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.pontos, fw.nav.coletados, fw.nav.entregues, fw.nav.brancosIdentificados, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, fw.ajC.velMmS, fw.amostrasVel, c.velNominalMmS(fw.ajustes.velReto), m.pegosPeloOponente, m.colisoesOponente)};
+          fmt("%s em %.0f s | PONTOS %d | coletou %d, entregou %d, brancos identificados %d, bloqueou %d rua(s) | cruzamentos %d (falsos %d), reposicoes %d | visitou %d de 30 cruzamentos | velocidade medida pela distancia entre cruzamentos %.0f mm/s (%d amostras; real a 110 de PWM: %.0f) | varreduras puladas %d, cubos vistos ao longe %d | oponente levou %d cubo(s), colisoes %d",
+              fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.pontos, fw.nav.coletados, fw.nav.entregues, fw.nav.brancosIdentificados, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, fw.ajC.velMmS, fw.amostrasVel, c.velNominalMmS(fw.ajustes.velReto), fw.semVarreduras, fw.nav.ecosLongeVistos, m.pegosPeloOponente, m.colisoesOponente)};
 }
 
 // Dois robos IGUAIS na mesma arena (regras): cada um com o mesmo firmware; colisao leva -10 e volta ao ponto de partida (regras 7.1). Roda ate os dois terem entregue `meta`
