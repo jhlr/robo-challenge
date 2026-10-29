@@ -1030,7 +1030,16 @@ struct Firmware {
           // frente, segurando o rumo pelo giroscopio, ate a barra sair da faixa (20 mm + a barra a ~30 mm do eixo).
           cruz = MemoriaCruzamento{};
           comecarASair(cruz, c.agoraMs());   // o debounce conta desde ANTES de andar: o 1o cruzamento fica a ~90 mm do portao e nao pode ser engolido
-          andarMm(c, 40.0, [] { return false; });
+          // Em frente ate sair da faixa azul E achar a rua (algum sensor preto sem azul sob o TCS), no maximo ~1,3 s: se a entrada errou uns 40 mm de y a rua nao esta sob a barra, e
+          // a busca achava a faixa azul ATRAS (a mais perto) e a seguia como rua.
+          const unsigned long t0 = c.agoraMs();
+          andarMm(c, 400.0, [&] {
+            const unsigned long dt = c.agoraMs() - t0;
+            bool pp[kSensores];
+            c.ler(pp);
+            const bool algumPreto = pp[0] || pp[1] || pp[2] || pp[3] || pp[4] || pp[5] || pp[6] || pp[7];
+            return dt >= 130 && c.tcsChao() != CorLinha::Azul && (algumPreto || dt >= 1300);
+          });
           esquecerUltimoComando(memoria);
           memoria.perdeuEm = 0;
         }
@@ -1151,7 +1160,7 @@ struct Firmware {
       medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a 302 mm
       if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
       else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
-      if ((a == 'L' || a == 'R') && !nav.loc.inGreen) olharAdiante(c);
+      if ((a == 'L' || a == 'R') && !nav.loc.inGreen) olharAdiante(c, a == 'L' ? 1 : -1);
       usAnt = -1.0f; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
       tSaidaMs = c.agoraMs();                          // daqui em diante conta o caminho andado na rua nova
       andadoRuaMm = 0.0f;
@@ -1164,17 +1173,13 @@ struct Firmware {
   }
 
   // Depois de virar para uma rua do lado o EIXO ainda esta ~38 mm fora da linha dela e o cone do ultrassom (+-10 graus) passa ao lado de um cubo no meio da rua (a ~150 mm do
-  // cruzamento): ele so apareceria a poucos mm, tarde demais. Olha 35 graus para cada lado (o cubo esta no lado da rua) e, se ha eco perto, FICA apontado para ele: o tratamento
+  // cruzamento): ele so apareceria a poucos mm, tarde demais. Olha 35 graus para o lado da linha (so ele: o outro lado aponta para o quarteirao, onde ha obstaculos que nao sao da rua) e, se ha eco perto, FICA apontado para ele: o tratamento
   // de cubo (para, le a cor, coleta ou desvia) assume dali.
-  void olharAdiante(Carro& c) {
+  void olharAdiante(Carro& c, int lado) {   // lado +1 = virou a esquerda (a linha da rua fica a esquerda do eixo), -1 = direita
     const float r0 = rumo;
-    double melhor = -1.0, melhorAng = 0.0;
-    for (const double ang : {35.0, -35.0}) {
-      girarPara(c, r0 + ang);
-      const double d = c.us();
-      if (d > 0.0 && (melhor < 0.0 || d < melhor)) { melhor = d; melhorAng = ang; }
-    }
-    girarPara(c, r0 + (melhor > 0.0 && melhor < 130.0 ? melhorAng : 0.0));
+    girarPara(c, r0 + 35.0 * lado);
+    const double d = c.us();
+    girarPara(c, r0 + (d > 0.0 && d < 130.0 ? 35.0 * lado : 0.0));
   }
 
   // Vira para a rua do lado. A barra para na BORDA da rua que cruza e o eixo ainda esta ~40 mm antes do centro: girar dali poe a rua a 40 mm do eixo,

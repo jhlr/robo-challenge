@@ -12,13 +12,18 @@ g++ -std=c++17 -O2 -Isrc -I../src -pthread test/simulador.cpp src/seguidor/decis
 
 Cada linha: se chegou a meta (2 entregas), entregas, pontos, toques em cubos (regras: -5 cada) e tempo. O resumo traz a media.
 
-## Medida de 2026-10-29 (12 sementes, sem ruido)
-- 6 de 12 chegam a meta; 1,4 entregas e 1,9 toques em cubos por partida; 415 s em media.
-- Antes de corrigir a entrada na cidade depois da entrega (compensar a partida em deslocamentos curtos): 2 de 12.
-- Com ruido aleatorio: 0 de 12 (ruido propositalmente alto, para ter ideia de mundo real).
+## Medidas (12 sementes, sem ruido, `--lote 12`)
+| momento | chegam a meta | toques em cubos / partida | tempo medio |
+|---|---|---|---|
+| antes de corrigir a entrada na cidade depois da entrega | 2 de 12 | 1,6 | 529 s |
+| compensando a partida em deslocamentos curtos | 6 de 12 | 1,9 | 415 s |
+| cubo perto do cruzamento: depois da meia-volta replaneja no cruzamento | 7 de 12 | 0,7 | 387 s |
+| atravessa a faixa azul em frente ate achar a rua | 8 de 12 | 1,0 | 332 s |
+| olhar adiante so para o lado da linha (nao para o quarteirao) | 8 de 12 | 0,8 | 321 s |
+
+Com ruido aleatorio (`--lote-ruido 12`, ruido propositalmente alto): 0 de 12.
 
 ## O que ainda falha (sem ruido)
-- ANCORAR com a linha desconhecida: a pose assume a linha 0 e, com um cubo na rua para a moldura de cima, ele volta e volta a ela (toca no cubo varias vezes). O nucleo
-  (`core::planAtCrossing`) ja manda para a outra moldura quando a rua esta bloqueada (teste `test_plan_anchors_the_other_way_when_the_street_to_anchor_is_blocked`), mas o
-  simulador tem a propria logica de ANCORAR (Navegador::aoCruzamento) que ainda nao usa isso; ao testar la, um virar-de-sentido simples piorou (40 toques numa semente).
-- Depois da 1a entrega, algumas sementes ficam presas (1 entrega em 601 s).
+- 4 de 12 sementes terminam com 1 entrega em 601 s (presas depois da 1a entrega ou ancorando).
+- Ancorar com a linha desconhecida assume a linha 0; a correcao do nucleo (`core::planAtCrossing` vai a outra moldura quando a rua esta bloqueada) ainda nao e usada pela
+  logica propria de ANCORAR do simulador (`Navegador::aoCruzamento`). Virar o sentido ali simplesmente piorou, entao nao foi aplicado.
