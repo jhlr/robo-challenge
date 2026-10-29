@@ -486,6 +486,18 @@ void test_loc_gate_gives_column_and_heading_not_row() {
   TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.2f, b.p[0][0][0]);
 }
 
+void test_loc_gate_with_known_row_knows_the_row() {
+  core::PoseBelief b;
+  core::onOwnBlueAtRow(b, 2, 0.9f);   // came back through the gate lined up with row 2 (the row is far enough from its neighbours: 400 mm)
+  TEST_ASSERT_TRUE(b.atGate);
+  TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.9f, b.p[0][2][0]);
+  TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.025f, b.p[0][0][0]);   // the rest shares the doubt equally (4 other rows)
+  TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, core::totalMass(b));
+  core::onCrossing(b);
+  TEST_ASSERT_GREATER_OR_EQUAL_FLOAT(core::kMinCoordBelief, core::rowMass(b, 2));
+  TEST_ASSERT_EQUAL(2, core::estimate(b).pose.at.r);
+}
+
 void test_loc_counts_columns_along_the_street() {
   core::PoseBelief b;
   core::onOwnBlue(b);
@@ -656,6 +668,7 @@ int main() {
   RUN_TEST(test_gyro_turn_finishes_on_the_angle);
   RUN_TEST(test_gyro_turn_times_out_if_the_gyro_is_dead);
   RUN_TEST(test_loc_gate_gives_column_and_heading_not_row);
+  RUN_TEST(test_loc_gate_with_known_row_knows_the_row);
   RUN_TEST(test_loc_counts_columns_along_the_street);
   RUN_TEST(test_loc_running_past_the_last_column_means_we_miscounted);
   RUN_TEST(test_loc_turn_rotates_the_heading);

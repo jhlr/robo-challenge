@@ -91,6 +91,16 @@ inline void onOwnBlue(PoseBelief& b) {
   b.atGate = true;
 }
 
+// Same as onOwnBlue() when the row is KNOWN (we lined up with it before crossing: rows are 400 mm apart, so a few tens of mm of error still pick the right one). `confidence` stays
+// on that row and the rest shares the doubt, so a wrong guess is corrected by the next crossings instead of being locked in.
+inline void onOwnBlueAtRow(PoseBelief& b, int row, float confidence) {
+  memset(b.p, 0, sizeof(b.p));
+  b.inGreen = false;
+  const float rest = (1.0f - confidence) / (kMapRows - 1);
+  for (int r = 0; r < kMapRows; ++r) b.p[0][r][0] = (r == row) ? confidence : rest;
+  b.atGate = true;
+}
+
 inline void onTurn(PoseBelief& b, int leftQuarterTurns) {
   PoseBelief n;
   memset(&n, 0, sizeof(n));

@@ -737,7 +737,10 @@ struct Navegador {
   // Depois de cada reset o robo se ALINHA com uma rua pela referencia vermelha (sabe a linha de verdade): no portao a coluna e 0 e a linha e a escolhida, sem precisar achar a
   // borda vermelha para descobrir. E mede + varre os 5 primeiros cruzamentos em linha reta (calibracao): velocidade, rumo e as ruas dessa linha entram na memoria.
   void aoPortao() {
-    core::onOwnBlue(loc);   // coluna 0; a linha ele descobre indo ate a linha vermelha de um dos lados e contando os cruzamentos que viu
+    // coluna 0; a linha: se entrou alinhado com uma rua conhecida (volta do ecoponto: as linhas ficam a 400 mm, entao um erro de dezenas de mm ainda escolhe a certa) ja sabe; senao
+    // descobre indo ate a linha vermelha de um dos lados e contando os cruzamentos que viu
+    if (linhaEntrada >= 0 && linhaEntrada < core::kMapRows) core::onOwnBlueAtRow(loc, linhaEntrada, 0.9f);
+    else core::onOwnBlue(loc);
   }
   int linhaEntrada = -1;   // a linha pela qual entrou (conhecida pela moldura vermelha); -1 = nao sabe
   std::vector<std::pair<double, seguidor::CorCubo>> platConhecidas;   // (y, cor) das plataformas ja lidas de perto

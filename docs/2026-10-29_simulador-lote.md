@@ -35,3 +35,15 @@ Com ruido aleatorio (`--lote-ruido 12`, ruido propositalmente alto): 0 de 12.
 - Cubos: memoria do eco (um eco perto que some por causa do balanco do carro vale como "eco menos o que andou"; se o carro esta torto, realinha com a rua e le de novo). Toques em cubos: 2,0 -> 0,2 por partida.
 - Varredura nos cruzamentos: com pose segura e cruzamento esperado, so gira para o lado cuja rua ainda nao foi medida (as duas medidas: nao gira; so uma: gira uma vez). 30 sementes: 25/30 na meta nos dois casos, 283 s contra 288 s.
 - Falhas que restam (~5 em 30): o carro carregando fica preso num falso alarme no mesmo ponto (ex. semente 11, (1474, 230)); nao investigado.
+
+## Rodada de otimizacao (30 sementes sem ruido)
+
+| Mudanca | Na meta | Tempo medio |
+|---|---|---|
+| Antes (varredura so da rua nao medida) | 25/30 | 283 s |
+| Rua bloqueada = a que o carro vai usar de fato (antes marcava sempre a do oeste); rota pelas ruas livres ate a coluna 0 | 26/30 | 277 s |
+| ANCORAR com cubos nos dois sentidos da coluna: anda uma coluna ao leste | 27/30 | 266 s |
+| Volta ao portao com a linha conhecida: `core::onOwnBlueAtRow` (pose segura logo na entrada, sem sweeps nem ANCORAR) | 27/30 | **207 s** |
+
+Tentado e DESFEITO: (a) marcar toda plataforma lida como olhada (`yOlhados`): 23/30; (b) corrigir o rumo do giroscopio pelo plano da face das plataformas (ajuste do delta por minimos quadrados, fases 1 e 2): o delta sai certo (-22 contra -27 verdadeiro) mas o erro volta a crescer depois (vies do giroscopio + curvas fora das linhas), nao fechou o lote com ruido (0/12) e piorou o lote limpo (26/30). Com ruido o problema e ancorar o rumo ENQUANTO ha so parede (ecoponto e verde), sem linha para corrigir.
+Falhas que restam (3/30): carro perde a linha ao reentrar pelo portao 40 mm abaixo da rua (deslocamento por tempo) e fica na faixa azul.
