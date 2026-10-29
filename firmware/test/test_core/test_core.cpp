@@ -93,16 +93,26 @@ void test_shoulder_clamps_to_servo_travel() {
   TEST_ASSERT_FALSE(cut);
 }
 
-void test_spin_duration() {
-  TEST_ASSERT_EQUAL_UINT32(2000, core::spinDurationMs(45.0f, 22.5f, 90.0f));
-  TEST_ASSERT_EQUAL_UINT32(4000, core::spinDurationMs(90.0f, 22.5f, 90.0f));  // exactly the limit
+void test_shoulder_target() {
+  uint16_t t = 0;
+  TEST_ASSERT_TRUE(core::shoulderTarget(2000, 45.0f, +1, 90.0f, &t));
+  TEST_ASSERT_EQUAL_UINT16(2512, t);  // 45 deg = 512 steps
+  TEST_ASSERT_TRUE(core::shoulderTarget(2000, 45.0f, -1, 90.0f, &t));
+  TEST_ASSERT_EQUAL_UINT16(1488, t);  // the up direction decides the sign
+  TEST_ASSERT_TRUE(core::shoulderTarget(2000, -45.0f, +1, 90.0f, &t));
+  TEST_ASSERT_EQUAL_UINT16(1488, t);
+  TEST_ASSERT_TRUE(core::shoulderTarget(2000, 90.0f, +1, 90.0f, &t));  // exactly the limit
+  TEST_ASSERT_EQUAL_UINT16(3024, t);
 }
 
-void test_spin_refused() {
-  TEST_ASSERT_EQUAL_UINT32(0, core::spinDurationMs(0.0f, 22.5f, 90.0f));
-  TEST_ASSERT_EQUAL_UINT32(0, core::spinDurationMs(-5.0f, 22.5f, 90.0f));
-  TEST_ASSERT_EQUAL_UINT32(0, core::spinDurationMs(90.1f, 22.5f, 90.0f));
-  TEST_ASSERT_EQUAL_UINT32(0, core::spinDurationMs(45.0f, 0.0f, 90.0f));
+void test_shoulder_target_refused() {
+  uint16_t t = 7;
+  TEST_ASSERT_FALSE(core::shoulderTarget(2000, 0.0f, +1, 90.0f, &t));
+  TEST_ASSERT_FALSE(core::shoulderTarget(2000, 90.1f, +1, 90.0f, &t));
+  TEST_ASSERT_FALSE(core::shoulderTarget(2000, -90.1f, +1, 90.0f, &t));
+  TEST_ASSERT_FALSE(core::shoulderTarget(100, -45.0f, +1, 90.0f, &t));   // would go below 0
+  TEST_ASSERT_FALSE(core::shoulderTarget(4000, 45.0f, +1, 90.0f, &t));   // would pass 4095
+  TEST_ASSERT_EQUAL_UINT16(7, t);
 }
 
 core::CubeBelief emptyCubes() {
@@ -697,8 +707,6 @@ int main() {
   RUN_TEST(test_observe_street_picks_the_right_slot);
   RUN_TEST(test_unlikely_places_are_not_worth_a_trip);
   RUN_TEST(test_likely_far_beats_unlikely_near);
-  RUN_TEST(test_spin_duration);
-  RUN_TEST(test_spin_refused);
   RUN_TEST(test_line_centered);
   RUN_TEST(test_line_left_is_negative);
   RUN_TEST(test_line_between_two_sensors);
@@ -709,7 +717,7 @@ int main() {
   RUN_TEST(test_color_classes);
   RUN_TEST(test_shoulder_mapping);
   RUN_TEST(test_shoulder_clamps_to_servo_travel);
-  RUN_TEST(test_spin_duration);
-  RUN_TEST(test_spin_refused);
+  RUN_TEST(test_shoulder_target);
+  RUN_TEST(test_shoulder_target_refused);
   return UNITY_END();
 }

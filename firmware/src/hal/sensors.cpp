@@ -77,15 +77,16 @@ bool Imu::read(ImuSample& out) {
   return true;
 }
 
-// ---- SG90 (LEDC, 16-bit) ----
-void Sg90::begin(int pin) {
+// ---- servo (LEDC, 16-bit) ----
+void Servo::begin(int pin) {
   pin_ = pin;
   ledcAttach(pin_, 50, 16);
 }
 
-void Sg90::write(float degrees) {
-  const float us = 500.0f + constrain(degrees, 0.0f, 180.0f) * (1900.0f / 180.0f);
-  ledcWrite(pin_, static_cast<uint32_t>(us * 65535.0f / 20000.0f));
+void Servo::writeUs(float us) { ledcWrite(pin_, static_cast<uint32_t>(us * 65535.0f / 20000.0f)); }
+
+void Servo::write(float degrees) {
+  writeUs(spec_.minUs + constrain(degrees, 0.0f, spec_.rangeDeg) * spec_.usPerDeg());
 }
 
 // ---- buzzer / LED ----

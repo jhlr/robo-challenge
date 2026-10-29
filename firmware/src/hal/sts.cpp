@@ -4,7 +4,7 @@ namespace sts {
 namespace {
 constexpr uint8_t kInstPing = 0x01, kInstRead = 0x02, kInstWrite = 0x03, kInstSyncWrite = 0x83;
 constexpr uint8_t kBroadcast = 0xFE;
-constexpr uint8_t kRegMode = 33, kRegTorque = 40, kRegAcc = 41, kRegGoalPos = 42, kRegGoalSpeed = 46,
+constexpr uint8_t kRegId = 5, kRegLock = 55, kRegMode = 33, kRegTorque = 40, kRegAcc = 41, kRegGoalPos = 42, kRegGoalSpeed = 46,
                   kRegPresentPos = 56;
 constexpr uint32_t kTimeoutUs = 4000;
 constexpr int16_t kMaxSpeed = 3400;
@@ -85,6 +85,13 @@ bool Bus::ping(uint8_t id) {
 bool Bus::setMode(uint8_t id, Mode mode) {
   const uint8_t v = static_cast<uint8_t>(mode);
   return write(id, kRegMode, &v, 1);
+}
+
+bool Bus::setId(uint8_t id, uint8_t newId) {
+  if (newId == kBroadcast || newId == id) return false;
+  const uint8_t unlock = 0, lock = 1;
+  if (!write(id, kRegLock, &unlock, 1) || !write(id, kRegId, &newId, 1)) return false;
+  return write(newId, kRegLock, &lock, 1);
 }
 
 bool Bus::setTorque(uint8_t id, bool on) {

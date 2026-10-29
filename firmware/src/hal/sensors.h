@@ -41,12 +41,21 @@ class Imu {
   bool ok_ = false;
 };
 
-// SG90/MG90S on LEDC, 50 Hz, 500-2400 us over 0-180 degrees
-class Sg90 {
+// Hobby servo on LEDC, 50 Hz, 16 bit. Pulse mapping is per model: minUs..maxUs spans 0..rangeDeg.
+struct ServoSpec {
+  float minUs, maxUs, rangeDeg;
+  constexpr float usPerDeg() const { return (maxUs - minUs) / rangeDeg; }
+};
+constexpr ServoSpec kSg90{500.0f, 2400.0f, 180.0f};    // SG90/MG90S
+
+class Servo {
  public:
+  explicit Servo(const ServoSpec& spec = kSg90) : spec_(spec) {}
   void begin(int pin);
-  void write(float degrees);  // 0..180
+  void write(float degrees);  // 0..spec.rangeDeg
+  void writeUs(float us);     // raw pulse width; the only call a continuous-rotation servo uses
  private:
+  ServoSpec spec_;
   int pin_ = -1;
 };
 void beginBuses();  // Wire (IMU, front RGB) and Wire1 (floor RGB)

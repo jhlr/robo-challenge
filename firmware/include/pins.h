@@ -26,7 +26,6 @@ constexpr int kLine[] = {36, 39, 35, 32, 33, 19, 23, 4};  // QRE8D channels, lef
 constexpr int kLineCount = sizeof(kLine) / sizeof(kLine[0]);
 
 constexpr int kClaw = 18;      // SG90 signal (claw)
-constexpr int kShoulder = 13;  // shoulder servo signal (MG996R, 4:1 gear reduction). BENCH WIRING (2026-10-27): shares GPIO13 with kFloorSda (floor RGB off while testing). Original pin: 5 (strapping pin, glitches at boot)
 constexpr int kBuzzer = 26;
 constexpr int kLed = 27;
 }  // namespace pins

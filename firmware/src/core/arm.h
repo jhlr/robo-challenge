@@ -13,10 +13,16 @@ inline float shoulderServoDeg(float armDeg, float center, int sign, float ratio,
   return s;
 }
 
-// How long to hold a constant-speed pulse to turn `deg` at `degPerSec`. Refuses (returns 0) a non-positive angle or one above `maxDeg`.
-inline uint32_t spinDurationMs(float deg, float degPerSec, float maxDeg) {
-  if (deg <= 0.0f || deg > maxDeg || degPerSec <= 0.0f) return 0;
-  return static_cast<uint32_t>(deg / degPerSec * 1000.0f + 0.5f);
+// Target position (0..4095, 4096 steps/rev) for a delta of `servoDeg` real servo degrees from the CURRENT position. `upSign` is the position direction that raises the arm.
+// Refuses (returns false, target untouched) a zero delta, one above `maxDeg`, or a target outside the servo's single-turn range.
+inline bool shoulderTarget(uint16_t current, float servoDeg, int upSign, float maxDeg, uint16_t* target) {
+  const float mag = servoDeg < 0.0f ? -servoDeg : servoDeg;
+  const int steps = static_cast<int>(mag * 4096.0f / 360.0f + 0.5f);
+  if (steps == 0 || mag > maxDeg) return false;
+  const int t = static_cast<int>(current) + (servoDeg > 0.0f ? upSign : -upSign) * steps;
+  if (t < 0 || t > 4095) return false;
+  *target = static_cast<uint16_t>(t);
+  return true;
 }
 
 }  // namespace core

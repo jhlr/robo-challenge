@@ -17,11 +17,18 @@
 Enderecos batem com o driver que ja existe: modo 33, torque 40, acc 41, posicao alvo 42-43, tempo 44-45, velocidade alvo 46-47, posicao atual 56-57. Pacote `FF FF id len inst params chk`, soma invertida; SYNC_WRITE `0x83`. Bit 15 = sinal (velocidade/posicao). Resolucao 4096 passos/volta.
 Modo (reg 33): 0 = posicao, 1 = roda em malha fechada de velocidade, 2 = roda em PWM aberto.
 
-## Lacuna achada em `sts.cpp`
-Registros abaixo de 40 (modo, ID, baud, offset) sao EEPROM: o SCServo escreve 0 em `SMS_STS_LOCK` (55) antes e 1 depois. `Bus::setMode` hoje nao destrava. Se o modo nao pegar, e isso. Corrigir no dono (`Bus`): `unlockEprom`/`lockEprom` em volta da escrita.
+## EEPROM (corrigido)
+Conferido no SCServo: `Mode()` escreve o registrador 33 direto, sem unlock; so a troca de ID/baud exige `LOCK` (reg 55 = 0, escrever, reg 55 = 1). Antes eu tinha escrito que o modo precisava de unlock: errado. Implementado `sts::Bus::setId` (destrava no id antigo, escreve, trava no id novo).
+
+## Implementado (2026-10-29)
+- `hal/sts.*`: `setId`.
+- `core/arm.h`: `shoulderTarget` (delta de graus reais a partir da posicao atual, 4096 passos/volta, recusa 0, >90 graus ou fora de 0-4095) no lugar de `spinDurationMs`; 2 testes novos, 63/63 no `pio test -e native`.
+- `hal/shoulder.*`: ombro = STS id 3 em modo posicao, `shoulderBegin(bus)` nao move, `shoulderRotate(deg)` le a posicao, move e espera chegar (timeout 3 s).
+- `params.h`: `kIdShoulder = 3`, `kShoulderUpSign = +1` (SUPOSTO, inverter se o primeiro movimento pequeno for ao contrario), velocidade 400 e acc 20; saiu todo o bloco do MG996R por PWM. `pins.h`: saiu `kShoulder`.
+- `bringup`: `p` pinga 1-3, `i <velho> <novo>` troca ID, `d <deg>` move o ombro. Compila em `bringup`, `bringup_dc` e `follow`. NAO testado na bancada.
 
 ## Impacto no projeto
-1. Ombro: sai o MG996R de rotacao continua (sem feedback, calibrado a mao) e entra o STS3215 id 3 em modo posicao, com leitura real da posicao. Resolve a pendencia aberta do handoff 2026-10-28. `hal/shoulder.*` (PWM, ainda nao commitado) vira fina sobre `sts::Bus::moveTo`; `kShoulderRatio = 4` (z48/z12) continua valendo.
+1. Ombro (feito, sem bancada): sai o MG996R de rotacao continua (sem feedback, calibrado a mao) e entra o STS3215 id 3 em modo posicao, com leitura real da posicao. Resolve a pendencia aberta do handoff 2026-10-28. `hal/shoulder.*` (PWM, ainda nao commitado) vira fina sobre `sts::Bus::moveTo`; `kShoulderRatio = 4` (z48/z12) continua valendo.
 2. Rodas: `StsDrive` ja existe (modo roda, broadcast SYNC_WRITE, odometria pelo contador). Falta `kGearRatio` (servo -> roda) e `kTrackMm` medidos no chassi novo; `params.h` diz "looked 1:1".
 3. Pinos: UART2 em 16/17. O pino 16 hoje esta emprestado ao ombro PWM (bancada): libera. GPIO12 (strapping) e a ligacao do STBY so existem no carro DC.
 4. Seguidor de linha: com encoders (StsDrive) a odometria e o giro por contagem substituem a compensacao de assimetria por giroscopio (`seguidor/assimetria.h`, `ponte_h`) que era so do carro TT. Reavaliar no simulador depois de medir.

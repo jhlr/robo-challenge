@@ -10,6 +10,8 @@ class Bus {
   void begin(HardwareSerial& port, int rx, int tx, bool echoes, uint32_t baud = 1000000);
   bool ping(uint8_t id);
   bool setMode(uint8_t id, Mode mode);
+  // Persistent ID change (EEPROM: unlock reg 55, write the ID, lock again on the NEW id). Connect ONE servo only: factory id is 1.
+  bool setId(uint8_t id, uint8_t newId);
   bool setTorque(uint8_t id, bool on);
   bool moveTo(uint8_t id, uint16_t pos, uint16_t speed = 1000, uint8_t acc = 50);
   bool setWheelSpeed(uint8_t id, int16_t speed);

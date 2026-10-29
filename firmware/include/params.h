@@ -2,9 +2,10 @@
 #include <stdint.h>
 // Every number here is an ASSUMPTION until measured on the real robot.
 namespace params {
-// STS3215 bus IDs (wheels only; the shoulder is now an SG90/MG90S on PWM)
+// STS3215 bus IDs: one servo per lateral (2 wheels each) and one on the tower. Factory id is 1: set the others one servo at a time (bringup 'i').
 constexpr uint8_t kIdLeft = 1;
 constexpr uint8_t kIdRight = 2;
+constexpr uint8_t kIdShoulder = 3;
 // Signs include the mounting AND the gear reversal (STS -> centre gear -> wheel gear turns the wheel the other way); flip if the robot drives backwards.
 #if defined(CAR_DC)
 constexpr int kLeftSign = +1;
@@ -20,8 +21,13 @@ constexpr bool kStsEchoes = false;  // true if TX and RX share one wire without 
 constexpr float kShoulderRatio = 4.0f;
 constexpr int kShoulderSign = -1;
 constexpr float kShoulderCenterDeg = 109.0f;
-// HARD LIMIT (user rule, 2026-10-27, after a servo was damaged): the shoulder servo is never commanded past this angle, whatever the command.
-constexpr float kShoulderMaxServoDeg = 90.0f;
+// The shoulder is an STS3215 in position mode (id kIdShoulder): the 12-bit position is the feedback, so moves are deltas from the CURRENT position (user rule), never absolute.
+// ASSUMPTION until the bench: position increasing raises the arm. Flip kShoulderUpSign if the first small move goes the wrong way.
+constexpr int kShoulderUpSign = +1;
+constexpr uint16_t kShoulderSpeed = 400;  // steps/s, gentle for the first tests
+constexpr uint8_t kShoulderAcc = 20;
+// HARD LIMIT (user rule: never more than 90 deg at the shoulder): the largest single rotation accepted.
+constexpr float kShoulderMaxMoveDeg = 90.0f;
 
 // STS car: servo steps/s at full command; the lateral gear train sits between servo and wheel (see kGearRatio).
 constexpr int kStsMaxSteps = 3400;
