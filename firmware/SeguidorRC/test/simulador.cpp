@@ -739,23 +739,8 @@ struct Navegador {
     core::onOwnBlue(loc);   // coluna 0; a linha ele descobre indo ate a linha vermelha de um dos lados e contando os cruzamentos que viu
   }
   int linhaEntrada = -1;   // a linha pela qual entrou (conhecida pela moldura vermelha); -1 = nao sabe
-  // Plataformas percebidas pelo ultrassom nos primeiros cruzamentos (ao lado, olhando para o oeste): a linha ainda nao e conhecida, entao cada uma guarda o DESLOCAMENTO de linhas
-  // (+1 por cruzamento indo para cima, -1 para baixo) em que foi vista; quando a linha fica certa (bateu no vermelho) vira o slot: linha = linha_agora + (off - off_agora).
-  struct PlatPend { int off; seguidor::CorCubo cor; };
-  std::vector<PlatPend> platPend;
-  int offLinha = 0;
-  std::vector<double> yOlhados;   // alturas do ecoponto ja vistas de perto (ou ao longe, pelo eco): nao olha de novo
-  std::vector<std::pair<double, seguidor::CorCubo>> platConhecidas;   // (y do slot, cor) ja lidas de perto
-  void resolverPlataformas(int linhaAgora) {
-    for (const PlatPend& q : platPend) {
-      const int linha = linhaAgora + (q.off - offLinha);
-      if (linha < 0 || linha >= core::kMapRows) continue;
-      bool ja = false;
-      for (const auto& pc : platConhecidas) if (fabs(pc.first - yDaPlataforma(linha)) < 1.0) ja = true;
-      if (!ja) { platConhecidas.push_back({yDaPlataforma(linha), q.cor}); yOlhados.push_back(yDaPlataforma(linha)); }   // a rua da linha r aponta para o slot r (linhas 1 a 3: no centro da plataforma)
-    }
-    platPend.clear();
-  }
+  std::vector<std::pair<double, seguidor::CorCubo>> platConhecidas;   // (y, cor) das plataformas ja lidas de perto
+  std::vector<double> yOlhados;   // alturas do ecoponto ja olhadas (ou sem eco): nao olha de novo
   int calibrando = 0;      // (nao usado: a calibracao pos-reset agora e ir ate a linha vermelha contando cruzamentos)
   int contados = 0;        // cruzamentos contados nesse trecho ate a linha vermelha
   void aoProibido(core::Forbidden k) { core::onForbidden(loc, k); core::onTurn(loc, 2); pularProximo = true; }   // meia-volta no fim da rua: volta ao cruzamento que deixou
@@ -895,7 +880,7 @@ struct Navegador {
       ultimoPlano = plano.mode == core::Mode::Collect ? (d.toCube ? "coletar" : "explorar (regiao menos visitada)") : (plano.mode == core::Mode::Anchor ? "ancorar a linha" : "achar o portao");
       if (plano.mode == core::Mode::Collect && d.toCube) {
         core::Node tmp{}, ga{}, gz{};
-        core::nextTowardBestCube(p, cubos, &tmp, core::kMinBelief, &bloq, &ga, &gz);
+        if (!core::nextTowardBestCube(p, cubos, &tmp, core::kKnownCube, &bloq, &ga, &gz)) core::nextTowardBestCube(p, cubos, &tmp, core::kMinBelief, &bloq, &ga, &gz);   // o mesmo alvo que decideAtCrossing escolheu (guloso: cubo visto primeiro)
         alvoX = (xDoCruzamento(ga.c) + xDoCruzamento(gz.c)) / 2; alvoY = (yDoCruzamento(ga.r) + yDoCruzamento(gz.r)) / 2;
       } else if (d.next.c >= 0 && core::inMap(d.next.c, d.next.r)) { alvoX = xDoCruzamento(d.next.c); alvoY = yDoCruzamento(d.next.r); }
     }
@@ -942,7 +927,7 @@ struct Firmware {
   unsigned long cruzandoPortaoDesde = 0;
   bool pularVarreduraComPoseSegura = false;   // opcional: no robo real o giro nao esbarrava nos cubos (ficam no meio da rua), entao varre sempre
   unsigned long ultimaObsRaioMs = 0;
-  bool precisaAlinhar = false, velRetaMedida = false, inicioFeito = false, voltouDaBorda = false;   // acabou de ser reposicionado no verde
+  bool precisaAlinhar = false, velRetaMedida = false, inicioFeito = false;   // acabou de ser reposicionado no verde
   unsigned long semReacaoAte = 0;
   // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 302 mm.
   unsigned long tSaidaMs = 0;
@@ -1038,7 +1023,16 @@ struct Firmware {
       if (nav.ativo) {
         if (nav.carregando) entregarNaPlataforma(c);   // saiu COM cubo pelo portao: leva ate a plataforma da cor
         else if (indoParaOeste()) { core::initInGreen(nav.loc); nav.naRua = false; portaoPendente = true; precisaAlinhar = true; }   // saiu pelo nosso portao sem querer: esta no verde de novo
-        else nav.aoPortao();
+        else {
+          nav.aoPortao();
+          // A barra para em cima da faixa azul e a barra/eixo ainda estao dentro dela: seguir a linha dali o fazia SEGUIR A AZUL como se fosse rua (subia ou descia por ela). Atravessa em
+          // frente, segurando o rumo pelo giroscopio, ate a barra sair da faixa (20 mm + folga da barra e do eixo).
+          andarMm(c, 90.0, [] { return false; });
+          esquecerUltimoComando(memoria);
+          memoria.perdeuEm = 0;
+          cruz = MemoriaCruzamento{};
+          comecarASair(cruz, c.agoraMs());
+        }
       }
       return;
     }
@@ -1052,8 +1046,7 @@ struct Firmware {
         if (nav.ativo) nav.aoProibido(corAgora == CorLinha::Azul ? core::Forbidden::OtherBlue : core::Forbidden::Red);
         girarAte(c, 0.0f, 180.0f, est, ver, c.estado().th, rumo);
         meiasVoltas++;
-        voltouDaBorda = true;   // o proximo cruzamento e o MESMO de antes da borda (a borda fica a 127 mm do ultimo): a linha nao muda
-        esquecerUltimoComando(memoria);
+                esquecerUltimoComando(memoria);
         esquecerCor(memCor);
         cruz = MemoriaCruzamento{};   // depois dos 180 graus a barra ja nao esta sobre a faixa da borda: o cruzamento do beco (a 127 mm) tem de ser detectado, o debounce de 300 ms o engolia
       } else {
@@ -1139,18 +1132,6 @@ struct Firmware {
     if (varr.resultado == Oito::Endireitou) memoria.perdeuEm = 0;   // estava de lado em cima da linha e agora esta alinhado: volta a seguir
     tUltimoCruzamento = c.agoraMs();
     fimDeBecoAvisado = false;
-    if (varr.resultado == Oito::Cruzamento && nav.ativo && !nav.loc.inGreen) {
-      const double sinRumo = sin(rumo0 * M_PI / 180.0);
-      if (fabs(sinRumo) > 0.7) {   // indo para cima/baixo: o oeste esta de lado
-        if (voltouDaBorda) voltouDaBorda = false; else nav.offLinha += sinRumo > 0 ? 1 : -1;
-        if (getenv("SIM_DEBUG")) fprintf(stderr, "    OFF t=%.1f rumo0 %.0f off %d real y %.0f usEsq %.0f usDir %.0f\n", c.agoraMs() / 1000.0, rumo0, nav.offLinha, c.estado().y, r.usEsq, r.usDir);
-        const float dOeste = sinRumo > 0 ? r.usEsq : r.usDir;
-        if (!nav.plataformasObservadas && !nav.carregando && dOeste > 300.0f && dOeste < 470.0f) {   // eco a ~390 mm para o oeste: so pode ser uma plataforma (coluna 0, rua apontando para ela)
-          olharPlataformaAtras(c, rumo0, dOeste);
-          nav.platPend.back().off = nav.offLinha;
-        }
-      }
-    }
     if (varr.resultado == Oito::Cruzamento) {
       char a = rotaI < rota.size() ? rota[rotaI++] : 'S';
       if (nav.ativo) {
@@ -1162,14 +1143,6 @@ struct Firmware {
           const core::Estimate es = core::estimate(nav.loc);
           const int th90 = static_cast<int>(lround(paradaEm.th * 2.0 / M_PI)) & 3, thEst = es.pose.dc == 1 ? 0 : es.pose.dr == 1 ? 1 : es.pose.dc == -1 ? 2 : 3;
           fprintf(stderr, "    POSE t=%.0fs estimada (%d,%d) rumo %d | real (%d,%d) rumo %d %s\n", c.agoraMs() / 1000.0, es.pose.at.c, es.pose.at.r, thEst, rc, rr, th90, (rc == es.pose.at.c && rr == es.pose.at.r && th90 == thEst) ? "" : "<<< ERRADA");
-        }
-        if (!nav.platPend.empty() && !nav.loc.inGreen) {
-          const core::Estimate e2 = core::estimate(nav.loc);
-          if (core::columnMass(nav.loc, e2.pose.at.c) >= core::kMinCoordBelief && core::rowMass(nav.loc, e2.pose.at.r) >= core::kMinCoordBelief && e2.pose.at.c == 0) {
-            nav.platPend.erase(std::remove_if(nav.platPend.begin(), nav.platPend.end(), [](const Navegador::PlatPend& q) { return q.cor == seguidor::CorCubo::Nenhuma; }), nav.platPend.end());
-            if (getenv("SIM_DEBUG")) fprintf(stderr, "    RESOLVE plat: linha estimada %d, offLinha %d, real y %.0f\n", e2.pose.at.r, nav.offLinha, c.estado().y);
-            nav.resolverPlataformas(e2.pose.at.r);
-          }
         }
         if (saindo) portaoPendente = true;   // vai sair pelo nosso portao de proposito: a azul nao e borda
         c.mundo()->evento(c.agoraMs(), fmt("plano: %s | seguir '%c' (pose %s, coluna %.0f%%, linha %.0f%%)", nav.ultimoPlano.c_str(), a, nav.loc.inGreen ? "no verde" : fmt("(%d,%d)", core::estimate(nav.loc).pose.at.c, core::estimate(nav.loc).pose.at.r).c_str(), nav.loc.inGreen ? 0.0 : 100.0 * core::columnMass(nav.loc, core::estimate(nav.loc).pose.at.c), nav.loc.inGreen ? 0.0 : 100.0 * core::rowMass(nav.loc, core::estimate(nav.loc).pose.at.r)));
@@ -1184,25 +1157,6 @@ struct Firmware {
       else cruz = MemoriaCruzamento{};                 // virou (L, R, U): a barra ja nao esta na faixa; o debounce de 300 ms (75 mm) engolia a BORDA a 49 mm do beco (o carro passou da linha vermelha)
     } else {
       comecarASair(cruz, c.agoraMs());
-    }
-  }
-
-  // O ultrassom viu uma plataforma no fim da rua para o oeste: vai em linha reta ate ela (o carro nao muda de rua: so avanca com o rumo do giroscopio), le a cor com o TCS da frente
-  // e volta em linha reta ao mesmo ponto, de frente para onde estava. A linha so e conhecida depois (PlatPend).
-  void olharPlataformaAtras(Carro& c, float rumoOriginal, float dEcoMm) {
-    girarPara(c, 180.0);
-    const double andou = andarMm(c, dEcoMm + 80.0, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma; });
-    const seguidor::CorCubo cor = c.plataformaNaFrente(70.0);
-    girarPara(c, 0.0);
-    andarMm(c, andou, [] { return false; });
-    girarPara(c, rumoOriginal);
-    esquecerUltimoComando(memoria);
-    memoria.perdeuEm = 0;
-    if (cor != seguidor::CorCubo::Nenhuma) {
-      nav.platPend.push_back({nav.offLinha, cor});
-      c.mundo()->evento(c.agoraMs(), fmt("PLATAFORMA vista ao lado do cruzamento: %s (anda %.0f mm em linha reta, le a cor e volta)", nomeCor(cor), andou));
-    } else {
-      nav.platPend.push_back({nav.offLinha, seguidor::CorCubo::Nenhuma});
     }
   }
 
@@ -1261,6 +1215,7 @@ struct Firmware {
       return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma || c.piso() == Pista::kPisoVermelho;   // a plataforma (160 mm de altura) ou a moldura vermelha da ponta
     });
     const seguidor::CorCubo vista = c.plataformaNaFrente(70.0);
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    LOOK t=%.1f andou %.0f pos (%.0f,%.0f) th %.0f vista %d\n", c.agoraMs() / 1000.0, andou, c.estado().x, c.estado().y, c.estado().th * 57.3, static_cast<int>(vista));
     if (ficar && vista != seguidor::CorCubo::Nenhuma) return vista;
     girarPara(c, 0.0);
     (void)amarelo;
@@ -1288,6 +1243,8 @@ struct Firmware {
   // quais cores tem plataforma e so passa a coletar essas. `yAtual` e atualizado.
   bool procurarPlataforma(Carro& c, seguidor::CorCubo cor, double& yAtual) {
     Mundo* m = c.mundo();
+    // De frente para uma plataforma o carro aponta para o oeste (a face e uma parede): reancora o rumo do giroscopio, que anda com tantas curvas de 90 graus.
+    auto reancorarOeste = [&] { rumo = static_cast<float>(180.0 + 360.0 * lround((rumo - 180.0) / 360.0)); };
     constexpr double kFolga = 60.0;   // a ponta para a ~60 mm da face da plataforma ao ler a cor
     auto jaOlhou = [&](double y) { for (const double o : nav.yOlhados) if (fabs(o - y) < 40.0) return true; return false; };
     // Onde ainda pode haver plataforma: sem nenhuma conhecida, de 130 em 130 mm (as 5 marcas E as centradas entre elas); achada uma, o passo e o das plataformas (260 mm) a partir dela.
@@ -1318,13 +1275,16 @@ struct Firmware {
         const double esperado = hypot(cateto, fabs(dy)) - 100.0;
         const double eco = c.us();
         nav.yOlhados.push_back(yt);
-        if (!(eco > 0.0 && eco > esperado - 90.0 && eco < esperado + 40.0)) { m->evento(c.agoraMs(), fmt("PLATAFORMAS: y = %.0f mm sem eco (marca vazia)", yt)); continue; }
-        const double hip = eco + 100.0;
-        const double leg = hip > cateto ? sqrt(hip * hip - cateto * cateto) : fabs(dy);
+        if (getenv("SIM_DEBUG")) fprintf(stderr, "    DIAG yt %.0f yAtual %.0f aFace %.0f cateto %.0f phi %.0f eco %.0f esperado %.0f pos (%.0f,%.0f) th %.0f\n", yt, yAtual, aFace, cateto, phi, eco, esperado, c.estado().x, c.estado().y, c.estado().th * 57.3);
+        if (!(eco > 0.0 && eco > esperado - 120.0 && eco < esperado + 40.0)) { m->evento(c.agoraMs(), fmt("PLATAFORMAS: y = %.0f mm sem eco (marca vazia)", yt)); continue; }
+        // Pitagoras com o eco: o cone (+-10 graus) devolve o canto MAIS PERTO da plataforma, nao o centro da face, e o cateto sai curto (ate ~60 mm); por isso o eco so
+        // CONFIRMA (hipotenusa plausivel) e a distancia andada e o passo conhecido entre plataformas.
+        const double leg = fabs(dy);
         girarPara(c, sentido > 0 ? 90.0 : -90.0);
         andarMm(c, leg, [] { return false; });
         yAtual += sentido * leg;
         girarPara(c, 180.0);
+        andarMm(c, 70.0, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma || c.piso() == Pista::kPisoVermelho; });   // a curva deixa o x alguns mm fora: encosta ate a ponta ficar a ~60 mm
         vista = c.plataformaNaFrente(70.0);
         deFrente = vista != seguidor::CorCubo::Nenhuma;
       } else {
@@ -1335,6 +1295,7 @@ struct Firmware {
         deFrente = vista != seguidor::CorCubo::Nenhuma;
       }
       if (vista != seguidor::CorCubo::Nenhuma) {
+        reancorarOeste();
         nav.platConhecidas.push_back({yt, vista});
         nav.plataformasVistas.push_back({yt, vista});
         m->evento(c.agoraMs(), fmt("PLATAFORMAS: %s em y = %.0f mm", nomeCor(vista), yt));
@@ -1361,8 +1322,10 @@ struct Firmware {
   // quem descobre a linha de verdade e CONTAR os cruzamentos ate a linha vermelha (Navegador::aoCruzamento). `usarAlinhamento = false` entra reto (primeira rua vertical, de lado).
   bool usarAlinhamento = true;
   void entrarNaCidade(Carro& c, double yAtual) {
-    int melhor = 0;
-    for (int r = 1; r < core::kMapRows; r++) if (nav.visitas.n[0][r] < nav.visitas.n[0][melhor]) melhor = r;
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTRAR t=%.1f rumo %.0f real th %.0f pos (%.0f,%.0f) yAtual %.0f\n", c.agoraMs() / 1000.0, rumo, c.estado().th * 57.3, c.estado().x, c.estado().y, yAtual);
+    // Entra por uma linha do MEIO (1 a 3): nas das pontas a rua fica a 127 mm da moldura vermelha e a faixa azul do portao encontra a vermelha no canto (ele subia pela azul como se fosse rua).
+    int melhor = 1;
+    for (int r = 2; r < core::kMapRows - 1; r++) if (nav.visitas.n[0][r] < nav.visitas.n[0][melhor]) melhor = r;
     const bool sabeY = usarAlinhamento && !std::isnan(yAtual);   // NaN = entrou direto, sem subir ate o vermelho: a linha so se descobre contando cruzamentos
     if (sabeY) {
       const double yAlvo = yDoCruzamento(melhor);
@@ -1374,8 +1337,6 @@ struct Firmware {
     nav.linhaEntrada = sabeY ? melhor : -1;
     nav.calibrando = 0;
     nav.contados = 0;
-    nav.offLinha = 0;
-    nav.platPend.clear();
     portaoPendente = true;
     semReacaoAte = 0;   // a azul que vem agora E o portao que ele espera: a janela de 1,5 s da saida anterior (ainda em cima da faixa) nao pode engoli-la (voltava e atravessava a cidade 'no verde')
     memoria = Memoria{};

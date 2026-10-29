@@ -31,6 +31,7 @@ constexpr float kKnownEmpty = kEmptyBelow;
 
 inline Decision decideAtCrossing(const Pose& pose, const CubeBelief& belief, const Visits* visits = nullptr, const Blocked* blocked = nullptr) {
   Node next{};
+  if (nextTowardBestCube(pose, belief, &next, kKnownCube, blocked)) return {next, turnToward(pose, next), true};             // greedy: a cube we SAW, the nearest one, before anything unvisited
   if (nextTowardBestCube(pose, belief, &next, kMinBelief, blocked)) return {next, turnToward(pose, next), true};               // a cube is probably there
   if (visits != nullptr && stepToUnseen(pose, belief, *visits, &next, blocked)) return {next, turnToward(pose, next), false};   // explore: where nobody has looked yet
   if (nextTowardBestCube(pose, belief, &next, kKnownEmpty, blocked)) return {next, turnToward(pose, next), false};              // nothing blank left: the least unlikely street that is not known empty

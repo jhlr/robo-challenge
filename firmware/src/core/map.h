@@ -81,6 +81,9 @@ inline Pose moveTo(const Pose& pose, Node next) {
 // Street worth a trip: only streets with P >= minBelief count, and among them the best P / streets-to-walk wins (so with every P = 1 it is just
 // the nearest). Returns the first junction to drive to; false when nothing is likely enough. The street is walked from its nearer end. Ties keep the first one found in a fixed order, so the result is deterministic.
 constexpr float kMinBelief = 0.3f;
+// A cube we really SAW (P clearly above the prior of 0.4, before it drifts back) is a known cube: the robot is greedy for those, nearest first, and only wanders to unvisited streets
+// when none is known. 0.5 = a seen cube still counts for about 2.5 half-lives (150 s) before it is just another unvisited street.
+constexpr float kKnownCube = 0.5f;
 
 // A street already seen EMPTY can never hold a cube, so there is no point INSISTING on it (it is never a target), but it is a perfectly good WAY: routes treat it like any other street
 // (penalty 0). `emptyPenalty` stays a parameter in case a small preference for unseen streets is ever wanted (a positive value makes routes through unseen streets slightly cheaper).

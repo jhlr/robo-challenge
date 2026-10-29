@@ -379,6 +379,18 @@ void test_navigator_goes_to_a_likely_cube() {
   TEST_ASSERT_EQUAL(core::Turn::Straight, d.turn);
 }
 
+// Greedy: a cube we SAW (P well above the prior) beats an unvisited street next door, even when it is farther. Unknown streets (P = prior = 0.4) are only for when no cube is known.
+void test_navigator_prefers_a_known_cube_to_an_unvisited_street() {
+  core::CubeBelief c = emptyCubes();
+  core::forEachPlace(c, [](float& p, core::Node, core::Node) { p = 0.05f; });  // everything looked at and empty ...
+  c.east[3][2] = 0.4f;                                                           // ... except the unvisited street ahead (prior), which the old score (P / distance) preferred
+  c.east[0][2] = 0.95f;                                                          // a cube seen on street (0,2)-(1,2), three junctions west of the robot
+  const core::Decision d = core::decideAtCrossing({{3, 2}, 1, 0}, c);           // at (3,2) facing east: the unvisited street ahead is closer, but the known cube is the goal
+  TEST_ASSERT_TRUE(d.toCube);
+  TEST_ASSERT_EQUAL(2, d.next.c);                                                // west, toward it
+  TEST_ASSERT_EQUAL(2, d.next.r);
+}
+
 void test_navigator_turns_toward_the_cube() {
   core::CubeBelief c = emptyCubes();
   c.north[0][1] = 0.9f;                                     // street (0,1)-(0,2), north of the robot, which faces east
@@ -614,6 +626,7 @@ int main() {
   RUN_TEST(test_color_table_names_keep_the_order);
   RUN_TEST(test_color_filter_needs_two_equal_readings);
   RUN_TEST(test_navigator_goes_to_a_likely_cube);
+  RUN_TEST(test_navigator_prefers_a_known_cube_to_an_unvisited_street);
   RUN_TEST(test_navigator_turns_toward_the_cube);
   RUN_TEST(test_navigator_falls_back_to_the_least_unlikely);
   RUN_TEST(test_navigator_explores_an_empty_map);
