@@ -26,11 +26,15 @@ inline Node explorationStep(const Pose& pose) {
 
 // Called when a crossing is confirmed. Goes to the best likely cube; if none is likely enough, to the least unlikely one anywhere; if the
 // map is empty, explores. The caller turns by `turn`, drives to `next`, then updates the pose with moveTo().
+// A street whose P fell below this was LOOKED AT and was empty (a first empty look takes the prior 0.4 to ~0.07): it can never hold a cube again, so it is not a place worth a trip.
+constexpr float kKnownEmpty = 0.1f;
+
 inline Decision decideAtCrossing(const Pose& pose, const CubeBelief& belief, const Visits* visits = nullptr, const Blocked* blocked = nullptr) {
   Node next{};
-  if (nextTowardBestCube(pose, belief, &next, kMinBelief, blocked)) return {next, turnToward(pose, next), true};
-  if (nextTowardBestCube(pose, belief, &next, 1e-6f, blocked)) return {next, turnToward(pose, next), false};
-  if (visits != nullptr && stepToLeastVisited(pose, *visits, &next, blocked)) return {next, turnToward(pose, next), false};   // explore: go where we have been least
+  if (nextTowardBestCube(pose, belief, &next, kMinBelief, blocked)) return {next, turnToward(pose, next), true};               // a cube is probably there
+  if (visits != nullptr && stepToUnseen(pose, belief, *visits, &next, blocked)) return {next, turnToward(pose, next), false};   // explore: where nobody has looked yet
+  if (nextTowardBestCube(pose, belief, &next, kKnownEmpty, blocked)) return {next, turnToward(pose, next), false};              // nothing blank left: the least unlikely street that is not known empty
+  if (visits != nullptr && stepToLeastVisited(pose, *visits, &next, blocked)) return {next, turnToward(pose, next), false};     // everything seen: wander toward the least visited junction
   next = explorationStep(pose);
   return {next, turnToward(pose, next), false};
 }

@@ -246,6 +246,33 @@ void test_plan_anchors_the_column_when_only_the_column_is_unsure() {
   TEST_ASSERT_TRUE(up.move.turn == core::Turn::Left);          // north is a left turn from east
 }
 
+
+void test_forget_never_raises_a_street_seen_empty() {
+  const core::BeliefModel m;
+  core::CubeBelief b{};
+  b.east[2][2] = 0.01f;    // looked at, empty
+  b.east[3][2] = 0.95f;    // looked at, a cube
+  core::forget(b, 1000.0f * m.halfLifeS, m);
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.01f, b.east[2][2]);   // stays empty for good: nobody puts cubes back
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, m.prior, b.east[3][2]); // the cube may have been taken: back to "unknown"
+}
+
+void test_exploration_goes_to_where_nobody_looked_not_to_known_empty() {
+  core::CubeBelief b{};
+  for (int c = 0; c < core::kMapCols; ++c) for (int r = 0; r < core::kMapRows; ++r) b.east[c][r] = b.north[c][r] = 0.01f;   // everything seen empty...
+  b.east[4][3] = 0.4f;   // ...except one street nobody looked at: east of (4,3)
+  core::Visits v;
+  core::clearVisits(v);
+  const core::Pose pose{{0, 0}, 1, 0};
+  const core::Decision d = core::decideAtCrossing(pose, b, &v);
+  TEST_ASSERT_TRUE(d.next.c > 0 || d.next.r > 0);   // heads toward the blank street (up and to the right; the prior 0.4 already counts as a probable cube), not back and forth
+  core::Node n{};
+  TEST_ASSERT_TRUE(core::stepToUnseen(pose, b, v, &n));
+  b.east[4][3] = 0.01f;   // now it was seen too: nothing blank left
+  TEST_ASSERT_FALSE(core::stepToUnseen(pose, b, v, &n));
+  TEST_ASSERT_FALSE(core::nextTowardBestCube(pose, b, &n, core::kKnownEmpty));   // and no street worth a trip at all
+}
+
 void test_forget_returns_to_prior() {
   const core::BeliefModel m;
   core::CubeBelief b{};
@@ -601,6 +628,8 @@ int main() {
   RUN_TEST(test_exploration_replaces_first_street_when_nothing_likely);
   RUN_TEST(test_delivery_walks_to_column_zero_then_out_the_gate);
   RUN_TEST(test_plan_anchors_the_column_when_only_the_column_is_unsure);
+  RUN_TEST(test_forget_never_raises_a_street_seen_empty);
+  RUN_TEST(test_exploration_goes_to_where_nobody_looked_not_to_known_empty);
   RUN_TEST(test_forget_returns_to_prior);
   RUN_TEST(test_observation_moves_belief_the_right_way);
   RUN_TEST(test_observe_street_picks_the_right_slot);

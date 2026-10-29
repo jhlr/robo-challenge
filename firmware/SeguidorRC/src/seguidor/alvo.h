@@ -40,7 +40,7 @@ constexpr int kNumCoresCubo = 8;
 // Configuravel: `coletavel` e preenchido com as cores das plataformas lidas no inicio.
 struct AjustesColeta {
   bool coletavel[kNumCoresCubo] = {false, false, true, true, true, true, true, true};   // indexado por CorCubo: nenhum, branco, vermelho, azul, verde, amarelo, preto, marrom
-  int capacidade = 2;   // regras: no maximo dois cubos por viagem a cidade
+  int capacidade = 1;   // as regras permitem ate dois cubos por viagem; a equipe escolheu UM (entrega logo, sem perambular carregando)
 };
 
 inline bool podeColetar(CorCubo c, const AjustesColeta& aj = {}) { return c != CorCubo::Nenhuma && aj.coletavel[static_cast<int>(c)]; }

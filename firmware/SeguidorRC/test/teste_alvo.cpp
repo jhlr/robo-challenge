@@ -20,7 +20,7 @@ int main() {
   assert(!ecoMovel(-1.0f, 300.0f, 500.0f, 0.0f));    // sem eco antes: nao sabe
   AjustesColeta aj;
   assert(!podeColetar(CorCubo::Branco, aj) && !podeColetar(CorCubo::Nenhuma, aj) && podeColetar(CorCubo::Azul, aj) && podeColetar(CorCubo::Verde, aj));
-  assert(podeColetar(CorCubo::Preto, aj) && podeColetar(CorCubo::Marrom, aj) && aj.capacidade == 2);
+  assert(podeColetar(CorCubo::Preto, aj) && podeColetar(CorCubo::Marrom, aj) && aj.capacidade == 1);   // um cubo por viagem
   aj.coletavel[static_cast<int>(CorCubo::Verde)] = false;   // sem plataforma verde nesta partida: trata como branco
   assert(!podeColetar(CorCubo::Verde, aj));
   aj.coletavel[static_cast<int>(CorCubo::Branco)] = true;   // configuravel

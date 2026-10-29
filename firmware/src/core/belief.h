@@ -1,7 +1,8 @@
 #pragma once
 // Pure logic (no Arduino.h): the probabilistic cube map. Two robots share the arena and the other one moves or takes cubes where we cannot
 // see, so what we remember about a place gets less certain with time and is corrected whenever a sensor looks at it.
-//   forget():  P drifts back to the prior with a half-life, so an old sighting stops being trusted (sim/README: tau = 60 s worked best).
+//   forget():  a street we SAW a cube on drifts back toward the prior with a half-life (the other robot may have taken it: sim/README: tau = 60 s worked best). A street we saw EMPTY
+//              stays empty for good: nobody puts cubes back, so P never rises above what the last look said (the robot must not keep walking streets that can never hold a cube).
 //   observe(): Bayes update from a noisy "I see a cube / I see none" reading.
 #include <math.h>
 
@@ -25,7 +26,7 @@ inline void initBelief(CubeBelief& b, const BeliefModel& m) {
 inline void forget(CubeBelief& b, float dtSeconds, const BeliefModel& m) {
   if (dtSeconds <= 0.0f || m.halfLifeS <= 0.0f) return;
   const float keep = powf(0.5f, dtSeconds / m.halfLifeS);
-  forEachPlace(b, [&](float& p, Node, Node) { p = m.prior + (p - m.prior) * keep; });
+  forEachPlace(b, [&](float& p, Node, Node) { if (p > m.prior) p = m.prior + (p - m.prior) * keep; });   // only downwards: empty stays empty
 }
 
 // One reading of one place. Bayes: P(cube | reading) from the sensor model and the current P.
