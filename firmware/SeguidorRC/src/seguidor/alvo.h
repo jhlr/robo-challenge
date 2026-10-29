@@ -31,11 +31,16 @@ inline bool ecoMovel(float d0Mm, float d1Mm, float dtMs, float velPropriaMmS, co
   return fabsf(medido - esperado) > aj.ecoMovelToleranciaMm;
 }
 
-enum class CorCubo : uint8_t { Nenhuma, Branco, Vermelho, Azul, Verde, Amarelo };
+// As cores dos cubos (regras 5.1): azul, vermelho, verde, amarelo, preto e marrom (5 de cada) e branco (6). Branco nunca tem plataforma.
+enum class CorCubo : uint8_t { Nenhuma, Branco, Vermelho, Azul, Verde, Amarelo, Preto, Marrom };
+constexpr int kNumCoresCubo = 8;
 
-// O que fazer com o cubo a frente. Coletavel = cor que tem plataforma (configuravel); branco ou outra cor = bloqueia a rua.
+// O que fazer com o cubo a frente (regras 7): so se pega a cor que TEM plataforma no nosso ecoponto (o juiz poe de 1 a 5 plataformas de cores distintas antes da partida).
+// Branco, ou cor SEM plataforma, e tratado como branco: identificar, sinalizar (som/luz: 50 pontos, uma vez por cubo), NAO mexer e considerar a rua bloqueada.
+// Configuravel: `coletavel` e preenchido com as cores das plataformas lidas no inicio.
 struct AjustesColeta {
-  bool coletavel[6] = {false, false, true, true, true, true};   // indexado por CorCubo: nenhum, branco, vermelho, azul, verde, amarelo
+  bool coletavel[kNumCoresCubo] = {false, false, true, true, true, true, true, true};   // indexado por CorCubo: nenhum, branco, vermelho, azul, verde, amarelo, preto, marrom
+  int capacidade = 2;   // regras: no maximo dois cubos por viagem a cidade
 };
 
 inline bool podeColetar(CorCubo c, const AjustesColeta& aj = {}) { return c != CorCubo::Nenhuma && aj.coletavel[static_cast<int>(c)]; }

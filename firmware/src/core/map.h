@@ -82,7 +82,7 @@ inline Pose moveTo(const Pose& pose, Node next) {
 // the nearest). Returns the first junction to drive to; false when nothing is likely enough. The street is walked from its nearer end. Ties keep the first one found in a fixed order, so the result is deterministic.
 constexpr float kMinBelief = 0.3f;
 
-inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node* next, float minBelief = kMinBelief, const Blocked* blocked = nullptr) {
+inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node* next, float minBelief = kMinBelief, const Blocked* blocked = nullptr, Node* goalA = nullptr, Node* goalZ = nullptr) {
   int dist[kMapCols][kMapRows];
   Node from[kMapCols][kMapRows];
   for (int c = 0; c < kMapCols; ++c)
@@ -107,6 +107,7 @@ inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node*
 
   float best = 0.0f;
   Node target{0, 0};
+  Node bestA{0, 0}, bestZ{0, 0};
   auto consider = [&](float p, int cost, Node goal) {
     if (p < minBelief || cost < 1) return;
     const float score = p / static_cast<float>(cost);
@@ -119,8 +120,12 @@ inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node*
     if (isBlocked(blocked, a, z) || (dist[a.c][a.r] < 0 && dist[z.c][z.r] < 0)) return;   // blocked, or unreachable without crossing a blocked street
     // a street cube is walked from its nearer end; if the robot already stands on that end, the goal is the other one
     const bool aNearer = dist[a.c][a.r] <= dist[z.c][z.r];
+    const float before = best;
     consider(p, (aNearer ? dist[a.c][a.r] : dist[z.c][z.r]) + 1, aNearer ? z : a);
+    if (best > before) { bestA = a; bestZ = z; }   // the street that holds the cube we are heading for
   });
+  if (goalA) *goalA = bestA;
+  if (goalZ) *goalZ = bestZ;
   if (best <= 0.0f) return false;
 
   // Walk back from the goal; the junction right after pose.at is the step.
