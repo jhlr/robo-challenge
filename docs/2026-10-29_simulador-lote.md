@@ -47,3 +47,15 @@ Com ruido aleatorio (`--lote-ruido 12`, ruido propositalmente alto): 0 de 12.
 
 Tentado e DESFEITO: (a) marcar toda plataforma lida como olhada (`yOlhados`): 23/30; (b) corrigir o rumo do giroscopio pelo plano da face das plataformas (ajuste do delta por minimos quadrados, fases 1 e 2): o delta sai certo (-22 contra -27 verdadeiro) mas o erro volta a crescer depois (vies do giroscopio + curvas fora das linhas), nao fechou o lote com ruido (0/12) e piorou o lote limpo (26/30). Com ruido o problema e ancorar o rumo ENQUANTO ha so parede (ecoponto e verde), sem linha para corrigir.
 Falhas que restam (3/30): carro perde a linha ao reentrar pelo portao 40 mm abaixo da rua (deslocamento por tempo) e fica na faixa azul.
+
+## Reentrada pelo portao (30 sementes sem ruido)
+
+Causa das falhas: o carro voltava do ecoponto ~40 mm abaixo da rua (fora da barra de 75 mm), e a busca seguia a faixa azul como se fosse rua. A origem era a compensacao de partida da entrada (`entrarNaCidade`): 40 mm, medida com o mapa de 302 mm; com o y da plataforma ja na grade ela passava do ponto.
+
+| Compensacao | Na meta (30) | Na meta (60) | Tempo medio (30) |
+|---|---|---|---|
+| 40 mm (antes) | 27/30 | 54/60 | 207 s |
+| 20 mm (agora) | **29/30** | 57/60 | **174 s** |
+| 0 mm | 29/30 | 57/60 | 175 s |
+
+Tentado e desfeito: so contar como rua o preto que aparece 300 ms depois de o TCS deixar de ver azul (a faixa tambem acende a barra): 26/30. Falha que resta: semente 17 (carro termina fora do mapa, pose perdida; nao investigado). Lote com ruido continua em 0/12.

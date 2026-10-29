@@ -1481,10 +1481,11 @@ struct Firmware {
     const bool sabeY = usarAlinhamento && !std::isnan(yAtual);   // NaN = entrou direto, sem subir ate o vermelho: a linha so se descobre contando cruzamentos
     if (sabeY) {
       const double yAlvo = yDoCruzamento(melhor);
-      // A partida (zona morta + inercia) come ate ~40 mm de um deslocamento CURTO (a velocidade medida e a media de uma subida longa, que dilui isso): compensa so ate ~400 mm.
-      // Sem isto ele entrava na cidade ~40 mm ao lado da rua e a busca achava a faixa azul atras.
+      // A partida (zona morta + inercia) come um pouco de um deslocamento CURTO: compensa so ate ~200 mm (20 mm no maximo). Eram 40 mm (medido com o mapa de 302 mm), mas com o y
+      // da plataforma ja encaixado na grade e a velocidade medida na subida, 40 mm passava do ponto: ele entrava ~40 mm abaixo da rua (fora da barra de 75 mm) e seguia a faixa azul
+      // como rua. 29/30 sementes na meta contra 27/30; 60 sementes: 57 contra 54.
       const double dyAbs = fabs(yAlvo - yAtual);
-      if (dyAbs > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, dyAbs + std::max(0.0, 40.0 - dyAbs / 10.0), [] { return false; }); }
+      if (dyAbs > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, dyAbs + std::max(0.0, 20.0 - dyAbs / 10.0), [] { return false; }); }
     }
     girarPara(c, 0.0);
     core::initInGreen(nav.loc);
