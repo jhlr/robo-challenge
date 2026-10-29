@@ -2312,9 +2312,9 @@ static std::shared_ptr<Sessao> sessaoSimples(const std::string& nome, Pista&& pi
 
 static std::vector<Receita> receitas() {
   std::vector<Receita> r;
-  for (const int variante : {0, 1, 2}) {   // 0 = 2 robos, 1 = 2 robos com ruido, 2 = so nos (sem oponente)
-    const bool ruido = variante == 1, dois = variante != 2;
-    const std::string nome = variante == 0 ? "MISSAO COMPLETA: dois robos iguais na arena (explora, coleta, entrega)" : variante == 1 ? "MISSAO COMPLETA com RUIDO aleatorio (sinalizado), dois robos iguais" : "MISSAO COMPLETA: so o nosso robo (sem oponente)";
+  for (const int variante : {0, 1, 2, 3}) {   // bit 0 = ruido aleatorio, bit 1 = sem oponente
+    const bool ruido = (variante & 1) != 0, dois = (variante & 2) == 0;
+    const std::string nome = std::string("MISSAO COMPLETA") + (ruido ? " com RUIDO aleatorio (sinalizado)" : "") + (dois ? ": dois robos iguais na arena" : ": so o nosso robo (sem oponente)") + (ruido ? "" : " (explora, coleta, entrega)");
     r.push_back({nome, [nome, ruido, dois] {
       auto s = std::make_shared<Sessao>();
       s->nome = nome;
