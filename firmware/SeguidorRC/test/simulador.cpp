@@ -129,6 +129,12 @@ struct Estado { double x, y, th; };   // eixo (mm), rumo (rad, 0 = +x, anti-hora
 constexpr double kPasso = 302.0, kBeco = 127.0, kLarg = 2 * kBeco + 5 * kPasso, kAlt = 2 * kBeco + 4 * kPasso;   // 1764 x 1462
 inline double xDoCruzamento(int c) { return kBeco + c * kPasso; }
 inline double yDoCruzamento(int r) { return kBeco + r * kPasso; }
+// Plataformas do ecoponto (regras 4): retangulos de 160 x 50 mm, 100 mm entre eles, CENTRADOS no ecoponto de 220 mm (equidistantes das duas bordas: 30 mm de cada lado) e na altura
+// da arena. O robo assume essa geometria (so a COR muda de um jogo para outro): dono unico dos numeros, usado pelo mundo e pelo robo.
+constexpr double kEcopontoLarg = 220.0, kEcopontoBordaX = -280.0;   // borda do ecoponto voltada para o verde
+constexpr double kPlatLarg = 160.0, kPlatAlt = 50.0, kPlatEntre = 100.0;
+constexpr double kPlatX = kEcopontoBordaX - kEcopontoLarg / 2.0;   // -390: centro, 30 mm de cada borda
+inline double yDaPlataforma(int slot) { return kAlt / 2.0 + (slot - 2) * (kPlatAlt + kPlatEntre); }   // slot 0..4, de baixo para cima
 
 // ================================================================ O MUNDO alem da pista: cubos, oponente, sensores configuraveis e RUIDO
 // Tudo aqui e CONFIGURAVEL e fica pronto antes dos sensores existirem no robo (ultrassom, TCS da frente). O RUIDO e aleatorio mas deterministico (semente) e
@@ -255,10 +261,10 @@ struct Mundo {
       cubos.push_back(cu);
     }
   }
-  // Plataformas no nosso ecoponto (x = -390): ate 5 posicoes; coloca as cores dadas nos slots dados.
+  // Plataformas no nosso ecoponto (x = kPlatX): ate 5 posicoes; coloca as cores dadas nos slots dados.
   void porPlataformas(const std::vector<std::pair<int, seguidor::CorCubo>>& slots) {
     plataformas.clear();
-    for (const auto& sl : slots) plataformas.push_back({-390.0, kAlt / 2.0 - 300.0 + sl.first * 150.0, sl.second});   // 5 retangulos de 50 mm, 100 mm entre eles, centralizados (regras 4): slots de 150 mm
+    for (const auto& sl : slots) plataformas.push_back({kPlatX, yDaPlataforma(sl.first), sl.second});
   }
   const Plataforma* plataformaDaCor(seguidor::CorCubo c) const {
     for (const Plataforma& p : plataformas) if (p.cor == c) return &p;
@@ -1181,7 +1187,7 @@ struct Firmware {
     double yAtual = 40.0;   // com a barra na borda da faixa vermelha de baixo, o eixo esta ~40 mm acima dela
     nav.plataformasVistas.clear();
     for (int k = 0; k < 5; k++) {
-      const double yk = kAlt / 2.0 - 300.0 + k * 150.0;   // slots fixos na arena (5 retangulos de 50 mm, 100 mm entre eles, centralizados)
+      const double yk = yDaPlataforma(k);   // slots fixos na arena, centralizados
       const double dy = yk - yAtual;
       girarPara(c, 90.0);
       andarMm(c, dy, [] { return false; });
@@ -1249,7 +1255,7 @@ struct Firmware {
     andarMm(c, 2000.0, [&] { return c.piso() == Pista::kPisoVermelho; });
     double yAtual = kAlt - 40.0;   // com a barra na borda da faixa vermelha, o eixo esta ~40 mm abaixo dela
     for (const seguidor::CorCubo cor : std::vector<seguidor::CorCubo>(nav.carga)) {
-      Plataforma plLocal{-390.0, 0.0, cor};
+      Plataforma plLocal{kPlatX, 0.0, cor};
       const Plataforma* pl = nullptr;
       for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) { plLocal.y = pv.first; pl = &plLocal; }   // so onde VIU a plataforma no inicio
       if (!pl) { nav.pontos -= 10; nav.perdidos++; m->evento(c.agoraMs(), "cubo sem plataforma da cor: perdido"); continue; }
