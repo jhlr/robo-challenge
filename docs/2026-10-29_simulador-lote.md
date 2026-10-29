@@ -59,3 +59,18 @@ Causa das falhas: o carro voltava do ecoponto ~40 mm abaixo da rua (fora da barr
 | 0 mm | 29/30 | 57/60 | 175 s |
 
 Tentado e desfeito: so contar como rua o preto que aparece 300 ms depois de o TCS deixar de ver azul (a faixa tambem acende a barra): 26/30. Falha que resta: semente 17 (carro termina fora do mapa, pose perdida; nao investigado). Lote com ruido continua em 0/12.
+
+## Modo ruido pela metade (`kEscalaRuido = 0.5`, 30 sementes)
+
+Dono unico da intensidade: `kEscalaRuido` em `test/simulador.cpp` (1,0 = original). Metade da frequencia (intervalos x2), da duracao e do desvio de cada evento (assimetria fixa 1,5 a 5%, patinagem, motor fraco, bateria, vies do giroscopio, solavanco, atraso e sensor preso, eco do ultrassom, erro do TCS). Sem ruido: 29/30, 174 s (inalterado).
+
+Resultado com ruido: **0/30 na meta**. Isolando cada fonte (`SIM_SEM_RUIDO=<mascara de bits 0..9>`, `SIM_SEM_ASSIM=1`):
+
+| Configuracao | Na meta | Tempo medio |
+|---|---|---|
+| Ruido pela metade (tudo) | 0/30 | 602 s |
+| Tudo menos a ASSIMETRIA FIXA dos motores | **18/30** | 349 s |
+| So a assimetria fixa (resto desligado) | 0/30 | 603 s |
+| Sem qualquer uma das outras 9 fontes (uma por vez) | 0/30 | 601 s |
+
+Conclusao: a unica fonte que derruba o carro e a assimetria fixa dos motores (diferenca de 1,5 a 5% entre os lados), e sozinha ja basta. Sinal no log: o rumo real fica 14 a 37 graus fora do rumo do giroscopio dentro do ecoponto (LOOK th 166, 158, 151 em vez de 180). Na pista, com linha, ele corrige; fora dela (verde e ecoponto) nao. Motores TT amarelos reais costumam diferir 5 a 10%, entao e o ponto a medir no carro.

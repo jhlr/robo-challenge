@@ -126,6 +126,7 @@ ParamsFisicos gFis;   // os cenarios usam este; da para mudar na linha de comand
 struct Estado { double x, y, th; };   // eixo (mm), rumo (rad, 0 = +x, anti-horario)
 
 // O tabuleiro (docs/2026-10-28_mapa-comparacao-e-localizacao.md): 6 x 5 cruzamentos a 400 mm, becos de 168 mm (rua de 40 cm; becos e ecoponto: medidas da imagem na escala 400/302).
+constexpr double kEscalaRuido = 0.5;   // intensidade do modo ruido (1,0 = original; 0,5 = metade da frequencia, da duracao e do desvio)
 constexpr double kPasso = 400.0, kBeco = 168.0, kLarg = 2 * kBeco + 5 * kPasso, kAlt = 2 * kBeco + 4 * kPasso;   // 2336 x 1936 (rua de 40 cm; becos e ecoponto na mesma escala da imagem)
 inline double xDoCruzamento(int c) { return kBeco + c * kPasso; }
 inline double yDoCruzamento(int r) { return kBeco + r * kPasso; }
@@ -365,7 +366,7 @@ class Carro {
   seguidor::CorLinha tcsChao() {
     const Pista::Piso pz = piso();
     seguidor::CorLinha c = pz == Pista::kPisoVermelho ? seguidor::CorLinha::Vermelho : pz == Pista::kPisoAzul ? seguidor::CorLinha::Azul : pz == Pista::kPisoVerde ? seguidor::CorLinha::Verde : seguidor::CorLinha::Outra;
-    if (mundo_ && mundo_->ruidoLigado && mundo_->rnd() < mundo_->cfg.tcsChaoErro) {
+    if (mundo_ && mundo_->ruidoLigado && mundo_->rnd() < mundo_->cfg.tcsChaoErro * kEscalaRuido) {
       c = static_cast<seguidor::CorLinha>(static_cast<int>(mundo_->rnd() * 4) % 4);
       mundo_->evento(t_, "RUIDO: o TCS do chao leu uma cor errada");
     }
@@ -595,13 +596,15 @@ inline void Mundo::tick(Carro& c) {
   // --- ruido aleatorio: cada evento entra no log (a pagina mostra) e a mancha e desenhada. Cada tipo tem o seu relogio.
   for (Mancha& m : manchas)
     if (m.ate == static_cast<size_t>(-1) && t >= m.expiraMs) m.ate = c.quadro();
+  // Dono unico da INTENSIDADE do ruido: 1,0 era o ruido original (muito forte); 0,5 = metade da frequencia, da duracao e do desvio de cada evento.
+  constexpr double kEsc = kEscalaRuido;
   if (!assimetriaSorteada) {   // um motor sempre um pouco mais forte que o outro (3 a 10%): vale a partida inteira, e o carro puxa para um lado mesmo em reta
     assimetriaSorteada = true;
-    const double a = (rnd() < 0.5 ? -1.0 : 1.0) * (0.03 + 0.07 * rnd());
+    const double a = (getenv("SIM_SEM_ASSIM") ? 0.0 : 1.0) * (rnd() < 0.5 ? -1.0 : 1.0) * (0.03 + 0.07 * rnd()) * kEsc;
     c.assimetria(1.0 - a / 2.0, 1.0 + a / 2.0);
     evento(t, fmt("RUIDO: ASSIMETRIA FIXA dos motores: o %s e %.0f%% mais forte (a partida inteira)", a > 0 ? "direito" : "esquerdo", fabs(a) * 100));
   }
-  auto agenda = [&](int k, unsigned long de, unsigned long ate) { prox[k] = t + de + static_cast<unsigned long>(rnd() * (ate - de)); };
+  auto agenda = [&](int k, unsigned long de, unsigned long ate) { prox[k] = t + static_cast<unsigned long>((de + rnd() * (ate - de)) / kEsc); if (getenv("SIM_SEM_RUIDO") && (atoi(getenv("SIM_SEM_RUIDO")) >> k & 1)) prox[k] = ~0UL; };   // menos ruido = eventos mais raros
   if (t >= prox[0]) {   // mancha de sujeira: parece linha
     const double dist = 200 + rnd() * 150, lat = (rnd() - 0.5) * 80;
     Mancha m;
@@ -615,15 +618,15 @@ inline void Mundo::tick(Carro& c) {
     agenda(0, 15000, 35000);
   }
   if (t >= prox[1]) {   // patinagem
-    const double f = 0.75 + 0.35 * rnd();
+    const double f = 1.0 + (0.75 + 0.35 * rnd() - 1.0) * kEsc;
     c.fatorRodas(f);
-    fimPatina = t + 600;
+    fimPatina = t + static_cast<unsigned long>(600 * kEsc);
     evento(t, fmt("RUIDO: PATINAGEM, rodas a %.0f%% por 0,6 s", f * 100));
     agenda(1, 12000, 24000);
   }
   if (fimPatina && t >= fimPatina) { c.fatorRodas(1.0); fimPatina = 0; }
   if (t >= prox[2]) {   // sensores RC atrasados
-    const int ticks = 2 + static_cast<int>(rnd() * 4);
+    const int ticks = std::max(1, static_cast<int>((2 + static_cast<int>(rnd() * 4)) * kEsc));
     c.atrasoLeitura(ticks);
     fimAtraso = t + 1000;
     evento(t, fmt("RUIDO: sensores ATRASADOS %d ms por 1 s", ticks * 5));
@@ -633,40 +636,40 @@ inline void Mundo::tick(Carro& c) {
   if (t >= prox[3]) {   // um sensor RC preso
     const int i = static_cast<int>(rnd() * 8) % 8;
     const bool preto = rnd() < 0.5;
-    c.prenderSensor(i, preto, t + 1500);
+    c.prenderSensor(i, preto, t + static_cast<unsigned long>(1500 * kEsc));
     evento(t, fmt("RUIDO: sensor S%d PRESO em %s por 1,5 s", i + 1, preto ? "preto" : "branco"));
     agenda(3, 25000, 45000);
   }
   if (t >= prox[4]) {   // ultrassom: eco falso ou perda de eco
     const bool perda = rnd() < 0.5;
     const double mm = perda ? -1.0 : 80 + rnd() * 220;
-    c.ultrassomFalso(t + 400, mm);
+    c.ultrassomFalso(t + static_cast<unsigned long>(400 * kEsc), mm);
     evento(t, perda ? "RUIDO: ULTRASSOM perdeu o eco por 0,4 s" : fmt("RUIDO: ULTRASSOM deu um eco FALSO de %.0f mm por 0,4 s", mm));
     agenda(4, 18000, 32000);
   }
   if (t >= prox[5]) {   // um motor mais fraco
     const bool esq = rnd() < 0.5;
-    const double f = 0.86 + 0.08 * rnd();
+    const double f = 1.0 - (1.0 - (0.86 + 0.08 * rnd())) * kEsc;
     c.fatorLados(esq ? f : 1.0, esq ? 1.0 : f);
-    fimMotor = t + 2000;
+    fimMotor = t + static_cast<unsigned long>(2000 * kEsc);
     evento(t, fmt("RUIDO: MOTOR %s a %.0f%% por 2 s (o carro puxa para um lado)", esq ? "esquerdo" : "direito", f * 100));
     agenda(5, 25000, 40000);
   }
   if (fimMotor && t >= fimMotor) { c.fatorLados(1.0, 1.0); fimMotor = 0; }
   if (t >= prox[6]) {   // queda de tensao da bateria
-    c.fatorRodas(0.85);
-    fimPatina = t + 4000;
+    c.fatorRodas(1.0 - 0.15 * kEsc);
+    fimPatina = t + static_cast<unsigned long>(4000 * kEsc);
     evento(t, "RUIDO: BATERIA caiu: todas as rodas a 85% por 4 s");
     agenda(6, 40000, 70000);
   }
   if (t >= prox[7]) {   // o vies do giroscopio anda
-    const double d = (rnd() - 0.5) * 3.0;
+    const double d = (rnd() - 0.5) * 3.0 * kEsc;
     c.saltarVies(d);
     evento(t, fmt("RUIDO: o VIES do giroscopio andou %+.1f graus/s (o rumo vai derivar ate a ancora na grade corrigir)", d));
     agenda(7, 45000, 80000);
   }
   if (t >= prox[8]) {   // solavanco
-    const double g = (rnd() - 0.5) * 14.0;
+    const double g = (rnd() - 0.5) * 14.0 * kEsc;
     c.chutar(g);
     evento(t, fmt("RUIDO: SOLAVANCO girou o carro %+.0f graus sem comando", g));
     agenda(8, 30000, 55000);
