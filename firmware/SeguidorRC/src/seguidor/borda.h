@@ -7,7 +7,7 @@
 
 namespace seguidor {
 
-enum class CorLinha : uint8_t { Outra, Vermelho, Azul };   // Outra = preto, branco, verde... ou nao se sabe
+enum class CorLinha : uint8_t { Outra, Vermelho, Azul, Verde };   // Outra = preto, branco... ou nao se sabe. Verde e o piso da zona livre (nao e linha)
 
 // O que fazer quando as duas pontas acendem (candidato a cruzamento) e a cor do chao ja foi lida.
 enum class AcaoCruzamento : uint8_t {
@@ -19,11 +19,16 @@ enum class AcaoCruzamento : uint8_t {
 
 // `temCubo` = esta carregando um cubo para guardar. `portaoPendente` = ainda nao passou pelo nosso portao azul (verdadeiro ao ligar e depois de reposicionado):
 // a primeira azul lida e a nossa (o robo comeca no verde, entre o amarelo e essa azul); a azul do outro lado e do adversario e vira borda.
+// Levando um cubo para entregar, quem planeja liga `portaoPendente` ao sair pelo nosso portao: ai a azul tambem e Portao (com cubo na mao).
 inline AcaoCruzamento acaoNaPonta(CorLinha cor, bool temCubo, bool portaoPendente = false) {
-  if (cor == CorLinha::Outra) return AcaoCruzamento::Cruzamento;
-  if (cor == CorLinha::Azul && portaoPendente && !temCubo) return AcaoCruzamento::Portao;
+  if (cor == CorLinha::Outra || cor == CorLinha::Verde) return AcaoCruzamento::Cruzamento;   // verde e o piso da zona livre, nao e uma linha
+  if (cor == CorLinha::Azul && portaoPendente) return AcaoCruzamento::Portao;   // esperava o nosso portao (entrando OU saindo para entregar um cubo): nao e borda
   return temCubo ? AcaoCruzamento::Navegador : AcaoCruzamento::MeiaVolta;
 }
+
+// Verde sob o TCS depois de ja ter passado pelo nosso portao (e sem estar levando um cubo para la): o robo foi pego e posto de volta no verde (reinicio, que o
+// juiz faz). A pose volta para "no verde, de frente" e o mapa de cubos fica (os cubos nao se mexem sozinhos). `entregando` = foi de proposito deixar o cubo no verde.
+inline bool reposicionadoPeloVerde(CorLinha cor, bool portaoPendente, bool entregando) { return cor == CorLinha::Verde && !portaoPendente && !entregando; }
 
 // Varias leituras de cor seguidas (o robo esta parado): so acredita se TODAS concordam; senao Outra (cai no giro de confirmacao, que
 // reprova uma borda porque nao ha rua dos lados).

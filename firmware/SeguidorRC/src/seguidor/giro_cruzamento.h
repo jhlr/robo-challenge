@@ -19,6 +19,7 @@ struct AmostraGiro {
   bool s1;       // S1 (ponta esquerda) no preto
   bool s8;       // S8 (ponta direita) no preto
   int acesos;    // quantos sensores da barra estao no preto
+  float us = -1.0f;   // ultrassom a frente, em mm (-1 = sem eco ou sem sensor)
 };
 
 struct AjustesGiroCruzamento {
@@ -34,6 +35,9 @@ struct ResultadoGiro {
   int ruaDireita;
   bool estreitoEsq;  // a 90 graus a esquerda o padrao ficou estreito (uma linha cruzando a barra): ele endireitou nela
   bool estreitoDir;
+  float usEsq = -1.0f;     // menor distancia do ultrassom perto de 90 graus a esquerda (a rua da esquerda), -1 = nada ou nao mediu
+  float usDir = -1.0f;     // idem a direita
+  float usFrente = -1.0f;  // e perto de 0 grau (a rua em frente), olhando tambem a chegada e a volta
 };
 
 inline bool padraoEstreito(int acesos, const AjustesGiroCruzamento& aj) { return acesos >= 1 && acesos <= aj.estreitoMax; }
@@ -49,6 +53,16 @@ inline int ruaNoAngulo(const AmostraGiro* a, int n, bool esquerda, const Ajustes
     if (a[i].acesos >= 1 && a[i].acesos <= aj.acesosMaxRua) rua = true;
   }
   return !mediu ? -1 : (rua ? 1 : 0);
+}
+
+// Menor eco do ultrassom perto de `centroGraus` (+- janela): a distancia ate o que esta ao longo daquela rua. -1 se nenhuma leitura teve eco.
+inline float usNoAngulo(const AmostraGiro* a, int n, float centroGraus, float janelaGraus) {
+  float melhor = -1.0f;
+  for (int i = 0; i < n; i++) {
+    if (a[i].us <= 0.0f || fabsf(a[i].graus - centroGraus) > janelaGraus) continue;
+    if (melhor < 0.0f || a[i].us < melhor) melhor = a[i].us;
+  }
+  return melhor;
 }
 
 // Perto de giroGraus a esquerda (ou a direita): o padrao ficou estreito em alguma amostra?
@@ -68,7 +82,8 @@ inline ResultadoGiro avaliarGiro(const AmostraGiro* a, int n, const AjustesGiroC
   for (int i = 0; i < n; i++) {
     if (a[i].graus > -1.0f && a[i].graus < 1.0f && a[i].s1 && a[i].s8) chegou = true;
   }
-  ResultadoGiro r{false, detalhe::ruaNoAngulo(a, n, true, aj), detalhe::ruaNoAngulo(a, n, false, aj), detalhe::estreitoNoAngulo(a, n, true, aj), detalhe::estreitoNoAngulo(a, n, false, aj)};
+  ResultadoGiro r{false, detalhe::ruaNoAngulo(a, n, true, aj), detalhe::ruaNoAngulo(a, n, false, aj), detalhe::estreitoNoAngulo(a, n, true, aj), detalhe::estreitoNoAngulo(a, n, false, aj),
+                 detalhe::usNoAngulo(a, n, aj.giroGraus, aj.giroGraus * aj.tolerancia), detalhe::usNoAngulo(a, n, -aj.giroGraus, aj.giroGraus * aj.tolerancia), detalhe::usNoAngulo(a, n, 0.0f, 12.0f)};
   r.cruzamento = chegou && r.ruaEsquerda == 1 && r.ruaDireita == 1;
   return r;
 }
@@ -96,7 +111,7 @@ struct Varredura {
   unsigned long faseDesde = 0; // +1
   int n = 0;                   // amostras guardadas
   Oito resultado = Oito::FalsoAlarme;
-  ResultadoGiro ruas{false, -1, -1, false, false};
+  ResultadoGiro ruas{false, -1, -1, false, false, -1.0f, -1.0f, -1.0f};
   int ladoEndireitou = 0;      // +1 esquerda, -1 direita, 0 nao
 };
 

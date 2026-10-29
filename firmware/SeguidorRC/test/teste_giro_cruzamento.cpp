@@ -85,6 +85,17 @@ int main() {
     assert(v.resultado == Oito::Endireitou && v.ladoEndireitou == 1 && fim > 80.0f);
     fim = rodar(false, 1, true, true, false, false, v);                   // perdido, ruas mas nada estreito: falso alarme, volta a 0
     assert(v.resultado == Oito::FalsoAlarme && std::fabs(fim) < 2.0f); }
+  { // ultrassom: o eco mais perto perto de +90, -90 e 0 graus vira a distancia ate o que esta em cada rua
+    std::vector<AmostraGiro> v;
+    for (float g = -90; g <= 90.01f; g += 1.0f) {
+      AmostraGiro a{g, false, false, 0};
+      if (g > 80.0f) a.us = 190.0f;                  // cubo na rua da esquerda
+      if (g > 85.0f) a.us = 170.0f;                  // o menor vale
+      if (std::fabs(g) < 6.0f) a.us = 640.0f;        // a rua em frente: so o fundo
+      v.push_back(a);
+    }
+    const ResultadoGiro r = avaliarGiro(v.data(), (int)v.size(), aj);
+    assert(r.usEsq == 170.0f && r.usDir < 0.0f && r.usFrente == 640.0f); }
   std::puts("teste_giro_cruzamento: ok");
   return 0;
 }

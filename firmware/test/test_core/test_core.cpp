@@ -4,7 +4,7 @@
 #include "core/belief.h"
 #include "core/color.h"
 #include "core/color_table.h"
-#include "core/crossing.h"
+#include "core/explore.h"
 #include "core/line.h"
 #include "core/localizer.h"
 #include "core/map.h"
@@ -162,6 +162,90 @@ void test_cube_on_the_next_street_steps_over_it() {
   TEST_ASSERT_EQUAL(0, n.r);
 }
 
+
+void test_blocked_street_is_not_driven_through() {
+  core::CubeBelief b;
+  for (int c = 0; c < core::kMapCols; ++c) for (int r = 0; r < core::kMapRows; ++r) b.east[c][r] = b.north[c][r] = 0.0f;
+  b.east[2][0] = 1.0f;   // a cube on the street (2,0)-(3,0)
+  core::Blocked blk;
+  core::clearBlocked(blk);
+  blk.east[1][0] = true;   // but the street (1,0)-(2,0) in front of it is blocked: the shortest way is closed
+  const core::Pose pose{{0, 0}, 1, 0};
+  core::Node next{};
+  TEST_ASSERT_TRUE(core::nextTowardBestCube(pose, b, &next, 0.3f, nullptr));
+  TEST_ASSERT_EQUAL(1, next.c);
+  TEST_ASSERT_EQUAL(0, next.r);   // without the block: straight ahead
+  const core::Pose atOne{{1, 0}, 1, 0};   // standing right before the blocked street: it must not step into it
+  TEST_ASSERT_TRUE(core::nextTowardBestCube(atOne, b, &next, 0.3f, &blk));
+  TEST_ASSERT_EQUAL(1, next.c);
+  TEST_ASSERT_EQUAL(1, next.r);   // around, up first
+  TEST_ASSERT_TRUE(core::nextTowardBestCube(atOne, b, &next, 0.3f, nullptr));
+  TEST_ASSERT_EQUAL(2, next.c);   // without the block: straight ahead
+  blk.east[2][0] = true;           // the street that HOLDS the cube is blocked too: it is not a goal any more
+  TEST_ASSERT_FALSE(core::nextTowardBestCube(pose, b, &next, 0.3f, &blk));
+}
+
+void test_explore_goes_to_least_visited() {
+  core::Visits v;
+  core::clearVisits(v);
+  const core::Pose pose{{2, 2}, 1, 0};
+  for (int c = 0; c < core::kMapCols; ++c) for (int r = 0; r < core::kMapRows; ++r) v.n[c][r] = 3;
+  v.n[5][4] = 0;   // only the far corner was never reached
+  core::Node next{};
+  TEST_ASSERT_TRUE(core::stepToLeastVisited(pose, v, &next));
+  TEST_ASSERT_TRUE(next.c > 2 || next.r > 2);   // a step toward it
+  v.n[5][4] = 3; v.n[0][0] = 1;                 // now (0,0) is the least visited
+  TEST_ASSERT_TRUE(core::stepToLeastVisited(pose, v, &next));
+  TEST_ASSERT_TRUE(next.c < 2 || next.r < 2);
+  core::markVisited(v, core::Node{0, 0}); core::markVisited(v, core::Node{0, 0});
+  TEST_ASSERT_EQUAL(3, v.n[0][0]);
+}
+
+void test_exploration_replaces_first_street_when_nothing_likely() {
+  core::CubeBelief b;
+  for (int c = 0; c < core::kMapCols; ++c) for (int r = 0; r < core::kMapRows; ++r) b.east[c][r] = b.north[c][r] = 0.0f;   // nothing worth a trip
+  core::Visits v;
+  core::clearVisits(v);
+  v.n[3][2] = 5;   // straight ahead was visited a lot
+  const core::Pose pose{{2, 2}, 1, 0};
+  const core::Decision d = core::decideAtCrossing(pose, b, &v);
+  TEST_ASSERT_FALSE(d.toCube);
+  TEST_ASSERT_FALSE(d.next.c == 3 && d.next.r == 2);   // does not just go ahead
+}
+
+void test_delivery_walks_to_column_zero_then_out_the_gate() {
+  bool atGate = true;
+  core::Decision d = core::decideDelivery(core::Pose{{3, 1}, 1, 0}, &atGate);   // facing east: U-turn to go west
+  TEST_ASSERT_FALSE(atGate);
+  TEST_ASSERT_EQUAL(2, d.next.c);
+  TEST_ASSERT_TRUE(d.turn == core::Turn::UTurn);
+  d = core::decideDelivery(core::Pose{{0, 1}, -1, 0}, &atGate);           // at column 0 facing west: straight out of the gate
+  TEST_ASSERT_TRUE(atGate);
+  TEST_ASSERT_EQUAL(-1, d.next.c);
+  TEST_ASSERT_TRUE(d.turn == core::Turn::Straight);
+}
+
+
+void test_plan_anchors_the_column_when_only_the_column_is_unsure() {
+  core::PoseBelief b;
+  memset(b.p, 0, sizeof(b.p));
+  b.inGreen = false;
+  b.atGate = false;
+  b.p[2][3][0] = 0.5f;   // row 3 for sure, column 2 or 3
+  b.p[3][3][0] = 0.5f;
+  core::CubeBelief cubes;
+  for (int c = 0; c < core::kMapCols; ++c) for (int r = 0; r < core::kMapRows; ++r) cubes.east[c][r] = cubes.north[c][r] = 0.0f;
+  const core::Plan plan = core::planAtCrossing(b, cubes);
+  TEST_ASSERT_TRUE(plan.mode == core::Mode::Anchor);
+  TEST_ASSERT_TRUE(plan.move.turn == core::Turn::Straight);   // heading +c (east): keep going east to the edge, not up
+  b.p[2][3][0] = b.p[3][3][0] = 0.0f;
+  b.p[3][2][0] = 0.5f;   // now the row is the unsure one: up
+  b.p[3][4][0] = 0.5f;
+  const core::Plan up = core::planAtCrossing(b, cubes);
+  TEST_ASSERT_TRUE(up.mode == core::Mode::Anchor);
+  TEST_ASSERT_TRUE(up.move.turn == core::Turn::Left);          // north is a left turn from east
+}
+
 void test_forget_returns_to_prior() {
   const core::BeliefModel m;
   core::CubeBelief b{};
@@ -209,43 +293,6 @@ void test_likely_far_beats_unlikely_near() {
   TEST_ASSERT_EQUAL(1, n.r);
 }
 
-void test_crossing_needs_two_readings() {
-  core::CrossingState s;
-  TEST_ASSERT_FALSE(core::crossingStep(8, 8, 0, s));
-  TEST_ASSERT_TRUE(core::crossingStep(8, 8, 10, s));
-}
-
-void test_crossing_noise_resets_the_count() {
-  core::CrossingState s;
-  TEST_ASSERT_FALSE(core::crossingStep(8, 8, 0, s));
-  TEST_ASSERT_FALSE(core::crossingStep(7, 8, 10, s));   // one sensor off: not a crossing
-  TEST_ASSERT_FALSE(core::crossingStep(8, 8, 20, s));
-  TEST_ASSERT_TRUE(core::crossingStep(8, 8, 30, s));
-}
-
-void test_crossing_counted_once_while_leaving() {
-  core::CrossingState s;
-  core::crossingStep(8, 8, 0, s);
-  TEST_ASSERT_TRUE(core::crossingStep(8, 8, 10, s));
-  TEST_ASSERT_FALSE(core::crossingStep(8, 8, 20, s));    // still all black
-  TEST_ASSERT_FALSE(core::crossingStep(3, 8, 100, s));   // left the black, but too soon
-  core::crossingStep(8, 8, 150, s);                      // would be a new crossing...
-  TEST_ASSERT_FALSE(core::crossingStep(8, 8, 160, s));   // ...still ignored: the window has not closed
-  TEST_ASSERT_FALSE(core::crossingStep(2, 8, 400, s));   // window closes here
-  core::crossingStep(8, 8, 410, s);
-  TEST_ASSERT_TRUE(core::crossingStep(8, 8, 420, s));    // a real second crossing
-}
-
-void test_leave_crossing_restarts_the_clock() {
-  core::CrossingState s;
-  core::crossingStep(8, 8, 0, s);
-  core::crossingStep(8, 8, 10, s);
-  core::leaveCrossing(s, 2000);                          // stopped for 2 s, now driving off
-  TEST_ASSERT_FALSE(core::crossingStep(2, 8, 2100, s));  // 100 ms after leaving: too soon
-  TEST_ASSERT_FALSE(core::crossingStep(2, 8, 2400, s));  // window closed
-  core::crossingStep(8, 8, 2410, s);
-  TEST_ASSERT_TRUE(core::crossingStep(8, 8, 2420, s));
-}
 
 void test_color_table_each_reference_is_itself() {
   for (int i = 0; i < core::NUM_CORES; ++i) {
@@ -457,7 +504,7 @@ void test_plan_trusts_a_known_pose() {
   core::CubeBelief cubes = emptyCubes();
   cubes.east[0][4] = 0.9f;                                // the street just east of (0,4)
   const core::Plan p = core::planAtCrossing(loc, cubes, 0.85f);
-  TEST_ASSERT_FALSE(p.anchoring);
+  TEST_ASSERT_TRUE(p.mode == core::Mode::Collect);
   TEST_ASSERT_TRUE(p.move.toCube);
 }
 
@@ -468,9 +515,48 @@ void test_plan_anchors_when_the_row_is_unknown() {
   core::CubeBelief cubes = emptyCubes();
   cubes.east[0][2] = 0.9f;                                // a tempting cube, but we do not know which row we are on
   const core::Plan p = core::planAtCrossing(loc, cubes);
-  TEST_ASSERT_TRUE(p.anchoring);
+  TEST_ASSERT_TRUE(p.mode == core::Mode::Anchor);
   TEST_ASSERT_FALSE(p.move.toCube);
   TEST_ASSERT_EQUAL(core::Turn::Left, p.move.turn);       // facing +c, the +r edge is on the left
+}
+
+void test_loc_unexpected_green_is_a_reset() {
+  core::PoseBelief b;
+  core::onOwnBlue(b);
+  core::onCrossing(b);
+  core::onCrossing(b);                                    // we think we are inside the city
+  TEST_ASSERT_TRUE(core::onGreenFloor(b, false));         // ...but the floor is green: the referee moved us
+  TEST_ASSERT_TRUE(b.inGreen);
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, core::estimate(b).confidence);
+  TEST_ASSERT_FALSE(core::onGreenFloor(b, false));        // already in the green: nothing new
+}
+
+void test_loc_expected_green_is_not_a_reset() {
+  core::PoseBelief b;
+  core::onOwnBlue(b);
+  core::onCrossing(b);
+  TEST_ASSERT_FALSE(core::onGreenFloor(b, true));         // leaving through the gate on a delivery trip
+  TEST_ASSERT_TRUE(b.inGreen);
+}
+
+void test_loc_after_a_reset_the_gate_works_again() {
+  core::PoseBelief b;
+  core::onOwnBlue(b);
+  for (int i = 0; i < 4; ++i) core::onCrossing(b);
+  core::onGreenFloor(b, false);
+  core::onCrossing(b);                                    // crossings are ignored until the blue line is read
+  TEST_ASSERT_TRUE(b.inGreen);
+  core::onOwnBlue(b);
+  core::onCrossing(b);
+  TEST_ASSERT_EQUAL(0, core::estimate(b).pose.at.c);
+  TEST_ASSERT_FALSE(b.inGreen);
+}
+
+void test_plan_in_the_green_looks_for_the_blue_line() {
+  core::PoseBelief loc;
+  core::initInGreen(loc);
+  const core::Plan p = core::planAtCrossing(loc, emptyCubes());
+  TEST_ASSERT_TRUE(p.mode == core::Mode::FindBlue);
 }
 
 int main() {
@@ -481,10 +567,6 @@ int main() {
   RUN_TEST(test_nearest_cube_on_street);
   RUN_TEST(test_street_cube_is_walked_from_its_near_end);
   RUN_TEST(test_cube_on_the_next_street_steps_over_it);
-  RUN_TEST(test_crossing_needs_two_readings);
-  RUN_TEST(test_crossing_noise_resets_the_count);
-  RUN_TEST(test_crossing_counted_once_while_leaving);
-  RUN_TEST(test_leave_crossing_restarts_the_clock);
   RUN_TEST(test_color_table_each_reference_is_itself);
   RUN_TEST(test_color_table_unknown_and_empty);
   RUN_TEST(test_color_table_names_keep_the_order);
@@ -510,6 +592,15 @@ int main() {
   RUN_TEST(test_loc_a_missed_crossing_is_not_fatal);
   RUN_TEST(test_plan_trusts_a_known_pose);
   RUN_TEST(test_plan_anchors_when_the_row_is_unknown);
+  RUN_TEST(test_loc_unexpected_green_is_a_reset);
+  RUN_TEST(test_loc_expected_green_is_not_a_reset);
+  RUN_TEST(test_loc_after_a_reset_the_gate_works_again);
+  RUN_TEST(test_plan_in_the_green_looks_for_the_blue_line);
+  RUN_TEST(test_blocked_street_is_not_driven_through);
+  RUN_TEST(test_explore_goes_to_least_visited);
+  RUN_TEST(test_exploration_replaces_first_street_when_nothing_likely);
+  RUN_TEST(test_delivery_walks_to_column_zero_then_out_the_gate);
+  RUN_TEST(test_plan_anchors_the_column_when_only_the_column_is_unsure);
   RUN_TEST(test_forget_returns_to_prior);
   RUN_TEST(test_observation_moves_belief_the_right_way);
   RUN_TEST(test_observe_street_picks_the_right_slot);

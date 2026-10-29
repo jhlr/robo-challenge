@@ -31,6 +31,12 @@ struct CubeBelief {
   float north[kMapCols][kMapRows];  // street from (c, r) to (c, r + 1)
 };
 
+// Streets we cannot drive through (a cube we must not move sits on it: white, or a colour without a platform). Same layout as CubeBelief.
+struct Blocked {
+  bool east[kMapCols][kMapRows];
+  bool north[kMapCols][kMapRows];
+};
+
 // Visits every street as f(p, a, z), where a and z are the neighbouring junctions it joins. B may be const.
 template <typename B, typename F>
 inline void forEachPlace(B& b, F&& f) {
@@ -51,6 +57,14 @@ inline auto& streetSlot(B& b, Node a, Node z) {
 
 inline bool inMap(int c, int r) { return c >= 0 && c < kMapCols && r >= 0 && r < kMapRows; }
 
+inline void clearBlocked(Blocked& b) {
+  for (int c = 0; c < kMapCols; ++c)
+    for (int r = 0; r < kMapRows; ++r) b.east[c][r] = b.north[c][r] = false;
+}
+
+// Is the street between two neighbouring junctions blocked? (either order; null = nothing is blocked)
+inline bool isBlocked(const Blocked* b, Node a, Node z) { return b != nullptr && streetSlot(*b, a, z); }
+
 // The turn that makes `pose` face `next` (a neighbouring junction).
 inline Turn turnToward(const Pose& pose, Node next) {
   const int dc = next.c - pose.at.c, dr = next.r - pose.at.r;
@@ -68,7 +82,7 @@ inline Pose moveTo(const Pose& pose, Node next) {
 // the nearest). Returns the first junction to drive to; false when nothing is likely enough. The street is walked from its nearer end. Ties keep the first one found in a fixed order, so the result is deterministic.
 constexpr float kMinBelief = 0.3f;
 
-inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node* next, float minBelief = kMinBelief) {
+inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node* next, float minBelief = kMinBelief, const Blocked* blocked = nullptr) {
   int dist[kMapCols][kMapRows];
   Node from[kMapCols][kMapRows];
   for (int c = 0; c < kMapCols; ++c)
@@ -84,6 +98,7 @@ inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node*
     for (const auto& s : kStep) {
       const int c = n.c + s[0], r = n.r + s[1];
       if (!inMap(c, r) || dist[c][r] >= 0) continue;
+      if (isBlocked(blocked, n, Node{static_cast<int8_t>(c), static_cast<int8_t>(r)})) continue;   // cannot drive through a blocked street
       dist[c][r] = dist[n.c][n.r] + 1;
       from[c][r] = n;
       queue[tail++] = Node{static_cast<int8_t>(c), static_cast<int8_t>(r)};
@@ -101,6 +116,7 @@ inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node*
     }
   };
   forEachPlace(belief, [&](float p, Node a, Node z) {
+    if (isBlocked(blocked, a, z) || (dist[a.c][a.r] < 0 && dist[z.c][z.r] < 0)) return;   // blocked, or unreachable without crossing a blocked street
     // a street cube is walked from its nearer end; if the robot already stands on that end, the goal is the other one
     const bool aNearer = dist[a.c][a.r] <= dist[z.c][z.r];
     consider(p, (aNearer ? dist[a.c][a.r] : dist[z.c][z.r]) + 1, aNearer ? z : a);

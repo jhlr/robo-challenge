@@ -106,6 +106,32 @@ void lerImu() {
 }
 #endif
 
+// --- Ultrassom HC-SR04 (alvo.h): pronto e DESLIGADO ate o sensor existir. Na varredura das duas pontas ele le o eco ao longo de cada rua (cubo na rua = eco menor que ~330 mm).
+// Ligue com -DUSA_ULTRASSOM=1 -DUS_TRIG=<pino> -DUS_ECHO=<pino> (o ECHO do HC-SR04 e 5 V: use divisor para 3,3 V). TCS34725 da frente (cor do cubo): -DUSA_TCS_FRENTE=1,
+// fica no mesmo I2C do MPU (core/color_table.h classifica); a logica de coleta e do navegador (ainda so no simulador: test/simulador.cpp).
+#ifndef USA_ULTRASSOM
+#define USA_ULTRASSOM 0
+#endif
+#if USA_ULTRASSOM
+#ifndef US_TRIG
+#define US_TRIG -1
+#define US_ECHO -1
+#endif
+static_assert(US_TRIG >= 0 && US_ECHO >= 0, "defina os pinos do ultrassom (-DUS_TRIG=.. -DUS_ECHO=..)");
+// Distancia em mm ate o eco a frente (-1 = sem eco ate ~1,5 m). Bloqueia ate 9 ms no pior caso.
+float lerUltrassomMm() {
+  digitalWrite(US_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(US_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(US_TRIG, LOW);
+  const unsigned long us = pulseIn(US_ECHO, HIGH, 9000);
+  return us == 0 ? -1.0f : us * 0.343f / 2.0f;
+}
+#else
+float lerUltrassomMm() { return -1.0f; }
+#endif
+
 void mostrarDebug(const Comando& c) {
   for (int i = 0; i < kSensores; i++) Serial.printf("S%d:%4u ", i + 1, barra.leituras[i]);
   Serial.print("| [");
@@ -162,7 +188,7 @@ Oito varrer(bool vinhaSeguindo, int lado) {
 #if USA_IMU
   const float rumo0 = rumo;
 #endif
-  AmostraGiro leitura = {0.0f, barra.preto[0], barra.preto[kSensores - 1], acesos()};   // como chegou
+  AmostraGiro leitura = {0.0f, barra.preto[0], barra.preto[kSensores - 1], acesos(), lerUltrassomMm()};   // como chegou
   unsigned long t0 = micros();
   const unsigned long inicio = millis();
   while (millis() - inicio < 20000) {
@@ -178,11 +204,12 @@ Oito varrer(bool vinhaSeguindo, int lado) {
     estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * (t1 - t0) * 1e-6f;   // angulo estimado por tempo
 #endif
     t0 = t1;
-    leitura = {estimado, barra.preto[0], barra.preto[kSensores - 1], acesos()};
+    leitura = {estimado, barra.preto[0], barra.preto[kSensores - 1], acesos(), lerUltrassomMm()};
   }
   parar(ponte);
   auto rua = [](int x) { return x < 0 ? "?" : (x ? "SIM" : "nao"); };
   Serial.printf("    1o lado: %s | rua a esquerda: %s | rua a direita: %s | %d amostras\n", lado > 0 ? "esquerda" : "direita", rua(v.ruas.ruaEsquerda), rua(v.ruas.ruaDireita), v.n);
+  if (v.ruas.usEsq > 0 || v.ruas.usDir > 0 || v.ruas.usFrente > 0) Serial.printf("    ultrassom: esquerda %.0f mm | frente %.0f mm | direita %.0f mm (-1 = nada)\n", v.ruas.usEsq, v.ruas.usFrente, v.ruas.usDir);
   return v.resultado;
 }
 
@@ -251,6 +278,10 @@ void setup() {
   Serial.begin(115200);
   iniciar(ponte);
   iniciar(barra, pinosSensores);
+#if USA_ULTRASSOM
+  pinMode(US_TRIG, OUTPUT);
+  pinMode(US_ECHO, INPUT);
+#endif
 #if USA_COR
   Wire.begin(tcsSda, tcsScl);
   if (!tcs.begin(0x29, &Wire)) Serial.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");

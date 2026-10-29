@@ -86,7 +86,17 @@ O padrao estreito nao exige o centro: com a barra sobre a linha o eixo fica ~30 
 ## Simulador ao vivo (sem fim)
 
 ```bash
-cd firmware/SeguidorRC && g++ -std=c++17 -O2 -Isrc test/simulador.cpp src/seguidor/decisao.cpp -o /tmp/simulador && /tmp/simulador --servir
+cd firmware/SeguidorRC && g++ -std=c++17 -O2 -Isrc -I../src test/simulador.cpp src/seguidor/decisao.cpp -o /tmp/simulador && /tmp/simulador --servir
 # abra http://localhost:8765
 ```
 O servidor C++ simula so o que a pagina pede, SEM duracao gravada nem tempo maximo (a pagina nao tem slider): botoes de avancar/voltar 0,1 s e 1 s, velocidade ate 8x, clique no mapa para soltar o robo ali (apontando para o lado escolhido) e ver a busca acontecendo, levantar/soltar de frente e pancada forte. `/tmp/simulador` sem argumentos roda os 54 cenarios de teste (com `-q` so o placar; `chave=valor` muda fisica e ajustes).
+
+## Mundo do simulador: cubos, oponente, sensores novos e ruido
+
+`test/simulador.cpp` agora modela (tudo CONFIGURAVEL em `Mundo::cfg`, ligado no simulador antes de existir no robo):
+- **Ultrassom** (alcance 900 mm, cone 20 graus, ruido 3 mm) e **TCS da frente** (cor do cubo a ~9 cm). `alvo.h` (puro) diz o que o eco e: cubo numa rua (`ruaTemCubo`), **oponente = eco que se mexe** (`ecoMovel`: o cubo e parado, entao andando v mm/s para ele a distancia cai v*dt; outra variacao e alvo que se move) e se a cor do cubo se pega (`podeColetar`, configuravel: branco e cor sem plataforma bloqueiam a rua). No sketch: `-DUSA_ULTRASSOM=1 -DUS_TRIG=.. -DUS_ECHO=..` (desligado).
+- **TCS do chao** com cadencia de 60 ms, verde/amarelo, leitura parado com 3 leituras que concordam, e **reposicao pelo verde** so depois de varias leituras seguidas (`reposicionadoPeloVerde`).
+- **Cubos** nas ruas (nunca no cruzamento), **oponente** que anda pelo mapa, leva cubos e bate no robo (o MPU sente a pancada), **ruido aleatorio SINALIZADO** (mancha escura que parece linha, patinagem, atraso dos sensores, leitura errada do TCS: cada evento entra no registro e a mancha e desenhada; liga/desliga na pagina).
+- **Navegador** (no simulador; usa o `core/`): localizador Bayes (`localizer.h`), memoria dos cubos que esquece com o tempo (`belief.h`), **exploracao por regioes menos visitadas** (`explore.h`: sem cubo provavel vai para o cruzamento menos visitado, nao para a primeira rua), ruas **bloqueadas** (`Blocked`), ancora a coluna na azul do outro lado e a linha na vermelha, coleta (para a ~6 cm, le a cor, pega ou bloqueia), entrega no verde e volta pelo portao. A pagina mostra o que o carrinho lembra (rosa = chance de cubo por rua, X = rua bloqueada, numero = vezes que passou).
+
+**Limites conhecidos (a missao ainda e informativa nos testes):** a localizacao deriva depois de pancadas do oponente e de curvas que nao sao verificadas (depois de virar nao se confere se a rua existe), e entao ele fica "ancorando" em vez de coletar; o navegador ainda nao esta ligado ao sketch.

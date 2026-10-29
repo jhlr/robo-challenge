@@ -4,6 +4,7 @@
 //   decisao.h      escolhe a velocidade das rodas              (so conta, nao usa pinos nem millis())
 //   giro_cruzamento.h confirma o cruzamento girando 90 graus para cada lado e vendo se ha rua dos dois lados (so conta)
 //   exploracao.h   cruzamentos ja visitados (relativos) para virar para o lado menos explorado (so conta)
+//   alvo.h         o que o eco do ultrassom e: cubo na rua, oponente (eco que se mexe), cor do cubo (so conta)
 //   borda.h        S1 e S8 no preto numa linha VERMELHA ou AZUL e a borda do mapa, nao cruzamento (so conta)
 //   cruzamento.h   detecta o cruzamento (S1 e S8 no preto)     (so conta, nao usa pinos nem millis())
 //   saude.h        marca sensor preto por tempo demais           (so conta, nao usa pinos nem millis())
@@ -11,6 +12,7 @@
 //   calibracao.h   mede zona morta e graus por segundo girando no eixo com o giroscopio (so conta)
 //   ponte_h.h      manda a velocidade para a ponte TB6612FNG   (usa pinos)
 // Cada peca funciona sozinha; o sketch liga uma na outra (veja examples/SeguidorBasico).
+#include "seguidor/alvo.h"
 #include "seguidor/borda.h"
 #include "seguidor/calibracao.h"
 #include "seguidor/cruzamento.h"

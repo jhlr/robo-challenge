@@ -5,6 +5,8 @@
 // our side (map.h): c = 0 is the column next to the blue line we came in by, heading 0 = +c ("into the city").
 //
 // Events, in the order they happen on the track:
+//   onGreenFloor(e)   green under the sensor: we are in our free area. If we did not expect it (we thought we were inside the city), the referee
+//                     picked the robot up and put it back on the green (a restart): the pose is forgotten, the cube map is NOT (cubes stay put)
 //   onOwnBlue()       we read the blue line of OUR green area: now at the gate, facing +c, row unknown (the stubs of the 5 rows look alike)
 //   onCrossing()      a crossing was confirmed (8 sensors on black, then the 90 degree check): moved one junction ahead
 //   onTurn(k)         the robot spun k quarter turns to the left (negative = right)
@@ -22,7 +24,8 @@ constexpr int8_t kDirs[kHeadings][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
 
 struct PoseBelief {
   float p[kMapCols][kMapRows][kHeadings];
-  bool atGate;  // true between onOwnBlue() and the first crossing: still in the stub, p holds the row distribution at (0, r) facing +c
+  bool inGreen;  // in our green area, pose unknown (the start of every match, and after a restart)
+  bool atGate;   // true between onOwnBlue() and the first crossing: still in the stub, p holds the row distribution at (0, r) facing +c
 };
 
 enum class Forbidden : uint8_t { Red, OtherBlue };
@@ -49,6 +52,14 @@ inline void initUniform(PoseBelief& b) {
   for (int c = 0; c < kMapCols; ++c)
     for (int r = 0; r < kMapRows; ++r)
       for (int h = 0; h < kHeadings; ++h) b.p[c][r][h] = v;
+  b.inGreen = false;
+  b.atGate = false;
+}
+
+// In the green area, nowhere on the street graph yet: the start of a match, or the robot was put back by the referee.
+inline void initInGreen(PoseBelief& b) {
+  memset(b.p, 0, sizeof(b.p));
+  b.inGreen = true;
   b.atGate = false;
 }
 
@@ -65,8 +76,17 @@ inline bool normalize(PoseBelief& b) {
   return true;
 }
 
+// Green under a sensor. `expected` = we were heading out through the gate on purpose (delivery trip). Returns true when this was a RESET:
+// unexpected green means the robot was repositioned, so the pose goes back to "in the green, unknown".
+inline bool onGreenFloor(PoseBelief& b, bool expected) {
+  const bool reset = !expected && !b.inGreen;
+  initInGreen(b);
+  return reset;
+}
+
 inline void onOwnBlue(PoseBelief& b) {
   memset(b.p, 0, sizeof(b.p));
+  b.inGreen = false;
   for (int r = 0; r < kMapRows; ++r) b.p[0][r][0] = 1.0f / kMapRows;
   b.atGate = true;
 }
@@ -75,6 +95,7 @@ inline void onTurn(PoseBelief& b, int leftQuarterTurns) {
   PoseBelief n;
   memset(&n, 0, sizeof(n));
   n.atGate = b.atGate;
+  n.inGreen = b.inGreen;
   const int k = ((leftQuarterTurns % kHeadings) + kHeadings) % kHeadings;
   for (int c = 0; c < kMapCols; ++c)
     for (int r = 0; r < kMapRows; ++r)
@@ -88,6 +109,7 @@ inline bool facesOutside(int c, int r, int h) { return !inMap(c + kDirs[h][0], r
 // A crossing arrived. The first one after the gate is the first junction itself (column 0); after that we moved one junction (two if one was missed).
 // Facing outside at the edge cannot produce a crossing, so those states disappear: that is evidence too.
 inline bool onCrossing(PoseBelief& b, const LocalizerModel& m = {}) {
+  if (b.inGreen) return true;  // no pose to move
   if (b.atGate) {
     b.atGate = false;
     return true;
@@ -106,6 +128,7 @@ inline bool onCrossing(PoseBelief& b, const LocalizerModel& m = {}) {
         if (inMap(c2, r2)) n.p[c2][r2][h] += mass * m.pMissCrossing;
       }
   n.atGate = false;
+  n.inGreen = false;
   b = n;
   return normalize(b);
 }
@@ -113,6 +136,7 @@ inline bool onCrossing(PoseBelief& b, const LocalizerModel& m = {}) {
 // Weight every state by how likely the reading is there, then rescale.
 template <typename Likelihood>
 inline bool weigh(PoseBelief& b, Likelihood&& like) {
+  if (b.inGreen) return true;  // nothing to weigh
   for (int c = 0; c < kMapCols; ++c)
     for (int r = 0; r < kMapRows; ++r)
       for (int h = 0; h < kHeadings; ++h) b.p[c][r][h] *= like(c, r, h);
@@ -154,6 +178,7 @@ struct Estimate {
 
 inline Estimate estimate(const PoseBelief& b) {
   Estimate e{{{0, 0}, 1, 0}, 0.0f};
+  if (b.inGreen) return e;  // confidence 0: no pose
   for (int c = 0; c < kMapCols; ++c)
     for (int r = 0; r < kMapRows; ++r)
       for (int h = 0; h < kHeadings; ++h)

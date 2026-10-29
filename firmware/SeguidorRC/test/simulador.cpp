@@ -16,9 +16,16 @@
 #include <string.h>
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <vector>
 
+#include "../../src/core/belief.h"
+#include "../../src/core/explore.h"
+#include "../../src/core/localizer.h"
+#include "../../src/core/map.h"
+#include "../../src/core/navigator.h"
+#include "seguidor/alvo.h"
 #include "seguidor/borda.h"
 #include "seguidor/calibracao.h"
 #include "seguidor/inercial.h"
@@ -28,6 +35,17 @@
 #include "seguidor/giro_cruzamento.h"
 
 using namespace seguidor;
+
+static std::string fmt(const char* f, ...) __attribute__((format(printf, 1, 2)));
+static std::string fmt(const char* f, ...) {
+  char b[512];
+  va_list a;
+  va_start(a, f);
+  vsnprintf(b, sizeof b, f, a);
+  va_end(a);
+  return b;
+}
+
 
 // ---------------------------------------------------------------- pista
 
@@ -63,6 +81,15 @@ struct Pista {
     return d;
   }
   bool preto(double x, double y) const { return distancia(x, y) < largura / 2.0; }
+  // O que o TCS do chao ve: vermelho/azul (linha colorida), verde/amarelo (zonas), preto (linha), branco.
+  enum Piso { kPisoBranco, kPisoPreto, kPisoVermelho, kPisoAzul, kPisoVerde, kPisoAmarelo };
+  Piso piso(double x, double y) const {
+    for (const Seg& s : segs)
+      if (s.cor != kPreta && distSeg(s, x, y) < largura / 2.0) return s.cor == kVermelha ? kPisoVermelho : kPisoAzul;
+    for (const Ret& r : decor)
+      if (r.cor <= 1 && x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) return r.cor == 0 ? kPisoVerde : kPisoAmarelo;
+    return preto(x, y) ? kPisoPreto : kPisoBranco;
+  }
   // Cor da linha sob o ponto (a mais proxima dentro da largura); kPreta tambem vale para fora da linha: so interessa vermelho e azul.
   int cor(double x, double y) const {
     int c = kPreta;
@@ -94,9 +121,109 @@ ParamsFisicos gFis;   // os cenarios usam este; da para mudar na linha de comand
 
 struct Estado { double x, y, th; };   // eixo (mm), rumo (rad, 0 = +x, anti-horario)
 
+// O tabuleiro (docs/2026-10-28_mapa-comparacao-e-localizacao.md): 6 x 5 cruzamentos a 302 mm, becos de 127 mm.
+constexpr double kPasso = 302.0, kBeco = 127.0, kLarg = 2 * kBeco + 5 * kPasso, kAlt = 2 * kBeco + 4 * kPasso;   // 1764 x 1462
+inline double xDoCruzamento(int c) { return kBeco + c * kPasso; }
+inline double yDoCruzamento(int r) { return kBeco + r * kPasso; }
+
+// ================================================================ O MUNDO alem da pista: cubos, oponente, sensores configuraveis e RUIDO
+// Tudo aqui e CONFIGURAVEL e fica pronto antes dos sensores existirem no robo (ultrassom, TCS da frente). O RUIDO e aleatorio mas deterministico (semente) e
+// SEMPRE SINALIZADO: cada evento entra em Mundo::log (a pagina mostra) e a mancha aparece desenhada. Desligado por padrao nos testes.
+struct Cubo {
+  double x, y;
+  seguidor::CorCubo cor;
+  bool vivo = true;
+  size_t mortoEm = static_cast<size_t>(-1);   // indice do quadro em que saiu do mapa (coletado ou levado pelo oponente), para a animacao
+  int c = 0, r = 0;
+  bool leste = true;   // a rua e (c,r)->(c+1,r) se leste, senao (c,r)->(c,r+1)
+};
+
+struct Oponente {
+  bool ativo = false;
+  double x = 0, y = 0, th = 0, v = 150.0;
+  int c = 0, r = 0, alvoC = 0, alvoR = 0;
+  unsigned long paradoAte = 0;
+};
+
+struct Mancha {   // sujeira escura no chao: os sensores RC leem como linha
+  double x, y, raio;
+  size_t desde, ate = static_cast<size_t>(-1);   // quadros em que existe
+  unsigned long expiraMs;
+};
+
+struct ConfigSensoresSim {
+  bool us = true;              // ultrassom (HC-SR04): ainda nao instalado, mas o simulador ja o modela
+  double usAlcanceMm = 900.0, usConeGraus = 20.0, usRuidoMm = 3.0, usFrenteMm = 100.0;   // ponta da frente do carro (eixo + 100)
+  bool tcsFrente = true;       // TCS34725 da frente: cor do cubo a ~5 cm
+  double tcsFrenteAlcanceMm = 90.0, tcsFrenteConeGraus = 14.0;
+  double tcsChaoErro = 0.0;    // probabilidade de errar a cor do chao numa leitura (so com ruido ligado)
+  unsigned long tcsPeriodoMs = 60;   // leitura de ~24 ms: nao dá a cada ciclo
+};
+
+struct Mundo {
+  std::vector<Cubo> cubos;
+  Oponente op;
+  std::vector<Mancha> manchas;
+  ConfigSensoresSim cfg;
+  bool ruidoLigado = false;
+  std::vector<std::string> log;
+  std::vector<std::array<float, 3>> opQuadros;   // oponente em cada quadro gravado
+  unsigned long long seed = 777;
+  unsigned long proxMancha = 20000, proxPatina = 15000, proxAtraso = 25000, fimPatina = 0, fimAtraso = 0;
+  unsigned long cooldownColisao = 0;
+  int pegosPeloOponente = 0, colisoesOponente = 0;
+
+  double rnd() { seed = seed * 6364136223846793005ULL + 1442695040888963407ULL; return ((seed >> 33) & 0xFFFFFF) / 16777216.0; }   // 0..1
+  double gauss() { return (rnd() + rnd() + rnd() + rnd() - 2.0) * 1.7; }   // ~N(0,1)
+  void evento(unsigned long t, const std::string& txt) {
+    char b[64];
+    snprintf(b, sizeof b, "[%.1fs] ", t / 1000.0);
+    log.push_back(std::string(b) + txt);
+    if (log.size() > 5000) log.erase(log.begin());
+  }
+  bool cuboEm(double x, double y) const {
+    for (const Cubo& c : cubos)
+      if (c.vivo && fabs(x - c.x) < 22 && fabs(y - c.y) < 22) return true;
+    return false;
+  }
+  bool manchaEm(double x, double y) const {
+    for (const Mancha& m : manchas)
+      if (m.ate == static_cast<size_t>(-1) && hypot(x - m.x, y - m.y) < m.raio) return true;
+    return false;
+  }
+  // Espalha n cubos em ruas diferentes (nunca no cruzamento), no meio da rua +- 40 mm, com as cores dadas em ordem.
+  void semearCubos(int n, const std::vector<seguidor::CorCubo>& cores) {
+    std::vector<std::array<int, 3>> ruas;   // c, r, leste
+    for (int c = 0; c < core::kMapCols; c++)
+      for (int r = 0; r < core::kMapRows; r++) {
+        if (c + 1 < core::kMapCols) ruas.push_back({c, r, 1});
+        if (r + 1 < core::kMapRows) ruas.push_back({c, r, 0});
+      }
+    for (int i = 0; i < n && !ruas.empty(); i++) {
+      const size_t k = static_cast<size_t>(rnd() * ruas.size()) % ruas.size();
+      const auto rua = ruas[k];
+      ruas.erase(ruas.begin() + static_cast<long>(k));
+      Cubo cu;
+      cu.c = rua[0]; cu.r = rua[1]; cu.leste = rua[2] == 1;
+      const double meio = 0.5 + (rnd() - 0.5) * 0.26;   // 0,37 a 0,63 da rua
+      cu.x = xDoCruzamento(cu.c) + (cu.leste ? meio * kPasso : 0.0);
+      cu.y = yDoCruzamento(cu.r) + (cu.leste ? 0.0 : meio * kPasso);
+      cu.cor = cores[static_cast<size_t>(i) % cores.size()];
+      cubos.push_back(cu);
+    }
+  }
+  void tick(class Carro& c);
+  void gravaQuadro() { opQuadros.push_back({static_cast<float>(op.x), static_cast<float>(op.y), static_cast<float>(op.th)}); }
+};
+
 class Carro {
  public:
   Carro(const Pista& p, Estado e, const ParamsFisicos& f = gFis) : pista_(p), e_(e), f_(f) { grava(); }
+
+  void usarMundo(Mundo* m) { mundo_ = m; if (m) { m->opQuadros.clear(); m->gravaQuadro(); } }
+  Mundo* mundo() const { return mundo_; }
+  void fatorRodas(double f) { fatorRodas_ = f; }          // patinagem / ganho das rodas (ruido)
+  void atrasoLeitura(int ticks) { atrasoTicks_ = ticks; }  // atraso dos sensores RC em ciclos (ruido)
 
   Estado estado() const { return e_; }
 
@@ -121,7 +248,7 @@ class Carro {
     return m;
   }
   void levantar(bool sim) { levantado_ = sim; if (sim) { vE_ = vD_ = 0; vMmS_ = wRadS_ = aMmS2_ = 0; } }
-  void limparRastro() { rastro_.clear(); bits_.clear(); grava(); }   // o que vem depois e o que interessa mostrar
+  void limparRastro() { rastro_.clear(); bits_.clear(); if (mundo_) mundo_->opQuadros.clear(); grava(); }   // o que vem depois e o que interessa mostrar
   void colocarEm(Estado e) { e_ = e; vE_ = vD_ = 0; grava(); }   // solto no chao em outro lugar
   void bater(double g, int ticks) { impulsoG_ = g; impulsoTicks_ = ticks; }   // pancada horizontal de g por `ticks` ciclos
   bool levantado() const { return levantado_; }
@@ -137,13 +264,97 @@ class Carro {
     x = e_.x + f_.barraAFrenteMm * cos(e_.th) - lat * sin(e_.th);
     y = e_.y + f_.barraAFrenteMm * sin(e_.th) + lat * cos(e_.th);
   }
-  void ler(bool preto[kSensores]) const {
+  void lerReal(bool preto[kSensores]) const {
     for (int i = 0; i < kSensores; i++) {
       double x, y;
       ponto(i, x, y);
-      preto[i] = pista_.preto(x, y);
+      bool p = pista_.preto(x, y);
+      if (mundo_) p = (p && !mundo_->cuboEm(x, y)) || mundo_->manchaEm(x, y);   // cubo cobre a linha; mancha parece linha
+      preto[i] = p;
     }
   }
+  void ler(bool preto[kSensores]) const {
+    if (atrasoTicks_ > 0 && ringN_ > atrasoTicks_) {   // sensores atrasados (ruido): devolve a leitura de alguns ciclos atras
+      const uint8_t b = ring_[(ringI_ - 1 - atrasoTicks_ + 64) & 31];
+      for (int i = 0; i < kSensores; i++) preto[i] = (b >> i) & 1;
+      return;
+    }
+    lerReal(preto);
+  }
+
+  // ---- sensores novos (configuraveis em Mundo::cfg): TCS do chao, ultrassom, TCS da frente
+  Pista::Piso piso() const {
+    double x, y, x2, y2;
+    ponto(3, x, y);
+    ponto(4, x2, y2);
+    return pista_.piso((x + x2) / 2, (y + y2) / 2);
+  }
+  // Cor lida pelo TCS do chao (centro da barra). Com ruido ligado, as vezes erra (probabilidade cfg.tcsChaoErro).
+  seguidor::CorLinha tcsChao() {
+    const Pista::Piso pz = piso();
+    seguidor::CorLinha c = pz == Pista::kPisoVermelho ? seguidor::CorLinha::Vermelho : pz == Pista::kPisoAzul ? seguidor::CorLinha::Azul : pz == Pista::kPisoVerde ? seguidor::CorLinha::Verde : seguidor::CorLinha::Outra;
+    if (mundo_ && mundo_->ruidoLigado && mundo_->rnd() < mundo_->cfg.tcsChaoErro) {
+      c = static_cast<seguidor::CorLinha>(static_cast<int>(mundo_->rnd() * 4) % 4);
+      mundo_->evento(t_, "RUIDO: o TCS do chao leu uma cor errada");
+    }
+    return c;
+  }
+  // Ultrassom a frente: distancia (mm) ate o alvo mais proximo dentro do cone (cubos vivos r = 25, oponente r = 95), ou -1.
+  double us() {
+    if (!mundo_ || !mundo_->cfg.us) return -1.0;
+    const Mundo& m = *mundo_;
+    const double sx = e_.x + m.cfg.usFrenteMm * cos(e_.th), sy = e_.y + m.cfg.usFrenteMm * sin(e_.th);
+    double melhor = -1.0;
+    auto alvo = [&](double x, double y, double raio) {
+      const double d = hypot(x - sx, y - sy);
+      if (d > m.cfg.usAlcanceMm + raio || d < 1e-6) return;
+      const double dif = fabs(remainder(atan2(y - sy, x - sx) - e_.th, 2 * M_PI)) * 180.0 / M_PI;
+      if (dif > m.cfg.usConeGraus / 2.0) return;
+      const double dist = std::max(0.0, d - raio);
+      if (melhor < 0 || dist < melhor) melhor = dist;
+    };
+    for (const Cubo& c : m.cubos) if (c.vivo) alvo(c.x, c.y, 25.0);
+    if (m.op.ativo) alvo(m.op.x, m.op.y, 95.0);
+    if (melhor < 0) return -1.0;
+    return std::max(1.0, melhor + (mundo_->ruidoLigado ? m.cfg.usRuidoMm * mundo_->gauss() : 0.0));
+  }
+  // TCS da frente: cor do cubo que esta a frente a ate cfg.tcsFrenteAlcanceMm (o oponente nao tem cor de cubo: Nenhuma).
+  seguidor::CorCubo tcsFrente() const {
+    if (!mundo_ || !mundo_->cfg.tcsFrente) return seguidor::CorCubo::Nenhuma;
+    const Mundo& m = *mundo_;
+    const double sx = e_.x + m.cfg.usFrenteMm * cos(e_.th), sy = e_.y + m.cfg.usFrenteMm * sin(e_.th);
+    for (const Cubo& c : m.cubos) {
+      if (!c.vivo) continue;
+      const double d = hypot(c.x - sx, c.y - sy) - 25.0;
+      const double dif = fabs(remainder(atan2(c.y - sy, c.x - sx) - e_.th, 2 * M_PI)) * 180.0 / M_PI;
+      if (d <= m.cfg.tcsFrenteAlcanceMm && dif <= m.cfg.tcsFrenteConeGraus / 2.0) return c.cor;
+    }
+    return seguidor::CorCubo::Nenhuma;
+  }
+  // O cubo vivo mais perto da frente do carro (para coletar): indice, ou -1.
+  int cuboNaFrente(double alcanceMm) const {
+    if (!mundo_) return -1;
+    const Mundo& m = *mundo_;
+    const double sx = e_.x + m.cfg.usFrenteMm * cos(e_.th), sy = e_.y + m.cfg.usFrenteMm * sin(e_.th);
+    int melhor = -1;
+    double dm = 1e9;
+    for (size_t i = 0; i < m.cubos.size(); i++) {
+      const Cubo& c = m.cubos[i];
+      if (!c.vivo) continue;
+      const double d = hypot(c.x - sx, c.y - sy) - 25.0;
+      const double dif = fabs(remainder(atan2(c.y - sy, c.x - sx) - e_.th, 2 * M_PI)) * 180.0 / M_PI;
+      if (d <= alcanceMm && dif <= 20.0 && d < dm) { dm = d; melhor = static_cast<int>(i); }
+    }
+    return melhor;
+  }
+  // Pega o cubo i (some do mapa neste quadro).
+  void coletar(int i) {
+    if (!mundo_ || i < 0) return;
+    mundo_->cubos[static_cast<size_t>(i)].vivo = false;
+    mundo_->cubos[static_cast<size_t>(i)].mortoEm = rastro_.size();
+  }
+  size_t quadro() const { return rastro_.size(); }
+
   // Cor do chao no TCS: suposto no centro da barra (a posicao real e pergunta aberta nos docs).
   int corChao() const {
     double x, y, x2, y2;
@@ -168,7 +379,7 @@ class Carro {
     const double dt = f_.dtMs / 1000.0, k = 1.0 - exp(-f_.dtMs / f_.tauMs);
     vE_ += (alvoE_ - vE_) * k;
     vD_ += (alvoD_ - vD_) * k;
-    const double v = (vE_ + vD_) / 2.0, w = (vD_ - vE_) / f_.bitolaMm * f_.derrapagem;   // w > 0 = anti-horario (esquerda)
+    const double v = (vE_ + vD_) / 2.0 * fatorRodas_, w = (vD_ - vE_) / f_.bitolaMm * f_.derrapagem * fatorRodas_;   // w > 0 = anti-horario (esquerda)
     aMmS2_ = (v - vMmS_) / dt;
     vMmS_ = v;
     wRadS_ = w;
@@ -178,6 +389,16 @@ class Carro {
     e_.y += v * sin(thMeio) * dt;
     e_.th += w * dt;
     t_ += static_cast<unsigned long>(f_.dtMs);
+    {
+      bool p[kSensores];
+      lerReal(p);
+      uint8_t b = 0;
+      for (int i = 0; i < kSensores; i++) b |= p[i] ? (1 << i) : 0;
+      ring_[ringI_ & 31] = b;
+      ringI_++;
+      if (ringN_ < 64) ringN_++;
+    }
+    if (mundo_) mundo_->tick(*this);
     const double eb = erroBarra();
     erroMax_ = std::max(erroMax_, eb);
     soma2_ += eb * eb;
@@ -189,8 +410,9 @@ class Carro {
   double alvo(int pwm) const { return abs(pwm) < f_.zonaMortaPwm ? 0.0 : (pwm > 0 ? 1.0 : -1.0) * abs(pwm) * f_.mmSPorPwm; }
   void grava() {
     rastro_.push_back(e_);
+    if (mundo_) mundo_->gravaQuadro();
     bool p[kSensores];
-    ler(p);
+    lerReal(p);
     uint8_t b = 0;
     for (int i = 0; i < kSensores; i++) b |= p[i] ? (1 << i) : 0;
     bits_.push_back(b);
@@ -204,6 +426,11 @@ class Carro {
   double vMmS_ = 0, wRadS_ = 0, aMmS2_ = 0, impulsoG_ = 0;
   int impulsoTicks_ = 0;
   bool levantado_ = false;
+  Mundo* mundo_ = nullptr;
+  double fatorRodas_ = 1.0;
+  int atrasoTicks_ = 0;
+  uint8_t ring_[32] = {};
+  int ringI_ = 0, ringN_ = 0;
   unsigned long long seed_ = 12345;
   long n_ = 0;
   unsigned long t_ = 0;
@@ -211,7 +438,160 @@ class Carro {
   std::vector<uint8_t> bits_;
 };
 
+// ---------------------------------------------------------------- o mundo anda: oponente, cubos que somem, ruido SINALIZADO
+inline void Mundo::tick(Carro& c) {
+  const unsigned long t = c.agoraMs();
+  const Estado e = c.estado();
+  if (op.ativo) {
+    if (t >= op.paradoAte) {
+      const double tx = xDoCruzamento(op.alvoC), ty = yDoCruzamento(op.alvoR);
+      const double d = hypot(tx - op.x, ty - op.y);
+      if (d < 3.0) {   // chegou: escolhe outra rua (nao volta, a menos que seja beco)
+        static const int dc[4] = {1, 0, -1, 0}, dr[4] = {0, 1, 0, -1};
+        int cand[4], n = 0;
+        for (int k = 0; k < 4; k++) {
+          const int nc = op.alvoC + dc[k], nr = op.alvoR + dr[k];
+          if (core::inMap(nc, nr) && !(nc == op.c && nr == op.r)) cand[n++] = k;
+        }
+        if (n == 0) cand[n++] = 0;
+        const int k = cand[static_cast<int>(rnd() * n) % n];
+        op.c = op.alvoC; op.r = op.alvoR;
+        op.alvoC = std::max(0, std::min(core::kMapCols - 1, op.c + dc[k]));
+        op.alvoR = std::max(0, std::min(core::kMapRows - 1, op.c == op.alvoC && dr[k] == 0 ? op.r : op.r + dr[k]));
+      } else {
+        const double passo = std::min(d, op.v * 0.005);
+        op.x += (tx - op.x) / d * passo;
+        op.y += (ty - op.y) / d * passo;
+        op.th = atan2(ty - op.y, tx - op.x);
+      }
+    }
+    for (Cubo& cu : cubos)   // o oponente leva cubos onde nos nao vemos
+      if (cu.vivo && hypot(cu.x - op.x, cu.y - op.y) < 40.0 && rnd() < 0.004) {
+        cu.vivo = false;
+        cu.mortoEm = c.quadro();
+        pegosPeloOponente++;
+        evento(t, fmt("OPONENTE levou um cubo da rua (%d,%d)", cu.c, cu.r));
+      }
+    if (hypot(e.x - op.x, e.y - op.y) < 170.0 && t >= cooldownColisao) {   // bateu num robo
+      c.bater(2.5, 4);
+      op.paradoAte = t + 1500;
+      cooldownColisao = t + 3000;
+      colisoesOponente++;
+      evento(t, "COLISAO com o oponente");
+    }
+  }
+  if (!ruidoLigado) return;
+  // --- ruido aleatorio: cada evento entra no log (a pagina mostra) e a mancha e desenhada
+  for (Mancha& m : manchas)
+    if (m.ate == static_cast<size_t>(-1) && t >= m.expiraMs) m.ate = c.quadro();
+  if (t >= proxMancha) {
+    const double dist = 200 + rnd() * 150, lat = (rnd() - 0.5) * 80;
+    Mancha m;
+    m.x = e.x + dist * cos(e.th) - lat * sin(e.th);
+    m.y = e.y + dist * sin(e.th) + lat * cos(e.th);
+    m.raio = 7 + rnd() * 6;
+    m.desde = c.quadro();
+    m.expiraMs = t + 25000;
+    manchas.push_back(m);
+    evento(t, fmt("RUIDO: mancha escura de %.0f mm apareceu a %.0f mm a frente (parece linha para a barra)", m.raio * 2, dist));
+    proxMancha = t + 15000 + static_cast<unsigned long>(rnd() * 20000);
+  }
+  if (t >= proxPatina) {
+    const double f = 0.75 + 0.35 * rnd();
+    c.fatorRodas(f);
+    fimPatina = t + 600;
+    evento(t, fmt("RUIDO: patinagem, rodas a %.0f%% por 0,6 s", f * 100));
+    proxPatina = t + 12000 + static_cast<unsigned long>(rnd() * 12000);
+  }
+  if (fimPatina && t >= fimPatina) { c.fatorRodas(1.0); fimPatina = 0; }
+  if (t >= proxAtraso) {
+    const int ticks = 2 + static_cast<int>(rnd() * 4);
+    c.atrasoLeitura(ticks);
+    fimAtraso = t + 1000;
+    evento(t, fmt("RUIDO: sensores atrasados %d ms por 1 s", ticks * 5));
+    proxAtraso = t + 20000 + static_cast<unsigned long>(rnd() * 15000);
+  }
+  if (fimAtraso && t >= fimAtraso) { c.atrasoLeitura(0); fimAtraso = 0; }
+}
+
 // ---------------------------------------------------------------- firmware simulado (espelha SeguidorBasico.ino)
+
+// ---------------------------------------------------------------- o NAVEGADOR (usa o core: localizador, mapa de cubos, exploracao). Ainda so no simulador.
+// Quem orquestra e o core (core/navigator.h); aqui so se ligam os eventos do robo (portao, cruzamento, giro, borda, reposicionado, cubo) ao core.
+struct Navegador {
+  bool ativo = false;
+  core::PoseBelief loc;
+  core::CubeBelief cubos;
+  core::BeliefModel bm;
+  core::Visits visitas;
+  core::Blocked bloq;
+  seguidor::AjustesAlvo alvo;
+  seguidor::AjustesColeta coleta;
+  bool carregando = false, pularProximo = false, entregando = false, naRua = false;
+  core::Node ruaDe{0, 0}, ruaPara{0, 0};   // a rua por onde anda: do ultimo cruzamento ao proximo
+  unsigned long ultimoForgetMs = 0;
+  int coletados = 0, entregues = 0, bloqueios = 0, reposicoes = 0, cuboPerdidoNaReposicao = 0;
+  std::string ultimoPlano;
+
+  void iniciar() {
+    ativo = true;
+    core::initInGreen(loc);
+    core::initBelief(cubos, bm);
+    core::clearVisits(visitas);
+    core::clearBlocked(bloq);
+  }
+  // Reiniciado pelo juiz (levantado e posto no verde) ou verde inesperado: a pose some, o mapa de cubos FICA, o cubo na garra volta ao juiz.
+  void reposicionado() {
+    core::initInGreen(loc);
+    naRua = false; pularProximo = false; entregando = false;
+    if (carregando) cuboPerdidoNaReposicao++;
+    carregando = false;
+    reposicoes++;
+  }
+  void aoPortao() { core::onOwnBlue(loc); }
+  void aoProibido(core::Forbidden k) { core::onForbidden(loc, k); core::onTurn(loc, 2); pularProximo = true; }   // meia-volta no fim da rua: volta ao cruzamento que deixou
+  void aposVirar(char a) { core::onTurn(loc, a == 'L' ? 1 : a == 'R' ? -1 : a == 'U' ? 2 : 0); }
+  void aoBloquear() { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); if (core::inMap(ruaDe.c, ruaDe.r)) core::streetSlot(bloq, ruaDe, ruaPara) = true; bloqueios++; core::onTurn(loc, 2); pularProximo = true; }
+  void aoColetar() { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); carregando = true; coletados++; }
+
+  static char letra(core::Turn t) { return t == core::Turn::Left ? 'L' : t == core::Turn::Right ? 'R' : t == core::Turn::UTurn ? 'U' : 'S'; }
+
+  // Cruzamento confirmado: atualiza a pose, olha as ruas (ultrassom na varredura), planeja. Devolve S/L/R/U e se vai sair pelo portao (entrega).
+  char aoCruzamento(unsigned long agoraMs, const ResultadoGiro& v, bool* saindoPeloPortao) {
+    *saindoPeloPortao = false;
+    core::forget(cubos, static_cast<float>(agoraMs - ultimoForgetMs) / 1000.0f, bm);
+    ultimoForgetMs = agoraMs;
+    if (pularProximo) pularProximo = false; else core::onCrossing(loc);
+    if (loc.inGreen) return 'S';
+    const core::Estimate est = core::estimate(loc);
+    const core::Pose& p = est.pose;
+    core::markVisited(visitas, p.at);
+    // olha as ruas: frente, esquerda, direita (o ultrassom mediu na varredura). Os cubos so ficam em ruas, nunca no cruzamento.
+    const int dirs[3][2] = {{p.dc, p.dr}, {-p.dr, p.dc}, {p.dr, -p.dc}};
+    const float us[3] = {v.usFrente, v.usEsq, v.usDir};
+    for (int k = 0; k < 3; k++) {
+      const int c = p.at.c + dirs[k][0], r = p.at.r + dirs[k][1];
+      if (!core::inMap(c, r)) continue;
+      core::observeStreet(cubos, p.at, core::Node{static_cast<int8_t>(c), static_cast<int8_t>(r)}, seguidor::ruaTemCubo(us[k], alvo), bm);
+    }
+    const bool colSure = core::columnMass(loc, p.at.c) >= core::kMinCoordBelief, rowSure = core::rowMass(loc, p.at.r) >= core::kMinCoordBelief;
+    core::Decision d;
+    if (carregando && colSure && rowSure) {
+      bool noPortao = false;
+      d = core::decideDelivery(p, &noPortao);
+      *saindoPeloPortao = noPortao;
+      ultimoPlano = "entregar";
+    } else {
+      const core::Plan plano = core::planAtCrossing(loc, cubos, core::kMinCoordBelief, &visitas, &bloq);
+      d = plano.move;
+      ultimoPlano = plano.mode == core::Mode::Collect ? (d.toCube ? "coletar" : "explorar") : (plano.mode == core::Mode::Anchor ? "ancorar a linha" : "achar o portao");
+    }
+    ruaDe = p.at;
+    ruaPara = d.next;
+    naRua = true;
+    return letra(d.turn);
+  }
+};
 
 struct Firmware {
   Ajustes ajustes = normalizar(gAjustes);
@@ -240,6 +620,11 @@ struct Firmware {
   bool portaoPendente = false;   // o cenario do tabuleiro liga: a primeira azul e o nosso portao
   std::string rota;              // o que fazer em cada cruzamento confirmado: S (reto), L, R (virar para a rua do lado). O navegador de verdade ainda nao esta ligado.
   size_t rotaI = 0;
+  Navegador nav;                 // missao completa (localizador + mapa de cubos + exploracao + coleta + entrega); desligado = os cenarios de teste de sempre
+  unsigned long ultimoTcsMs = 0, ultimoUsMs = 0, esperaAte = 0;
+  float usAnt = -1.0f, velMmSAtual = 0.0f;
+  int verdesSeguidos = 0;
+  static constexpr int kVerdesParaReposicionar = 3;
 
   // ---- MPU (inercial.h). Desligado por padrao: os cenarios antigos rodam como antes.
   bool usaImu = false, usaAncora = true;
@@ -306,20 +691,33 @@ struct Firmware {
   void pararNoCruzamento(Carro& c, bool preto[kSensores]) {
     c.parar();
     paradaEm = c.estado();
-    const AcaoCruzamento acao = acaoNaPonta(corRecente(memCor, c.agoraMs(), kJanelaCorMs), temCubo, portaoPendente);
+    esquecerCor(memCor);
+    CorLinha tres[3];   // o TCS leva ~24 ms por leitura: le 3 vezes PARADO em cima do que acendeu as pontas; so acredita se as 3 concordam (uma leitura errada vira cruzamento, que o giro desmente)
+    for (int i = 0; i < 3; i++) { for (int k = 0; k < 6; k++) tick(c); tres[i] = c.tcsChao(); }
+    anotarCor(memCor, corConfirmada(tres, 3), c.agoraMs());
+    const CorLinha corAgora = corRecente(memCor, c.agoraMs(), kJanelaCorMs);
+    AcaoCruzamento acao = acaoNaPonta(corAgora, nav.ativo ? nav.carregando : temCubo, portaoPendente);
     if (acao == AcaoCruzamento::Portao) {   // nosso portao azul: segue em frente
       portoes++;
       portaoPendente = false;
+      if (c.mundo()) c.mundo()->evento(c.agoraMs(), fmt("PORTAO azul em (%.0f,%.0f)%s", c.estado().x, c.estado().y, nav.carregando ? " saindo com cubo" : ""));
       esquecerCor(memCor);
       esquecerUltimoComando(memoria);
       tUltimoCruzamento = c.agoraMs();
       comecarASair(cruz, c.agoraMs());
+      if (nav.ativo) {
+        if (nav.carregando) entregarNoVerde(c);   // saiu COM cubo pelo portao: deixa no verde
+        else nav.aoPortao();
+      }
       return;
     }
+    if (nav.ativo && acao == AcaoCruzamento::Navegador) acao = AcaoCruzamento::MeiaVolta;   // com o navegador ligado ele mesmo decide a rota: na borda so da meia-volta
     if (acao != AcaoCruzamento::Cruzamento) {   // borda do mapa: nao gira para confirmar
       bordas++;
+      if (c.mundo()) c.mundo()->evento(c.agoraMs(), fmt("BORDA %s em (%.0f,%.0f): meia-volta", corAgora == CorLinha::Azul ? "azul" : "vermelha", c.estado().x, c.estado().y));
       if (acao == AcaoCruzamento::MeiaVolta) {
         std::vector<AmostraGiro> est, ver;
+        if (nav.ativo) nav.aoProibido(corAgora == CorLinha::Azul ? core::Forbidden::OtherBlue : core::Forbidden::Red);
         girarAte(c, 0.0f, 180.0f, est, ver, c.estado().th, rumo);
         meiasVoltas++;
         esquecerUltimoComando(memoria);
@@ -339,7 +737,7 @@ struct Firmware {
     const float rumo0 = rumo;
     iniciarVarredura(varr, lado, vinhaSeguindo);
     float estimado = 0.0f;   // sem MPU: angulo estimado por tempo girando
-    AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto)};
+    AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto), static_cast<float>(c.us())};
     for (int i = 0; i < 4000; i++) {   // 20 s no maximo
       const ComandoVarredura k = passoVarredura(varr, leitura, c.agoraMs(), ajustes.velBuscaExterna, ajG, bufVarr, kBufVarr);
       c.comandar(k.esq, k.dir);
@@ -349,7 +747,7 @@ struct Firmware {
       c.ler(p);
       if (usaImu) estimado = rumo - rumo0;
       else estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;
-      leitura = {estimado, p[0], p[7], acesos(p)};
+      leitura = {estimado, p[0], p[7], acesos(p), static_cast<float>(c.us())};
     }
     c.parar();
     giroDriftGraus = static_cast<float>(remainder(c.estado().th - th0, 2 * M_PI) * 180.0 / M_PI);
@@ -369,10 +767,87 @@ struct Firmware {
     tUltimoCruzamento = c.agoraMs();
     fimDeBecoAvisado = false;
     if (varr.resultado == Oito::Cruzamento) {
-      const char a = rotaI < rota.size() ? rota[rotaI++] : 'S';
-      if (a == 'L' || a == 'R') virarParaRua(c, a == 'L');
+      char a = rotaI < rota.size() ? rota[rotaI++] : 'S';
+      if (nav.ativo) {
+        bool saindo = false;
+        a = nav.aoCruzamento(c.agoraMs(), varr.ruas, &saindo);
+        if (saindo) portaoPendente = true;   // vai sair pelo nosso portao de proposito: a azul nao e borda
+        c.mundo()->evento(c.agoraMs(), fmt("plano: %s | seguir '%c' (pose %s, coluna %.0f%%, linha %.0f%%)", nav.ultimoPlano.c_str(), a, nav.loc.inGreen ? "no verde" : fmt("(%d,%d)", core::estimate(nav.loc).pose.at.c, core::estimate(nav.loc).pose.at.r).c_str(), nav.loc.inGreen ? 0.0 : 100.0 * core::columnMass(nav.loc, core::estimate(nav.loc).pose.at.c), nav.loc.inGreen ? 0.0 : 100.0 * core::rowMass(nav.loc, core::estimate(nav.loc).pose.at.r)));
+      }
+      if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
+      else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
     }
     comecarASair(cruz, c.agoraMs());
+  }
+
+  // Levando um cubo e saindo pelo nosso portao azul: anda ate o verde, deixa o cubo, volta de frente para a cidade e procura o portao de novo.
+  void entregarNoVerde(Carro& c) {
+    nav.entregando = true;
+    c.comandar(ajustes.velReto, ajustes.velReto);
+    const unsigned long ini = c.agoraMs();
+    unsigned long dentro = 0;
+    while (c.agoraMs() - ini < 5000) {
+      tick(c);
+      if (c.piso() == Pista::kPisoVerde) {
+        if (!dentro) dentro = c.agoraMs();
+        if (c.agoraMs() - dentro > 500) break;   // bem dentro da zona verde
+      }
+    }
+    c.parar();
+    nav.entregues++;
+    nav.carregando = false;
+    c.mundo()->evento(c.agoraMs(), fmt("ENTREGOU o cubo no verde (total %d)", nav.entregues));
+    std::vector<AmostraGiro> e2, v2;
+    girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo);   // de frente para a cidade
+    core::initInGreen(nav.loc);                                  // no verde de novo: pose desconhecida ate o portao (o mapa de cubos fica)
+    nav.naRua = false;
+    nav.pularProximo = false;
+    portaoPendente = true;
+    memoria = Memoria{};
+    cruz = MemoriaCruzamento{};
+    esquecerCor(memCor);
+    comecarASair(cruz, c.agoraMs());
+    nav.entregando = false;
+  }
+
+  // Ultrassom na frente enquanto anda por uma rua: cubo a ~10 cm -> para, le a cor (TCS da frente), coleta ou bloqueia; eco que se MEXE = oponente: espera.
+  // true = tomou o controle neste ciclo.
+  bool tratarCubo(Carro& c) {
+    Mundo* m = c.mundo();
+    if (!m || !m->cfg.us || !nav.naRua || nav.carregando || nav.loc.inGreen) return false;
+    const unsigned long agora = c.agoraMs();
+    if (agora < esperaAte) { c.parar(); velMmSAtual = 0.0f; tick(c); return true; }   // parado: a velocidade propria e 0 (senao o eco parece se mexer)
+    if (agora - ultimoUsMs < 60) return false;
+    const float dt = static_cast<float>(agora - ultimoUsMs);
+    ultimoUsMs = agora;
+    const float d = static_cast<float>(c.us());
+    const bool movel = ecoMovel(usAnt, d, dt, velMmSAtual, nav.alvo);
+    usAnt = d;
+    if (d <= 0.0f || d > nav.alvo.cuboParaDePertoMm + 15.0f) {
+      if (movel && d > 0.0f && d < 450.0f) { esperaAte = agora + 700; m->evento(agora, fmt("eco que SE MEXE a %.0f mm: oponente, espera", d)); }
+      return false;
+    }
+    if (movel) { esperaAte = agora + 700; m->evento(agora, fmt("eco que SE MEXE a %.0f mm: oponente, espera", d)); return true; }
+    c.parar();
+    velMmSAtual = 0.0f;
+    for (int i = 0; i < 6; i++) tick(c);   // le a cor parado
+    const seguidor::CorCubo cor = c.tcsFrente();
+    const int idx = c.cuboNaFrente(100.0);
+    if (idx < 0 || cor == seguidor::CorCubo::Nenhuma) { esperaAte = agora + 500; return true; }   // eco que nao e cubo (oponente parado?) ou cor ilegivel: espera e tenta de novo
+    if (podeColetar(cor, nav.coleta)) {
+      c.coletar(idx);
+      nav.aoColetar();
+      m->evento(c.agoraMs(), fmt("COLETOU um cubo (cor %d) na rua (%d,%d)-(%d,%d)", static_cast<int>(cor), nav.ruaDe.c, nav.ruaDe.r, nav.ruaPara.c, nav.ruaPara.r));
+      usAnt = -1.0f;
+      return true;
+    }
+    nav.aoBloquear();   // branco ou cor sem plataforma: nao mexe, a rua fica bloqueada e ele volta
+    m->evento(c.agoraMs(), fmt("cubo (cor %d) que NAO se pega na rua (%d,%d)-(%d,%d): rua bloqueada, volta", static_cast<int>(cor), nav.ruaDe.c, nav.ruaDe.r, nav.ruaPara.c, nav.ruaPara.r));
+    std::vector<AmostraGiro> e2, v2;
+    girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo);
+    memoria.perdeuEm = 0;
+    usAnt = -1.0f;
+    return true;
   }
 
   // Vira para a rua do lado. A barra para na BORDA da rua que cruza e o eixo ainda esta ~40 mm antes do centro: girar dali poe a rua a 40 mm do eixo,
@@ -408,6 +883,7 @@ struct Firmware {
         esquecerCor(memCor);
         tUltimoCruzamento = 0;
         portaoPendente = true;
+        if (nav.ativo) nav.reposicionado();
       }
       if (!motoresLiberados(pickup)) {   // carregado: motores parados ate estabilizar
         c.parar();
@@ -420,8 +896,39 @@ struct Firmware {
     bool p[kSensores];
     c.ler(p);
     const unsigned long agora = c.agoraMs();
-    const int corChao = c.corChao();
-    anotarCor(memCor, corChao == kVermelha ? CorLinha::Vermelho : (corChao == kAzul ? CorLinha::Azul : CorLinha::Outra), agora);
+    if (!c.mundo() || agora - ultimoTcsMs >= c.mundo()->cfg.tcsPeriodoMs) {   // o TCS do chao nao le a cada ciclo
+      ultimoTcsMs = agora;
+      const CorLinha lida = c.tcsChao();
+      verdesSeguidos = lida == CorLinha::Verde ? verdesSeguidos + 1 : 0;   // uma leitura isolada de verde pode ser erro do sensor: so vale com varias seguidas
+      if (nav.ativo && !nav.loc.inGreen && verdesSeguidos >= kVerdesParaReposicionar && reposicionadoPeloVerde(CorLinha::Verde, portaoPendente, nav.entregando)) {   // verde inesperado: o juiz pegou e pos de volta
+        nav.reposicionado();
+        reposicionados++;   // o rumo do giroscopio continua valendo: so o levantar (MPU) garante que foi posto de frente
+        memoria = Memoria{};
+        cruz = MemoriaCruzamento{};
+        esquecerCor(memCor);
+        portaoPendente = true;
+        c.mundo()->evento(agora, fmt("VERDE inesperado em (%.0f,%.0f): reposicionado (pose e rumo reiniciados, o mapa de cubos fica)", c.estado().x, c.estado().y));
+      }
+    }
+    if (nav.ativo && nav.loc.inGreen && !(p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7])) {   // no verde: sem linha, anda reto para o portao
+      Comando cmd{};
+      cmd.parar = false;
+      cmd.acao = "no verde: de frente para a cidade e reto ate o portao";
+      const float erro = usaImu ? static_cast<float>(remainder(rumo, 360.0)) : 0.0f;   // + = apontando para a esquerda de "frente"
+      if (fabsf(erro) > 15.0f) {   // fora de rumo: gira no lugar ate apontar para a cidade (rumo 0), nao anda torto
+        const int v = ajustes.velBuscaExterna;
+        cmd.esq = erro > 0 ? v : -v;   // apontando a esquerda: gira para a direita
+        cmd.dir = -cmd.esq;
+      } else {
+        cmd.esq = cmd.dir = ajustes.velReto;
+        if (usaImu) segurarRumoNaLacuna(cmd, erro, 0.0f, ajustes, ai);
+      }
+      c.comandar(cmd.esq, cmd.dir);
+      velMmSAtual = ajC.velMmS;
+      tick(c);
+      return;
+    }
+    if (nav.ativo && tratarCubo(c)) return;
     if (paraNoCruzamento && cruzamentoConfirmado(p, agora, ajC, cruz)) {   // acima de todas as outras regras: vale ate perdido/buscando
       pararNoCruzamento(c, p);
       return;
@@ -455,6 +962,7 @@ struct Firmware {
       if (!getenv("SIM_SEM_TRACAO")) aplicarReforco(cmd, tracao.reforco);
     }
     c.comandar(cmd.parar ? 0 : cmd.esq, cmd.parar ? 0 : cmd.dir);
+    velMmSAtual = (cmd.esq > 0 && cmd.dir > 0 && !cmd.parar) ? ajC.velMmS * static_cast<float>(cmd.esq + cmd.dir) / (2.0f * static_cast<float>(ajustes.velReto)) : 0.0f;
     tick(c);
   }
 };
@@ -467,16 +975,6 @@ struct Resultado {
   std::string info;
   bool informativo = false;   // limite conhecido do projeto: mostra, mas nao derruba o exit code
 };
-
-static std::string fmt(const char* f, ...) __attribute__((format(printf, 1, 2)));
-static std::string fmt(const char* f, ...) {
-  char b[512];
-  va_list a;
-  va_start(a, f);
-  vsnprintf(b, sizeof b, f, a);
-  va_end(a);
-  return b;
-}
 
 static const char* gSvgDir = nullptr;
 
@@ -751,7 +1249,6 @@ static Resultado cenarioLacunaImu(double lacunaMm) {
 
 // ---- O tabuleiro inteiro (docs/2026-10-28_mapa-comparacao-e-localizacao.md): 6 colunas x 5 linhas de cruzamentos a 302 mm, becos de 127 mm ate a borda,
 // linha azul nos lados (x = 0 e 1764), vermelha em cima e embaixo (y = 0 e 1462) e em volta, verde (280 mm) e amarelo (220 mm) nas pontas, cubos nos quarteiroes.
-constexpr double kPasso = 302.0, kBeco = 127.0, kLarg = 2 * kBeco + 5 * kPasso, kAlt = 2 * kBeco + 4 * kPasso;   // 1764 x 1462
 
 static Pista tabuleiro() {
   Pista p;
@@ -806,6 +1303,44 @@ static Resultado cenarioEndireitar(bool imu) {
   svg(imu ? "endireitar_na_linha" : "endireitar_na_linha_sem_mpu", p, c);
   return {imu ? "perdido de lado na linha: vira 90 e se endireita (com MPU)" : "perdido de lado na linha: vira 90 e se endireita (sem MPU)", chegou && fw.endireitou >= 1 && fw.cruzamentos == 0,
           fmt("%s | endireitou %d vez(es), cruzamentos %d, falsos alarmes %d | fim em (%.0f, %.0f), erro %.1f mm", chegou ? "chegou ao fim da linha" : "NAO chegou", fw.endireitou, fw.cruzamentos, fw.falsosAlarmes, c.estado().x, c.estado().y, c.erroBarra())};
+}
+
+// Monta a missao no tabuleiro: cubos de varias cores nas ruas, oponente andando, ruido (sinalizado) opcional, e o navegador ligado.
+static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool oponente, bool ruido, int linhaInicial = 2) {
+  m.semearCubos(ncubos, {seguidor::CorCubo::Azul, seguidor::CorCubo::Vermelho, seguidor::CorCubo::Branco, seguidor::CorCubo::Verde, seguidor::CorCubo::Amarelo});
+  m.op.ativo = oponente;
+  m.op.c = m.op.alvoC = core::kMapCols - 1;
+  m.op.r = m.op.alvoR = core::kMapRows - 1;
+  m.op.x = xDoCruzamento(m.op.c);
+  m.op.y = yDoCruzamento(m.op.r);
+  m.ruidoLigado = ruido;
+  m.cfg.tcsChaoErro = ruido ? 0.02 : 0.0;
+  c.usarMundo(&m);
+  fw.ligarImu(c);
+  fw.nav.iniciar();
+  fw.portaoPendente = true;
+  (void)linhaInicial;
+}
+
+// A missao inteira: sai do verde, acha o portao, localiza-se, explora e coleta cubos (so os coletaveis), entrega no verde, repete. Roda ate entregar `meta` cubos.
+static Resultado cenarioMissao(bool ruido, int meta) {
+  Pista p = tabuleiro();
+  Mundo m;
+  Carro c(p, {-140, yDoCruzamento(2), 0.0});
+  Firmware fw;
+  configurarMissao(m, fw, c, 8, true, ruido);
+  const bool fim = rodar(fw, c, [&](const Carro&) { return fw.nav.entregues >= meta; });
+  svg(ruido ? "missao_com_ruido" : "missao", p, c);
+  int visitados = 0;
+  for (int cc = 0; cc < core::kMapCols; cc++) for (int rr = 0; rr < core::kMapRows; rr++) visitados += fw.nav.visitas.n[cc][rr] > 0 ? 1 : 0;
+  if (getenv("SIM_DEBUG")) {
+    for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str());
+    const Estado e = c.estado();
+    fprintf(stderr, "    FIM: robo (%.0f,%.0f) th %.0f | oponente (%.0f,%.0f) | carregando %d | pose (%d,%d) conf %.2f | levantado %d parado %d buscando ciclos %d\n", e.x, e.y, e.th * 57.3, m.op.x, m.op.y, fw.nav.carregando, core::estimate(fw.nav.loc).pose.at.c, core::estimate(fw.nav.loc).pose.at.r, core::estimate(fw.nav.loc).confidence, c.levantado(), fw.parado, fw.ticksBuscando);
+  }
+  return {ruido ? "missao completa com ruido: explora, coleta, entrega" : "missao completa: explora, coleta, entrega", fim,
+          fmt("%s em %.0f s | coletou %d, entregou %d, bloqueou %d rua(s) com cubo que nao se pega | cruzamentos %d (falsos %d), reposicoes %d | visitou %d de 30 cruzamentos | oponente levou %d cubo(s), colisoes %d",
+              fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.coletados, fw.nav.entregues, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, m.pegosPeloOponente, m.colisoesOponente)};
 }
 
 // 3b. Depois do cruzamento o carro tem de seguir a linha do outro lado (rua e beco longos).
@@ -908,6 +1443,7 @@ static Resultado cenarioBusca(double dist, double rumoGraus) {
 struct Sessao {
   std::string nome;
   std::unique_ptr<Pista> pista;
+  std::unique_ptr<Mundo> mundo;   // cubos, oponente, ruido (so nas sessoes de missao)
   std::unique_ptr<Carro> carro;
   std::unique_ptr<Firmware> fw;
   double frenteGraus = 90.0;   // para onde e "de frente" depois de levantado e solto
@@ -928,8 +1464,22 @@ static std::unique_ptr<Sessao> sessaoSimples(const std::string& nome, Pista&& pi
 
 static std::vector<Receita> receitas() {
   std::vector<Receita> r;
-  r.push_back({"Mapa completo (tabuleiro)", [] {
-    auto s = sessaoSimples("Mapa completo (tabuleiro)", tabuleiro(), {-140, kBeco + 2 * kPasso, 0.0}, true, 0.0);
+  for (const bool ruido : {false, true}) {
+    const std::string nome = ruido ? "MISSAO COMPLETA com RUIDO aleatorio (sinalizado): explora, coleta, entrega" : "MISSAO COMPLETA: explora, coleta, entrega";
+    r.push_back({nome, [nome, ruido] {
+      auto s = std::make_unique<Sessao>();
+      s->nome = nome;
+      s->pista = std::make_unique<Pista>(tabuleiro());
+      s->mundo = std::make_unique<Mundo>();
+      s->carro = std::make_unique<Carro>(*s->pista, Estado{-140, yDoCruzamento(2), 0.0});
+      s->fw = std::make_unique<Firmware>();
+      s->frenteGraus = 0.0;
+      configurarMissao(*s->mundo, *s->fw, *s->carro, 8, true, ruido);
+      return s;
+    }});
+  }
+  r.push_back({"Mapa completo, rota fixa (so segue a linha e vira)", [] {
+    auto s = sessaoSimples("Mapa completo, rota fixa (so segue a linha e vira)", tabuleiro(), {-140, kBeco + 2 * kPasso, 0.0}, true, 0.0);
     s->fw->portaoPendente = true;
     s->fw->rota = "SLSSSS";   // depois da rota, segue reto em todo cruzamento
     return s;
@@ -987,6 +1537,12 @@ static std::vector<Receita> receitas() {
     return sessaoSimples("Lacuna de 100 mm na linha", std::move(p), norte(0, 100, 6), true);
   }});
   return r;
+}
+
+static std::string jsonCubos(const Mundo* m) {
+  std::string o = "[";
+  if (m) for (size_t i = 0; i < m->cubos.size(); i++) o += fmt("%s[%.0f,%.0f,%d]", i ? "," : "", m->cubos[i].x, m->cubos[i].y, static_cast<int>(m->cubos[i].cor));
+  return o + "]";
 }
 
 static std::string jsonSegs(const Pista& p) {
@@ -1063,20 +1619,52 @@ static int servir(int porta) {
     } else if (rota == "/sessao") {   // (re)cria a sessao e devolve a pista
       sessoes.erase(i);
       Sessao& s = pega(i);
-      responder(fd, "application/json", jsonSegs(*s.pista));
+      std::string js = jsonSegs(*s.pista);
+      js.pop_back();   // reabre o objeto para acrescentar os cubos
+      responder(fd, "application/json", js + ",\"cubos\":" + jsonCubos(s.mundo.get()) + ",\"ruidoDisponivel\":" + (s.mundo ? "true" : "false") + "}");
     } else if (rota == "/frames") {   // quadros [desde, desde+n): simula so ate aqui
       Sessao& s = pega(i);
       const size_t desde = static_cast<size_t>(std::max(0, atoi(valor(q, "desde", "0").c_str())));
       const size_t n2 = static_cast<size_t>(std::max(1, std::min(500, atoi(valor(q, "n", "50").c_str()))));
       while (s.carro->rastro().size() < desde + n2) s.fw->passo(*s.carro);
       std::string o = "{\"f\":[";
+      const Mundo* mu = s.mundo.get();
       for (size_t k = desde; k < desde + n2; k++) {
         const Estado& e = s.carro->rastro()[k];
-        o += fmt("%s[%.1f,%.1f,%.2f,%d]", k > desde ? "," : "", e.x, e.y, e.th * 180.0 / M_PI, s.carro->bits()[k]);
+        o += fmt("%s[%.1f,%.1f,%.2f,%d", k > desde ? "," : "", e.x, e.y, e.th * 180.0 / M_PI, s.carro->bits()[k]);
+        if (mu && mu->op.ativo && k < mu->opQuadros.size()) o += fmt(",%.1f,%.1f,%.1f", mu->opQuadros[k][0], mu->opQuadros[k][1], mu->opQuadros[k][2] * 180.0 / M_PI);
+        o += "]";
       }
       const Firmware& f = *s.fw;
-      o += "],\"i\":\"" + fmt("cruzamentos %d | falsos alarmes %d | endireitou %d | bordas %d (meias-voltas %d) | portao %d | levantado %s", f.cruzamentos, f.falsosAlarmes, f.endireitou, f.bordas, f.meiasVoltas, f.portoes,
-                                s.carro->levantado() ? "SIM" : "nao") + "\"}";
+      std::string info = fmt("cruzamentos %d | falsos alarmes %d | endireitou %d | bordas %d (meias-voltas %d) | portao %d | levantado %s", f.cruzamentos, f.falsosAlarmes, f.endireitou, f.bordas, f.meiasVoltas, f.portoes, s.carro->levantado() ? "SIM" : "nao");
+      if (f.nav.ativo) info += fmt(" | COLETOU %d, ENTREGOU %d, bloqueou %d | plano: %s | %s", f.nav.coletados, f.nav.entregues, f.nav.bloqueios, f.nav.ultimoPlano.c_str(), f.nav.carregando ? "carregando cubo" : "sem cubo");
+      o += "],\"i\":\"" + info + "\"";
+      if (mu) {
+        o += ",\"ruido\":" + std::string(mu->ruidoLigado ? "true" : "false") + ",\"cubos\":[";
+        for (size_t k = 0; k < mu->cubos.size(); k++) o += fmt("%s%ld", k ? "," : "", mu->cubos[k].mortoEm == static_cast<size_t>(-1) ? -1L : static_cast<long>(mu->cubos[k].mortoEm));
+        o += "],\"manchas\":[";
+        for (size_t k = 0; k < mu->manchas.size(); k++) o += fmt("%s[%.0f,%.0f,%.0f,%zu,%ld]", k ? "," : "", mu->manchas[k].x, mu->manchas[k].y, mu->manchas[k].raio, mu->manchas[k].desde, mu->manchas[k].ate == static_cast<size_t>(-1) ? -1L : static_cast<long>(mu->manchas[k].ate));
+        o += "],\"ev\":[";
+        const size_t ini = mu->log.size() > 12 ? mu->log.size() - 12 : 0;
+        for (size_t k = ini; k < mu->log.size(); k++) { std::string l = mu->log[k]; for (char& ch : l) if (ch == '"' || ch == '\\') ch = '\''; o += fmt("%s\"%s\"", k > ini ? "," : "", l.c_str()); }
+        o += "]";
+        if (f.nav.ativo) {   // o que o carrinho LEMBRA: probabilidade de cubo em cada rua e quantas vezes passou em cada cruzamento
+          o += ",\"mem\":{\"e\":[";
+          for (int c2 = 0; c2 < core::kMapCols; c2++) for (int r2 = 0; r2 < core::kMapRows; r2++) o += fmt("%s%.2f", (c2 || r2) ? "," : "", f.nav.cubos.east[c2][r2]);
+          o += "],\"n\":[";
+          for (int c2 = 0; c2 < core::kMapCols; c2++) for (int r2 = 0; r2 < core::kMapRows; r2++) o += fmt("%s%.2f", (c2 || r2) ? "," : "", f.nav.cubos.north[c2][r2]);
+          o += "],\"v\":[";
+          for (int c2 = 0; c2 < core::kMapCols; c2++) for (int r2 = 0; r2 < core::kMapRows; r2++) o += fmt("%s%d", (c2 || r2) ? "," : "", f.nav.visitas.n[c2][r2]);
+          o += "],\"b\":[";
+          bool primeiro = true;
+          for (int c2 = 0; c2 < core::kMapCols; c2++) for (int r2 = 0; r2 < core::kMapRows; r2++) {
+            if (f.nav.bloq.east[c2][r2]) { o += fmt("%s[%d,%d,1]", primeiro ? "" : ",", c2, r2); primeiro = false; }
+            if (f.nav.bloq.north[c2][r2]) { o += fmt("%s[%d,%d,0]", primeiro ? "" : ",", c2, r2); primeiro = false; }
+          }
+          o += "]}";
+        }
+      }
+      o += "}";
       responder(fd, "application/json", o);
     } else if (rota == "/colocar") {   // solta o robo em (x, y) mm, apontando para th graus (a memoria do firmware recomeca: foi pego e posto)
       Sessao& s = pega(i);
@@ -1092,6 +1680,7 @@ static int servir(int porta) {
       if (ac == "levantar") s.carro->levantar(true);
       else if (ac == "soltar") { Estado e = s.carro->estado(); e.th = s.frenteGraus * M_PI / 180.0; s.carro->colocarEm(e); s.carro->levantar(false); }   // SEMPRE de frente
       else if (ac == "bater") s.carro->bater(2.5, 4);
+      else if (ac == "ruido" && s.mundo) { s.mundo->ruidoLigado = valor(q, "on") == "1"; s.mundo->evento(s.carro->agoraMs(), s.mundo->ruidoLigado ? "RUIDO LIGADO: manchas, patinagem e atraso de sensores aleatorios (cada evento e avisado aqui)" : "ruido desligado"); }
       responder(fd, "text/plain", "ok");
     } else {
       const std::string o = "nao encontrado";
@@ -1113,17 +1702,20 @@ button{cursor:pointer}canvas{width:100%;background:var(--card);border:1px solid 
 <div class="bar"><button id="b1">&#9664;&#9664; 1 s</button><button id="b01">&#9664; 0,1 s</button><button id="pp">Pausar</button><button id="f01">0,1 s &#9654;</button><button id="f1">1 s &#9654;&#9654;</button>
 <label>velocidade <select id="vel"><option value="0.25">0,25x</option><option value="0.5">0,5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option></select></label><span id="tt"></span></div>
 <div class="bar"><label>soltar apontando para <select id="th"><option value="90">cima (norte)</option><option value="0">direita (leste)</option><option value="180">esquerda (oeste)</option><option value="-90">baixo (sul)</option></select></label>
-<button id="lev">Levantar o robo</button><button id="sol">Soltar de frente</button><button id="bat">Pancada forte</button><label><input type="checkbox" id="seg" checked> camera segue o robo</label></div>
-<canvas id="c" width="1100" height="640"></canvas><div id="sens"></div><div id="info"></div>
-<small>Simulacao AO VIVO, sem fim: nada e gravado, o servidor C++ simula o que voce esta vendo. Clique no mapa para soltar o robo ali (apontando para o lado escolhido). Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Setas: 0,1 s; shift + seta: 1 s; espaco: pausa.</small></main><script>
+<button id="lev">Levantar o robo</button><button id="sol">Soltar de frente</button><button id="bat">Pancada forte</button><label><input type="checkbox" id="seg" checked> camera segue o robo</label><label id="lbM"><input type="checkbox" id="memchk" checked> mostrar a memoria do carrinho</label><label id="lbR"><input type="checkbox" id="rui"> ruido aleatorio (sinalizado)</label></div>
+<div id="alerta" style="display:none;background:#e02424;color:#fff;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-weight:600">RUIDO LIGADO: manchas, patinagem e atraso de sensores acontecem de forma aleatoria. Cada evento aparece no registro abaixo.</div>
+<canvas id="c" width="1100" height="640"></canvas><div id="sens"></div><div id="info"></div><pre id="ev" style="white-space:pre-wrap;font-size:12px;max-height:190px;overflow:auto;background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:8px;margin:8px 0"></pre>
+<small>Simulacao AO VIVO, sem fim: nada e gravado, o servidor C++ simula o que voce esta vendo. Clique no mapa para soltar o robo ali (apontando para o lado escolhido). Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Setas: 0,1 s; shift + seta: 1 s; espaco: pausa. Memoria: rosa = chance de cubo na rua (o que o carrinho lembra e esquece com o tempo), X vermelho = rua bloqueada por cubo que nao se pega, numero = vezes que passou no cruzamento. Quadrados coloridos = cubos (branco e cor sem plataforma nao se pegam); retangulo cinza = oponente; circulos marrons = manchas de ruido.</small></main><script>
 const cv=document.getElementById('c'),cx=cv.getContext('2d'),sel=document.getElementById('sel'),sens=document.getElementById('sens');
 const cores=['#111','#e02424','#1c64f2'],zonas=['#2e8b3d','#f2d024','#8b4a1f'];
-let cur=0,pista=null,frames=[],fr=0,play=true,pedindo=false,last=0,vel=1,info='',trilha0=0;
+let cur=0,pista=null,frames=[],fr=0,play=true,pedindo=false,last=0,vel=1,info='',trilha0=0,mortoEm=[],manchas=[],mem=null,ruido=false;
+const coresCubo=['#999','#ffffff','#e02424','#1c64f2','#2e8b3d','#f2d024'];
+const BE=127,PS=302;
 for(let i=0;i<8;i++){const s=document.createElement('span');s.textContent='S'+(i+1);sens.appendChild(s)}
 const dark=()=>matchMedia('(prefers-color-scheme: dark)').matches;
 async function j(u){return (await fetch(u)).json()}
-async function carrega(i){cur=i;frames=[];fr=0;trilha0=0;play=true;pp.textContent='Pausar';pista=await j('/sessao?s='+i);await mais()}
-async function mais(){if(pedindo)return;pedindo=true;try{const r=await j(`/frames?s=${cur}&desde=${frames.length}&n=25`);for(const f of r.f)frames.push(f);info=r.i}finally{pedindo=false}}
+async function carrega(i){cur=i;frames=[];fr=0;trilha0=0;play=true;pp.textContent='Pausar';mortoEm=[];manchas=[];mem=null;pista=await j('/sessao?s='+i);document.getElementById('lbR').style.display=pista.ruidoDisponivel?'':'none';document.getElementById('lbM').style.display=pista.ruidoDisponivel?'':'none';rui.checked=false;await mais()}
+async function mais(){if(pedindo)return;pedindo=true;try{const r=await j(`/frames?s=${cur}&desde=${frames.length}&n=25`);for(const f of r.f)frames.push(f);info=r.i;if(r.cubos)mortoEm=r.cubos;manchas=r.manchas||[];if(r.ev)document.getElementById('ev').textContent=r.ev.join('\n');mem=r.mem||null;ruido=!!r.ruido;rui.checked=ruido;document.getElementById('alerta').style.display=ruido?'block':'none'}finally{pedindo=false}}
 let vista=null;
 function tela(){const f=frames[fr]||[0,0,0,0];
 if(seg.checked){const k=cv.width/900;return{k,ox:cv.width/2-f[0]*k,oy:cv.height/2+f[1]*k}}
@@ -1134,7 +1726,16 @@ const P=(t,x,y)=>[t.ox+x*t.k,t.oy-y*t.k];
 function desenha(){if(!pista||!frames.length)return;const t=tela();vista=t;cx.clearRect(0,0,cv.width,cv.height);
 pista.r.forEach(r=>{const a=P(t,r[0],r[3]),b=P(t,r[2],r[1]);cx.fillStyle=zonas[r[4]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1])});
 pista.s.forEach(s=>{cx.strokeStyle=dark()&&s[4]==0?'#cfcfcf':cores[s[4]];cx.lineWidth=pista.w*t.k;const a=P(t,s[0],s[1]),b=P(t,s[2],s[3]);cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()});
+if(mem&&memchk.checked){const R=5;const xc=c=>BE+c*PS,yr=r=>BE+r*PS;
+for(let c=0;c<6;c++)for(let r=0;r<R;r++){const pe=mem.e[c*R+r],pn=mem.n[c*R+r];
+if(c<5){const a=P(t,xc(c),yr(r)),b=P(t,xc(c+1),yr(r));cx.strokeStyle='rgba(214,0,170,'+(0.08+0.62*pe)+')';cx.lineWidth=34*t.k;cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()}
+if(r<4){const a=P(t,xc(c),yr(r)),b=P(t,xc(c),yr(r+1));cx.strokeStyle='rgba(214,0,170,'+(0.08+0.62*pn)+')';cx.lineWidth=34*t.k;cx.beginPath();cx.moveTo(a[0],a[1]);cx.lineTo(b[0],b[1]);cx.stroke()}}
+mem.b.forEach(q=>{const c=q[0],r=q[1],h=q[2];const a=P(t,xc(c)+(h?PS/2:0),yr(r)+(h?0:PS/2));cx.strokeStyle='#e02424';cx.lineWidth=4;cx.beginPath();cx.moveTo(a[0]-9,a[1]-9);cx.lineTo(a[0]+9,a[1]+9);cx.moveTo(a[0]+9,a[1]-9);cx.lineTo(a[0]-9,a[1]+9);cx.stroke()});
+cx.fillStyle=dark()?'#fff':'#111';cx.font='bold 13px system-ui';for(let c=0;c<6;c++)for(let r=0;r<R;r++){const n=mem.v[c*R+r];if(n>0){const a=P(t,xc(c)+16,yr(r)-16);cx.fillText(n,a[0],a[1])}}}
+pista.cubos&&pista.cubos.forEach((q,i)=>{if(mortoEm[i]>=0&&fr>=mortoEm[i])return;const a=P(t,q[0]-22,q[1]+22),b=P(t,q[0]+22,q[1]-22);cx.fillStyle=coresCubo[q[2]];cx.fillRect(a[0],a[1],b[0]-a[0],b[1]-a[1]);cx.strokeStyle='#111';cx.lineWidth=2;cx.strokeRect(a[0],a[1],b[0]-a[0],b[1]-a[1])});
+manchas.forEach(m=>{if(fr>=m[3]&&(m[4]<0||fr<m[4])){const a=P(t,m[0],m[1]);cx.fillStyle='rgba(70,45,25,.85)';cx.beginPath();cx.arc(a[0],a[1],m[2]*t.k,0,7);cx.fill()}});
 cx.strokeStyle='#e02424';cx.lineWidth=1.5;cx.beginPath();for(let i=Math.max(0,fr-1500);i<=fr;i++){const p=P(t,frames[i][0],frames[i][1]);i==Math.max(0,fr-1500)?cx.moveTo(p[0],p[1]):cx.lineTo(p[0],p[1])}cx.stroke();
+if(frames[fr].length>4){const o=frames[fr],ot=o[6]*Math.PI/180,oc=Math.cos(ot),os=Math.sin(ot);const OW=(fx,fy)=>P(t,o[4]+fx*oc-fy*os,o[5]+fx*os+fy*oc);cx.fillStyle='rgba(120,120,120,.55)';cx.strokeStyle='#555';cx.lineWidth=2;cx.beginPath();[[-100,-85],[100,-85],[100,85],[-100,85]].forEach((q,i)=>{const p=OW(q[0],q[1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])});cx.closePath();cx.fill();cx.stroke();const lp=OW(0,0);cx.fillStyle=dark()?'#fff':'#111';cx.font='12px system-ui';cx.fillText('oponente',lp[0]-24,lp[1]+4)}
 const f=frames[fr],th=f[2]*Math.PI/180,c=Math.cos(th),s=Math.sin(th);const W=(fx,fy)=>P(t,f[0]+fx*c-fy*s,f[1]+fx*s+fy*c);
 cx.fillStyle=dark()?'rgba(110,160,255,.35)':'rgba(42,109,244,.25)';cx.strokeStyle='#2a6df4';cx.lineWidth=2;cx.beginPath();[[-100,-85],[100,-85],[100,85],[-100,85]].forEach((q,i)=>{const p=W(q[0],q[1]);i?cx.lineTo(p[0],p[1]):cx.moveTo(p[0],p[1])});cx.closePath();cx.fill();cx.stroke();
 const fr0=W(100,0),to=W(60,0);cx.beginPath();cx.moveTo(to[0],to[1]);cx.lineTo(fr0[0],fr0[1]);cx.stroke();
@@ -1147,6 +1748,7 @@ function passo(n){pausa();fr=Math.max(0,Math.min(frames.length-1,fr+n));desenha(
 sel.onchange=()=>carrega(+sel.value);rein.onclick=()=>carrega(cur);
 b1.onclick=()=>passo(-50);b01.onclick=()=>passo(-5);f01.onclick=()=>passo(5);f1.onclick=()=>passo(50);
 pp.onclick=()=>{play=!play;pp.textContent=play?'Pausar':'Continuar'};vel_=document.getElementById('vel');vel_.onchange=e=>vel=+e.target.value;
+rui.onchange=()=>fetch('/acao?s='+cur+'&a=ruido&on='+(rui.checked?1:0));
 lev.onclick=()=>fetch('/acao?s='+cur+'&a=levantar');sol.onclick=()=>fetch('/acao?s='+cur+'&a=soltar');bat.onclick=()=>fetch('/acao?s='+cur+'&a=bater');
 cv.onclick=e=>{if(!vista)return;const r=cv.getBoundingClientRect(),px=(e.clientX-r.left)*cv.width/r.width,py=(e.clientY-r.top)*cv.height/r.height;const x=(px-vista.ox)/vista.k,y=(vista.oy-py)/vista.k;
 fetch(`/colocar?s=${cur}&x=${x.toFixed(1)}&y=${y.toFixed(1)}&th=${document.getElementById('th').value}`);play=true;pp.textContent='Pausar'};
@@ -1224,6 +1826,10 @@ int main(int argc, char** argv) {
     rs.back().informativo = l > 100.0;
   }
   rs.push_back(cenarioTabuleiro());
+  rs.push_back(cenarioMissao(false, 2));
+  rs.back().informativo = true;   // a localizacao ainda deriva depois de colisoes e curvas nao verificadas (veja o README): mostra, nao derruba
+  rs.push_back(cenarioMissao(true, 2));
+  rs.back().informativo = true;
   rs.push_back(cenarioEndireitar(true));
   rs.push_back(cenarioEndireitar(false));
   rs.push_back(cenarioBorda(kVermelha, false));
