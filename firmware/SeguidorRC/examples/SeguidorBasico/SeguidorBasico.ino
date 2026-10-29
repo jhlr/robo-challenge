@@ -80,8 +80,20 @@ void lerCor() {
 const uint8_t pinosSensores[kSensores] = {1, 2, 3, 4, 5, 6, 7, 8};
 const PinosPonteH ponte = {.ain1 = 12, .ain2 = 11, .pwma = 13, .bin1 = 14, .bin2 = 21, .pwmb = 47, .stby = 38};
 
-constexpr bool kDebug = true;        // mostra sensores e decisao no Monitor Serial
-constexpr bool kModoTeste = false;   // true = motores desligados, so mostra a decisao
+#ifndef USA_BLE
+#define USA_BLE 1   // depuracao por Bluetooth LE (Nordic UART): console_ble.py, nRF Connect ou Serial Bluetooth Terminal (modo BLE)
+#endif
+#if USA_BLE
+#include <seguidor/depuracao_ble.h>
+DepuracaoBLE ble;
+Tee dbg(Serial, ble);   // tudo que o robo escreve vai ao Monitor Serial (USB) E ao Bluetooth
+#else
+Print& dbg = Serial;
+#endif
+
+bool kDebug = true;        // mostra sensores e decisao (comando "debug on/off")
+bool kModoTeste = false;   // true = motores desligados, so mostra a decisao (comando "teste on/off")
+bool telemetria = false;   // CSV ~10 Hz: tempo_ms,rumo,S1..S8,esq,dir (comando "tele on/off")
 constexpr bool kParaNoCruzamento = true;   // S1 e S8 no preto juntos (acima das outras regras, ate perdido): para e varre 90 graus para cada lado
 SaudeSensores saude;                              // sensor preto por mais de 30 s e marcado como ruim
 unsigned long tUltimoCruzamento = 0;              // quando o ultimo cruzamento foi confirmado (para saber se a linha sumida e fim de beco)
@@ -135,10 +147,10 @@ float lerUltrassomMm() { return -1.0f; }
 #endif
 
 void mostrarDebug(const Comando& c) {
-  for (int i = 0; i < kSensores; i++) Serial.printf("S%d:%4u ", i + 1, barra.leituras[i]);
-  Serial.print("| [");
-  for (int i = 0; i < kSensores; i++) Serial.print(!barra.ok[i] ? 'x' : (barra.preto[i] ? '#' : '.'));
-  Serial.printf("]  %s%s%s\n", c.acao, c.estranho ? "  [ESTRANHO: S1 e S8 deviam acender juntos]" : "",
+  for (int i = 0; i < kSensores; i++) dbg.printf("S%d:%4u ", i + 1, barra.leituras[i]);
+  dbg.print("| [");
+  for (int i = 0; i < kSensores; i++) dbg.print(!barra.ok[i] ? 'x' : (barra.preto[i] ? '#' : '.'));
+  dbg.printf("]  %s%s%s\n", c.acao, c.estranho ? "  [ESTRANHO: S1 e S8 deviam acender juntos]" : "",
                 c.oscilando ? "  [OSCILANDO]" : "");
 }
 
@@ -210,15 +222,15 @@ Oito varrer(bool vinhaSeguindo, int lado) {
   }
   parar(ponte);
   auto rua = [](int x) { return x < 0 ? "?" : (x ? "SIM" : "nao"); };
-  Serial.printf("    1o lado: %s | rua a esquerda: %s | rua a direita: %s | %d amostras\n", lado > 0 ? "esquerda" : "direita", rua(v.ruas.ruaEsquerda), rua(v.ruas.ruaDireita), v.n);
-  if (v.ruas.usEsq > 0 || v.ruas.usDir > 0 || v.ruas.usFrente > 0) Serial.printf("    ultrassom: esquerda %.0f mm | frente %.0f mm | direita %.0f mm (-1 = nada)\n", v.ruas.usEsq, v.ruas.usFrente, v.ruas.usDir);
+  dbg.printf("    1o lado: %s | rua a esquerda: %s | rua a direita: %s | %d amostras\n", lado > 0 ? "esquerda" : "direita", rua(v.ruas.ruaEsquerda), rua(v.ruas.ruaDireita), v.n);
+  if (v.ruas.usEsq > 0 || v.ruas.usDir > 0 || v.ruas.usFrente > 0) dbg.printf("    ultrassom: esquerda %.0f mm | frente %.0f mm | direita %.0f mm (-1 = nada)\n", v.ruas.usEsq, v.ruas.usFrente, v.ruas.usDir);
   return v.resultado;
 }
 
 // S1 e S8 no preto numa linha vermelha ou azul: borda do mapa, nao cruzamento (nada para confirmar girando).
 void bordaDoMapa(AcaoCruzamento acao) {
   if (acao == AcaoCruzamento::Portao) {
-    Serial.println(">>> PORTAO azul (nosso): segue em frente");
+    dbg.println(">>> PORTAO azul (nosso): segue em frente");
     portaoPendente = false;
     semReacaoAte = millis() + 1500;   // ainda em cima da faixa azul do portao
     esquecerCor(memCor);
@@ -228,11 +240,11 @@ void bordaDoMapa(AcaoCruzamento acao) {
     return;
   }
   if (acao == AcaoCruzamento::Navegador) {
-    Serial.println(">>> BORDA com cubo: parado, a rota e do navegador (ainda nao ligado)");
+    dbg.println(">>> BORDA com cubo: parado, a rota e do navegador (ainda nao ligado)");
     parado = true;
     return;
   }
-  Serial.println(">>> BORDA do mapa (linha vermelha/azul): meia-volta para voltar ao mapa");
+  dbg.println(">>> BORDA do mapa (linha vermelha/azul): meia-volta para voltar ao mapa");
   int n = 0;
   girarAte(0.0f, 180.0f, n);
   esquecerCor(memCor);   // a linha que ficou atras nao conta para o proximo cruzamento
@@ -249,7 +261,7 @@ void pararNoCruzamento() {
   parar(ponte);
   const AcaoCruzamento acao = acaoNaPonta(corRecente(memCor, millis(), kJanelaCorMs), temCubo, portaoPendente);
   if (acao != AcaoCruzamento::Cruzamento) { bordaDoMapa(acao); return; }
-  if (kModoTeste) { Serial.println(">>> S1 e S8 no preto (modo teste: nao gira)"); comecarASair(cruzamento, millis()); return; }
+  if (kModoTeste) { dbg.println(">>> S1 e S8 no preto (modo teste: nao gira)"); comecarASair(cruzamento, millis()); return; }
 
   const bool vinhaSeguindo = vinhaSeguindoLinha(memoria, millis(), ajustes);
 #if USA_IMU
@@ -263,12 +275,12 @@ void pararNoCruzamento() {
 #if USA_IMU
     registrarCruzamento(exploracao, rumo);
 #endif
-    Serial.printf(">>> CRUZAMENTO %d CONFIRMADO\n", cruzamentos);
+    dbg.printf(">>> CRUZAMENTO %d CONFIRMADO\n", cruzamentos);
   } else if (oito == Oito::Endireitou) {
-    Serial.println(">>> ENDIREITOU: estava de lado em cima da linha, agora segue por ela");
+    dbg.println(">>> ENDIREITOU: estava de lado em cima da linha, agora segue por ela");
     memoria.perdeuEm = 0;
   } else {
-    Serial.println("    falso alarme");
+    dbg.println("    falso alarme");
   }
   esquecerUltimoComando(memoria);
   if (oito == Oito::Endireitou) memoria.perdeuEm = 0;
@@ -277,8 +289,62 @@ void pararNoCruzamento() {
   comecarASair(cruzamento, millis());   // o relogio de saida comeca agora, quando volta a andar
 }
 
+// --- Comandos recebidos por Bluetooth (uma linha cada). "ajuda" lista. ---
+
+void mostrarAjustes() {
+  dbg.printf("velReto=%d velCorrecaoLeve=%d velCorrecaoForte=%d zonaMortaPwm=%d periodoCorrecaoMs=%lu\n", ajustes.velReto, ajustes.velCorrecaoLeve, ajustes.velCorrecaoForte, ajustes.zonaMortaPwm, ajustes.periodoCorrecaoMs);
+}
+
+void aoReceberComando(const String& linha) {
+  String l = linha;
+  l.trim();
+  l.toLowerCase();
+  const int sp = l.indexOf(' ');
+  const String cmd = sp < 0 ? l : l.substring(0, sp);
+  const String arg = sp < 0 ? "" : l.substring(sp + 1);
+  if (cmd == "ajuda" || cmd == "h" || cmd == "?") {
+    dbg.println("comandos: estado | parar | seguir | teste on/off | debug on/off | tele on/off | ajustes | ajuste <nome> <valor>");
+    dbg.println("          zerar (rumo=0) | nomes: velReto velCorrecaoLeve velCorrecaoForte zonaMortaPwm periodoCorrecaoMs");
+  } else if (cmd == "estado") {
+    dbg.printf("t=%lu ms | %s | teste=%d debug=%d tele=%d | cruzamentos=%d | portaoPendente=%d\n", millis(), parado ? "PARADO" : "andando", kModoTeste, kDebug, telemetria, cruzamentos, portaoPendente);
+#if USA_IMU
+    dbg.printf("rumo=%.1f graus | vies gz=%.4f rad/s\n", rumo, viesGz);
+#endif
+    mostrarAjustes();
+  } else if (cmd == "parar") { parado = true; parar(ponte); dbg.println("ok: parado");
+  } else if (cmd == "seguir") { parado = false; dbg.println("ok: andando");
+  } else if (cmd == "teste") { kModoTeste = arg == "on"; dbg.printf("ok: modo teste %s\n", kModoTeste ? "ligado (motores desligados)" : "desligado");
+  } else if (cmd == "debug") { kDebug = arg == "on"; dbg.printf("ok: debug %s\n", kDebug ? "ligado" : "desligado");
+  } else if (cmd == "tele") { telemetria = arg == "on"; if (telemetria) dbg.println("t_ms,rumo,S1,S2,S3,S4,S5,S6,S7,S8,esq,dir"); dbg.printf("ok: telemetria %s\n", telemetria ? "ligada" : "desligada");
+  } else if (cmd == "ajustes") { mostrarAjustes();
+  } else if (cmd == "zerar") {
+#if USA_IMU
+    rumo = 0.0f; dbg.println("ok: rumo = 0");
+#else
+    dbg.println("sem IMU neste build");
+#endif
+  } else if (cmd == "ajuste") {
+    const int sp2 = arg.indexOf(' ');
+    if (sp2 < 0) { dbg.println("uso: ajuste <nome> <valor>"); return; }
+    const String nome = arg.substring(0, sp2);
+    const long v = arg.substring(sp2 + 1).toInt();
+    if (nome == "velreto") ajustes.velReto = v;
+    else if (nome == "velcorrecaoleve") ajustes.velCorrecaoLeve = v;
+    else if (nome == "velcorrecaoforte") ajustes.velCorrecaoForte = v;
+    else if (nome == "zonamortapwm") ajustes.zonaMortaPwm = v;
+    else if (nome == "periodocorrecaoms") ajustes.periodoCorrecaoMs = v;
+    else { dbg.println("nome desconhecido (veja: ajuda)"); return; }
+    dbg.print("ok: "); mostrarAjustes();
+  } else {
+    dbg.printf("comando desconhecido: '%s' (ajuda)\n", cmd.c_str());
+  }
+}
+
 void setup() {
   Serial.begin(115200);
+#if USA_BLE
+  ble.iniciar("SeguidorRC", aoReceberComando);
+#endif
   iniciar(ponte);
   iniciar(barra, pinosSensores);
 #if USA_ULTRASSOM
@@ -287,13 +353,13 @@ void setup() {
 #endif
 #if USA_COR
   Wire.begin(tcsSda, tcsScl);
-  if (!tcs.begin(0x29, &Wire)) Serial.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
+  if (!tcs.begin(0x29, &Wire)) dbg.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
 #endif
 
 #if USA_IMU
   Wire.begin(IMU_SDA, IMU_SCL);
-  while (!mpu.begin()) { Serial.println("!!! MPU6050 nao respondeu, tentando de novo..."); delay(1000); }
-  Serial.println("Medindo o vies do giroscopio: nao mexa no robo (1 s)");
+  while (!mpu.begin()) { dbg.println("!!! MPU6050 nao respondeu, tentando de novo..."); delay(1000); }
+  dbg.println("Medindo o vies do giroscopio: nao mexa no robo (1 s)");
   core::GyroBias vies;
   for (int i = 0; i < 200; i++) {
     sensors_event_t a, g, t;
@@ -319,9 +385,9 @@ void setup() {
       ajustes.zonaMortaPwm = cal.zonaMortaPwm;
       ajustes.velBuscaExterna = cal.velMedida;   // a velocidade em que os graus por segundo foram medidos
       ajustes.grausPorSegundoBusca = cal.grausPorSegundo;
-      Serial.printf("Calibracao dos motores: zona morta %d, giro %.0f graus/s a PWM %d\n", cal.zonaMortaPwm, cal.grausPorSegundo, cal.velMedida);
+      dbg.printf("Calibracao dos motores: zona morta %d, giro %.0f graus/s a PWM %d\n", cal.zonaMortaPwm, cal.grausPorSegundo, cal.velMedida);
     } else {
-      Serial.println("!!! Calibracao dos motores falhou (o robo nao girou): usando os valores padrao");
+      dbg.println("!!! Calibracao dos motores falhou (o robo nao girou): usando os valores padrao");
     }
   }
   ajustes.lacunaMs = 450;   // a lacuna agora segura o rumo pelo giroscopio, pode ser maior
@@ -331,13 +397,16 @@ void setup() {
   delay(1000);
   // Nao anda com calibracao ruim: sensor morto ou robo parado fazia o carro rodopiar
   while (!calibrar(barra, Serial)) {
-    Serial.println("Calibracao INVALIDA (poucos sensores reagiram). Tentando de novo em 2 s...");
+    dbg.println("Calibracao INVALIDA (poucos sensores reagiram). Tentando de novo em 2 s...");
     delay(2000);
   }
   delay(2000);   // tempo para colocar o robo na linha
 }
 
 void loop() {
+#if USA_BLE
+  ble.atualizar();
+#endif
   if (parado) { parar(ponte); return; }
   ler(barra);
   lerCor();
@@ -359,7 +428,7 @@ void loop() {
 #if USA_IMU
   lerImu();
   const EventoPostura evento = atualizarPickup(pickup, imu, millis(), ajustesInercial);
-  if (evento == EventoPostura::FoiLevantado) { parar(ponte); Serial.println(">>> LEVANTADO: motores parados"); }
+  if (evento == EventoPostura::FoiLevantado) { parar(ponte); dbg.println(">>> LEVANTADO: motores parados"); }
   if (evento == EventoPostura::Reposicionado) {
     // Depois de levantado ele e SEMPRE posto em algum lugar do verde, apontando para frente: rumo 0, pose desconhecida (o mapa de cubos fica).
     // O localizador (core/localizer.h, initInGreen) tem de receber o mesmo reset quando for ligado aqui.
@@ -373,13 +442,13 @@ void loop() {
     esquecerCor(memCor);
     tUltimoCruzamento = 0;
     portaoPendente = true;   // vai entrar de novo pelo nosso portao
-    Serial.printf(">>> REPOSICIONADO (%d): rumo 0, de frente\n", reposicionamentos);
+    dbg.printf(">>> REPOSICIONADO (%d): rumo 0, de frente\n", reposicionamentos);
   }
   if (!motoresLiberados(pickup)) { parar(ponte); return; }
-  if (colisaoDetectada(colisao, imu, true, millis(), ajustesInercial)) Serial.printf(">>> COLISAO forte (pico %.1f g)\n", colisao.picoG);
+  if (colisaoDetectada(colisao, imu, true, millis(), ajustesInercial)) dbg.printf(">>> COLISAO forte (pico %.1f g)\n", colisao.picoG);
 #endif
   const int travados = atualizarSaude(barra.preto, millis(), saude, barra.ok);
-  if (travados > 0) Serial.printf("!!! %d sensor(es) no preto ha mais de 30 s: marcado(s) como ruim(ns) e ignorado(s)\n", travados);
+  if (travados > 0) dbg.printf("!!! %d sensor(es) no preto ha mais de 30 s: marcado(s) como ruim(ns) e ignorado(s)\n", travados);
   // Procurando a linha, S1 e S8 acesos nao sao cruzamento: a barra acende inteira ao ficar paralela a linha (robo de lado)
   // Acima de todas as outras regras: as duas pontas acesas valem ate perdido/buscando
   if (kParaNoCruzamento && cruzamentoConfirmado(barra.preto, millis(), ajustesCruzamento, cruzamento)) {
@@ -391,12 +460,12 @@ void loop() {
 #if USA_IMU
   if (memoria.perdeuEm != 0 && perdeuAntes == 0) rumoAoPerder = rumo;
   if ((memoria.ultimoEsq != 0 || memoria.ultimoDir != 0) && memoria.perdeuEm != 0 && millis() - memoria.perdeuEm < ajustes.lacunaMs) segurarRumoNaLacuna(c, rumo, rumoAoPerder, ajustes, ajustesInercial);
-  if (ancorarNaGrade(rumo, viesGz, imu.gzRadS, ehReto(c), millis(), ancora, ajustesInercial)) Serial.println("!!! rumo suspeito: longe de um multiplo de 90 numa reta");
+  if (ancorarNaGrade(rumo, viesGz, imu.gzRadS, ehReto(c), millis(), ancora, ajustesInercial)) dbg.println("!!! rumo suspeito: longe de um multiplo de 90 numa reta");
   const bool comandando = abs(c.esq) >= ajustes.zonaMortaPwm || abs(c.dir) >= ajustes.zonaMortaPwm;
   const AcaoTracao tr = atualizarTracao(tracao, imu, comandando && !c.parar, millis(), ajustesInercial);
-  if (tr == AcaoTracao::Reforcar) Serial.printf(">>> andando menos que o esperado: reforco de PWM %d\n", tracao.reforco);
+  if (tr == AcaoTracao::Reforcar) dbg.printf(">>> andando menos que o esperado: reforco de PWM %d\n", tracao.reforco);
   if (tr == AcaoTracao::Recuar) {
-    Serial.println(">>> TRAVADO mesmo com reforco: recua um pouco");
+    dbg.println(">>> TRAVADO mesmo com reforco: recua um pouco");
     mover(ponte, -ajustes.velReto, -ajustes.velReto);
     delay(300);
     parar(ponte);
@@ -411,7 +480,7 @@ void loop() {
   if (!fimDeBecoAvisado && tUltimoCruzamento &&
       classificarPerda(perdidoHa, millis() - tUltimoCruzamento, ajustes.lacunaMs, ajustesCruzamento) == Perda::FimDeBeco) {
     fimDeBecoAvisado = true;
-    Serial.println(">>> FIM DE BECO: a linha acabou onde o beco termina (borda do mapa)");
+    dbg.println(">>> FIM DE BECO: a linha acabou onde o beco termina (borda do mapa)");
   }
   aplicar(ponte, c);
 
@@ -420,6 +489,18 @@ void loop() {
     esquecerUltimoComando(memoria);
   }
 
+  static unsigned long ultimaTele = 0;
+  if (telemetria && millis() - ultimaTele >= 100) {
+    ultimaTele = millis();
+#if USA_IMU
+    const float r = rumo;
+#else
+    const float r = 0.0f;
+#endif
+    dbg.printf("%lu,%.1f,", millis(), r);
+    for (int i = 0; i < kSensores; i++) dbg.printf("%u,", barra.leituras[i]);
+    dbg.printf("%d,%d\n", c.esq, c.dir);
+  }
   static unsigned long ultimoPrint = 0;
   if (kDebug && millis() - ultimoPrint > 150) {
     ultimoPrint = millis();

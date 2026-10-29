@@ -235,6 +235,15 @@ struct Mundo {
     }
     semearCubos(n, lista);
   }
+  // Um cubo numa rua escolhida, no meio dela (para montar cenarios).
+  void porCubo(int c, int r, bool leste, seguidor::CorCubo cor) {
+    Cubo cu;
+    cu.c = c; cu.r = r; cu.leste = leste;
+    cu.x = xDoCruzamento(c) + (leste ? kPasso / 2 : 0.0);
+    cu.y = yDoCruzamento(r) + (leste ? 0.0 : kPasso / 2);
+    cu.cor = cor;
+    cubos.push_back(cu);
+  }
   // Cubos nos quadrados MARROM (centro dos quarteiroes): obstaculos so para os sensores de distancia (nao se pegam, nao se mexem).
   void semearObstaculos(int k) {
     for (int i = 0; i < k; i++) {
@@ -871,7 +880,9 @@ struct Firmware {
   Navegador nav;                 // missao completa (localizador + mapa de cubos + exploracao + coleta + entrega); desligado = os cenarios de teste de sempre
   unsigned long ultimoTcsMs = 0, ultimoUsMs = 0, esperaAte = 0;
   float usAnt = -1.0f, velMmSAtual = 0.0f;
-  int verdesSeguidos = 0, proibidasSeguidas = 0, semVarreduras = 0;
+  int verdesSeguidos = 0, proibidasSeguidas = 0, semVarreduras = 0, azulSeguidas = 0;
+  bool cruzandoPortao = false;
+  unsigned long cruzandoPortaoDesde = 0;
   bool pularVarreduraComPoseSegura = false;   // opcional: no robo real o giro nao esbarrava nos cubos (ficam no meio da rua), entao varre sempre
   unsigned long ultimaObsRaioMs = 0;
   bool precisaAlinhar = false, velRetaMedida = false;   // acabou de ser reposicionado no verde
@@ -974,6 +985,7 @@ struct Firmware {
       }
       return;
     }
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    PARADA t=%.1fs pos (%.0f,%.0f) cor=%d acao=%d portaoPend=%d inGreen=%d\n", c.agoraMs() / 1000.0, c.estado().x, c.estado().y, static_cast<int>(corAgora), static_cast<int>(acao), portaoPendente, nav.loc.inGreen);
     if (nav.ativo && acao == AcaoCruzamento::Navegador) acao = AcaoCruzamento::MeiaVolta;   // com o navegador ligado ele mesmo decide a rota: na borda so da meia-volta
     if (acao != AcaoCruzamento::Cruzamento) {   // borda do mapa: nao gira para confirmar
       bordas++;
@@ -1436,6 +1448,7 @@ struct Firmware {
       const CorLinha lida = c.tcsChao();
       const bool proibida = lida == CorLinha::Vermelho || (lida == CorLinha::Azul && !portaoPendente && !nav.entregando && !indoParaOeste());   // vermelho: limite da cidade; azul fora do portao: area do outro lado
       proibidasSeguidas = proibida ? proibidasSeguidas + 1 : 0;
+      azulSeguidas = lida == CorLinha::Azul ? azulSeguidas + 1 : 0;
       verdesSeguidos = lida == CorLinha::Verde ? verdesSeguidos + 1 : 0;   // uma leitura isolada de verde pode ser erro do sensor: so vale com varias seguidas
       if (nav.ativo && !nav.loc.inGreen && verdesSeguidos >= kVerdesParaReposicionar && reposicionadoPeloVerde(CorLinha::Verde, portaoPendente, nav.entregando)) {   // verde inesperado: o juiz pegou e pos de volta
         nav.reposicionado();
@@ -1452,6 +1465,29 @@ struct Firmware {
     // leem essas linhas como preto, e antes disso o carro as seguia como se fossem uma rua (a moldura da arena). So uma leitura vale se alguma ponta da barra ve preto; sozinha, duas.
     if (agora >= semReacaoAte && proibidasSeguidas >= 2 && !nav.entregando) {   // duas leituras seguidas: uma so pode ser erro do sensor (e o carro dava meia-volta no meio da rua)
       reagirAProibida(c);
+      return;
+    }
+    // O nosso portao e uma faixa azul: se a barra a pega de lado (o carro nao chegou de frente) os sensores a leem como uma linha preta e o carro a SEGUIRIA como rua (descendo por ela).
+    // Com a azul sob o TCS e o portao esperado, ele so atravessa em frente, segurando o rumo, e conta o portao quando a azul acaba.
+    if (nav.ativo && portaoPendente && !nav.carregando && !indoParaOeste() && nav.loc.inGreen && azulSeguidas >= 2 && !cruzandoPortao) { cruzandoPortao = true; cruzandoPortaoDesde = agora; }
+    if (cruzandoPortao) {
+      Comando cmd{};
+      cmd.esq = cmd.dir = ajustes.velReto;
+      if (usaImu) segurarRumoNaLacuna(cmd, static_cast<float>(remainder(rumo, 360.0)), 0.0f, ajustes, ai);
+      c.comandar(cmd.esq, cmd.dir);
+      velMmSAtual = ajC.velMmS;
+      tick(c);
+      if (azulSeguidas == 0 && agora - cruzandoPortaoDesde > 150) {   // a azul acabou: atravessou o portao
+        cruzandoPortao = false;
+        portoes++;
+        portaoPendente = false;
+        semReacaoAte = agora + 1500;
+        nav.aoPortao();
+        if (c.mundo()) c.mundo()->evento(agora, fmt("PORTAO azul atravessado em (%.0f,%.0f) (de frente ou de lado)", c.estado().x, c.estado().y));
+        esquecerUltimoComando(memoria);
+        cruz = MemoriaCruzamento{};
+        comecarASair(cruz, agora);
+      }
       return;
     }
     if (nav.ativo && nav.loc.inGreen && c.mundo() && !nav.plataformasObservadas) { observarPlataformas(c); return; }
@@ -2069,7 +2105,8 @@ static Resultado cenarioMissao(bool ruido, int meta) {
   const bool fim = rodar(fw, c, [&](const Carro&) { return fw.nav.entregues >= meta; });
   svg(ruido ? "missao_com_ruido" : "missao", p, c);
   int visitados = 0;
-  for (int cc = 0; cc < core::kMapCols; cc++) for (int rr = 0; rr < core::kMapRows; rr++) visitados += fw.nav.visitas.n[cc][rr] > 0 ? 1 : 0;
+  int visitadosLeste = 0;
+  for (int cc = 0; cc < core::kMapCols; cc++) for (int rr = 0; rr < core::kMapRows; rr++) { visitados += fw.nav.visitas.n[cc][rr] > 0 ? 1 : 0; if (cc >= 3) visitadosLeste += fw.nav.visitas.n[cc][rr] > 0 ? 1 : 0; }
   if (getenv("SIM_DEBUG")) {
     for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str());
     const Estado e = c.estado();
@@ -2083,8 +2120,8 @@ static Resultado cenarioMissao(bool ruido, int meta) {
   const PrecisaoMemoria pm = precisaoMemoria(m, fw.nav.cubos);
   if (getenv("SIM_DEBUG")) fprintf(stderr, "    MEMORIA: acertou %d, achou cubo onde nao ha %d, nao lembra de %d (de %d ruas)\n", pm.certo, pm.falsoPositivo, pm.perdeu, pm.total);
   return {ruido ? "missao completa com ruido: explora, coleta, entrega" : "missao completa: explora, coleta, entrega", fim,
-          fmt("%s em %.0f s | PONTOS %d | coletou %d, entregou %d, brancos identificados %d, bloqueou %d rua(s) | cruzamentos %d (falsos %d), reposicoes %d | visitou %d de 30 cruzamentos | velocidade medida pela distancia entre cruzamentos %.0f mm/s (%d amostras; real a 110 de PWM: %.0f) | varreduras puladas %d, cubos vistos ao longe %d | oponente levou %d cubo(s), colisoes %d",
-              fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.pontos, fw.nav.coletados, fw.nav.entregues, fw.nav.brancosIdentificados, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, fw.ajC.velMmS, fw.amostrasVel, c.velNominalMmS(fw.ajustes.velReto), fw.semVarreduras, fw.nav.ecosLongeVistos, m.pegosPeloOponente, m.colisoesOponente)};
+          fmt("%s em %.0f s | PONTOS %d | coletou %d, entregou %d, brancos identificados %d, bloqueou %d rua(s) | cruzamentos %d (falsos %d), reposicoes %d | visitou %d de 30 cruzamentos (%d de 15 do lado do oponente, colunas 3 a 5) | velocidade medida pela distancia entre cruzamentos %.0f mm/s (%d amostras; real a 110 de PWM: %.0f) | varreduras puladas %d, cubos vistos ao longe %d | oponente levou %d cubo(s), colisoes %d",
+              fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.pontos, fw.nav.coletados, fw.nav.entregues, fw.nav.brancosIdentificados, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, visitadosLeste, fw.ajC.velMmS, fw.amostrasVel, c.velNominalMmS(fw.ajustes.velReto), fw.semVarreduras, fw.nav.ecosLongeVistos, m.pegosPeloOponente, m.colisoesOponente)};
 }
 
 // Dois robos IGUAIS na mesma arena (regras): cada um com o mesmo firmware; colisao leva -10 e volta ao ponto de partida (regras 7.1). Roda ate os dois terem entregue `meta`
@@ -2118,6 +2155,34 @@ static Resultado cenarioVermelhoDeLado() {
   svg("vermelho_de_lado", p, c);
   const bool ok = fw.meiasVoltas >= 1 && maxX < 520.0;
   return {"linha vermelha a 45 graus: nao segue pela moldura", ok, fmt("%s | meias-voltas %d | foi ate x = %.0f mm (a rua acaba em 400; seguir a moldura passaria de 900)", ok ? "parou e deu meia-volta" : "SEGUIU a moldura vermelha", fw.meiasVoltas, maxX)};
+}
+
+// Acabaram os cubos do nosso lado: tem de EXPLORAR O OUTRO LADO (colunas 3 a 5, perto do oponente), onde ainda ha cubos que ele nao conhece.
+static Resultado cenarioExplorarOutroLado() {
+  using seguidor::CorCubo;
+  auto cena = std::make_unique<Cena>();
+  cena->montar(0, false, false);
+  Mundo& m = cena->a.mundo;
+  m.cubos.clear();
+  m.porCubo(0, 1, true, CorCubo::Azul);       // dois cubos perto do portao...
+  m.porCubo(1, 3, false, CorCubo::Vermelho);
+  m.porCubo(4, 1, true, CorCubo::Azul);       // ...e dois do OUTRO lado, que ele nao conhece
+  m.porCubo(4, 3, false, CorCubo::Vermelho);
+  cena->vivoMundo.assign(m.cubos.size(), 1);
+  cena->a.fw->nav.cubos = cena->a.fw->nav.cubos;   // memoria comeca no prior (0,4)
+  Firmware& fw = *cena->a.fw;
+  const unsigned long inicio = cena->a.carro->agoraMs();
+  bool fim = false;
+  while (cena->a.carro->agoraMs() - inicio < kTetoSegurancaMs && !(fim = fw.nav.entregues >= 3)) cena->ciclo();
+  int leste = 0, total = 0;
+  for (int cc = 0; cc < core::kMapCols; cc++) for (int rr = 0; rr < core::kMapRows; rr++) { total += fw.nav.visitas.n[cc][rr] > 0; if (cc >= 3) leste += fw.nav.visitas.n[cc][rr] > 0; }
+  if (getenv("SIM_DEBUG")) {
+    for (const std::string& l : m.log) fprintf(stderr, "    OUTRO %s\n", l.c_str());
+    const auto& rs = cena->a.carro->rastro();
+    for (size_t i = 5600; i < 6300 && i < rs.size(); i++) if (fabs(rs[i].x) < 40) fprintf(stderr, "    X0 t=%.2fs pos (%.0f,%.0f) th %.0f bits %02x\n", i * 0.02, rs[i].x, rs[i].y, rs[i].th * 57.3, cena->a.carro->bits()[i]);
+  }
+  return {"acabaram os cubos do nosso lado: explora o outro", fim,
+          fmt("%s em %.0f s | entregou %d (precisa de 3: so dois cubos estao do nosso lado) | visitou %d cruzamentos, %d do lado do oponente | PONTOS %d", fim ? "foi ao outro lado e entregou" : "NAO foi ao outro lado", cena->a.carro->agoraMs() / 1000.0, fw.nav.entregues, total, leste, fw.nav.pontos)};
 }
 
 // 3b. Depois do cruzamento o carro tem de seguir a linha do outro lado (rua e beco longos).
@@ -2640,6 +2705,8 @@ int main(int argc, char** argv) {
   rs.push_back(cenarioMissao(false, 2));
   rs.back().informativo = true;   // a localizacao ainda deriva depois de colisoes e curvas nao verificadas (veja o README): mostra, nao derruba
   rs.push_back(cenarioMissao(true, 2));
+  rs.back().informativo = true;
+  rs.push_back(cenarioExplorarOutroLado());
   rs.back().informativo = true;
   rs.push_back(cenarioDuasEquipes(false, 2));
   rs.back().informativo = true;
