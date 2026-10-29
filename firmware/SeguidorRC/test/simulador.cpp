@@ -772,7 +772,7 @@ struct Navegador {
   // Um raio do ultrassom ao longo de uma linha de ruas a partir de `origem` na direcao (dc, dr). `andadoMm` = quanto o eixo ja andou desde a parada na origem (0 parado).
   // Com eco: as ruas ANTES dele estao vazias e a rua do eco tem cubo (a nao ser que ja fosse vazia de certeza: ali so pode ser o outro robo). Sem eco: as ruas inteiras ao alcance
   // estao vazias. Serve de INFORMACAO e de OBJETIVO: um cubo a duas ruas ja entra na memoria e o navegador vai ate la.
-  void observarRaio(core::Node origem, int dc, int dr, float usMm, float andadoMm, bool comSemEco) {
+  void observarRaio(core::Node origem, int dc, int dr, float usMm, float andadoMm, bool comSemEco, bool deLado = false) {
     auto rua = [&](int j, core::Node* a, core::Node* b) {
       *a = core::Node{static_cast<int8_t>(origem.c + dc * j), static_cast<int8_t>(origem.r + dr * j)};
       *b = core::Node{static_cast<int8_t>(origem.c + dc * (j + 1)), static_cast<int8_t>(origem.r + dr * (j + 1))};
@@ -789,7 +789,9 @@ struct Navegador {
         else { core::observeStreet(cubos, a, b, true, bm); ecosLongeVistos++; }
       }
     } else if (comSemEco) {
-      const int j0 = seguidor::primeiraRuaAindaAFrente(andadoMm), j1 = seguidor::ultimaRuaVistaVazia(andadoMm, 900.0f);
+      // Leitura DE LADO na varredura: o carro gira em torno do eixo, que fica ~38 mm fora da linha da rua do lado, e o cone do ultrassom e estreito (+-10 graus): um cubo no meio da rua
+      // vizinha (a ~150 mm do cruzamento) fica FORA do cone. Sem eco, a primeira rua do lado nao pode ser dada como vazia (so as de depois, que o cone alcanca).
+      const int j0 = std::max(seguidor::primeiraRuaAindaAFrente(andadoMm), deLado ? 1 : 0), j1 = seguidor::ultimaRuaVistaVazia(andadoMm, 900.0f);
       for (int j = j0; j <= j1 && j < 3; j++) { core::Node a, b; if (rua(j, &a, &b)) core::observeStreet(cubos, a, b, false, bm); }
     }
   }
@@ -829,15 +831,17 @@ struct Navegador {
     const bool chegouNormal = !pularProximo && naRua && !loc.inGreen && !loc.atGate;
     if (pularProximo) pularProximo = false; else core::onCrossing(loc);
     if (loc.inGreen) return 'S';
+    const core::Estimate est = core::estimate(loc);
+    const core::Pose& p = est.pose;
+    if (getenv("SIM_DEBUG")) { core::CubeBelief cp = cubos; fprintf(stderr, "    BELIEF t=%.1f pose (%d,%d) rua(0,0)-(0,1)=%.2f (0,1)-(0,2)=%.2f\n", agoraMs / 1000.0, p.at.c, p.at.r, core::streetSlot(cp, core::Node{0,0}, core::Node{0,1}), core::streetSlot(cp, core::Node{0,1}, core::Node{0,2})); }
+    const bool colSure = core::columnMass(loc, p.at.c) >= core::kMinCoordBelief, rowSure = core::rowMass(loc, p.at.r) >= core::kMinCoordBelief;
+    // (so com a pose SEGURA: com a pose errada a rua andada e outra, e a rua do cubo ficava marcada como vazia de certeza)
     // Andou a rua inteira de ruaDe ate aqui com o ultrassom ligado e NAO parou por nenhum cubo: a rua esta vazia (a de tras da esquina nunca aparece na varredura,
     // so as da frente e dos lados, e sem isto ele voltava e voltava a mesma rua achando que talvez tivesse cubo).
-    if (chegouNormal && ruaUsada && core::inMap(ruaDe.c, ruaDe.r) && core::inMap(ruaPara.c, ruaPara.r)) {
+    if (chegouNormal && colSure && rowSure && ruaUsada && core::inMap(ruaDe.c, ruaDe.r) && core::inMap(ruaPara.c, ruaPara.r)) {
       core::observeStreet(cubos, ruaDe, ruaPara, false, bm);
       core::observeStreet(cubos, ruaDe, ruaPara, false, bm);
     }
-    const core::Estimate est = core::estimate(loc);
-    const core::Pose& p = est.pose;
-    const bool colSure = core::columnMass(loc, p.at.c) >= core::kMinCoordBelief, rowSure = core::rowMass(loc, p.at.r) >= core::kMinCoordBelief;
     if (colSure && rowSure) core::markVisited(visitas, p.at);   // so conta o que sabe onde esta
     // olha as ruas pelo ultrassom: frente, esquerda e direita. Cada leitura e um RAIO ao longo de uma linha reta de ruas (ate ~3 ruas: o eco ve cubos ALEM do proximo cruzamento).
     // -2 = nao mediu (nao girou). Os cubos so ficam em ruas, nunca no cruzamento.
@@ -845,7 +849,7 @@ struct Navegador {
     const float us[3] = {v.usFrente, v.usEsq, v.usDir};
     for (int k = 0; k < 3 && colSure && rowSure; k++) {   // sem saber onde esta, o que o ultrassom ve nao pode ir para a memoria (iria para a rua errada)
       if (us[k] == -2.0f) continue;
-      observarRaio(p.at, dirs[k][0], dirs[k][1], us[k], 0.0f, true);
+      observarRaio(p.at, dirs[k][0], dirs[k][1], us[k], 0.0f, true, k != 0);
     }
     core::Decision d;
     alvoX = alvoY = -1;
@@ -1164,6 +1168,7 @@ struct Firmware {
       medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a 302 mm
       if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
       else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
+      usAnt = -1.0f; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
       tSaidaMs = c.agoraMs();                          // daqui em diante conta o caminho andado na rua nova
       trechoRestante0 = (a == 'L' || a == 'R') ? kPasso - 40.0 : kPasso;   // depois de virar para o lado o eixo ja andou ~40 mm
       if (a == 'S') comecarASair(cruz, c.agoraMs());   // reto: a barra ainda esta em cima da faixa do cruzamento, o debounce evita contar de novo
@@ -1421,7 +1426,10 @@ struct Firmware {
     if (trechoRestante0 > 0.0 && nav.ruaUsada && agora - ultimaObsRaioMs >= 300 && !movel) {
       ultimaObsRaioMs = agora;
       const double andadoRaio = (agora - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
-      nav.observarRaio(nav.ruaDe, nav.ruaPara.c - nav.ruaDe.c, nav.ruaPara.r - nav.ruaDe.r, d, static_cast<float>(andadoRaio), d <= 0.0f);
+      // Sem eco logo depois de uma curva nao prova nada: o carro ainda esta ~40 mm fora da linha da rua e o cone (+-10 graus) passa ao lado de um cubo no meio dela (e marcava a rua
+      // com cubo como vazia de certeza: o eco virava "o outro robo" e ele passava por cima). So vale depois de realinhar na rua (~110 mm andados).
+      if (d > 0.0f || andadoRaio >= 110.0)
+        nav.observarRaio(nav.ruaDe, nav.ruaPara.c - nav.ruaDe.c, nav.ruaPara.r - nav.ruaDe.r, d, static_cast<float>(andadoRaio), d <= 0.0f);
     }
     // O eco esta NESTA rua se a superficie dele fica antes do proximo cruzamento: da ponta (eixo + 100) ate o cruzamento faltam (trecho restante + 38 - 100) e um cubo da rua fica a 112+ mm
     // antes dele. Conta-se o que ja andou pela velocidade MEDIDA; se nao da para contar (meia-volta no meio da rua), a regra fica desligada.
@@ -1430,7 +1438,7 @@ struct Firmware {
     if (trechoRestante0 > 0.0 && d > 0.0f && d <= faltaDaPonta && nav.ruaVaziaCerta(nav.ruaDe, nav.ruaPara)) {
       // Rua que ja foi vista vazia: o que o ultrassom ve ali so pode ser o OUTRO ROBO (parado ou nao). Regras 7.1: identificar e voltar para buscar outra rota; nunca empurrar.
       nav.oponenteVisto++;
-      if (++nav.esperasSeguidas <= 3) { esperaAte = agora + 800; velMmSAtual = 0.0f; m->evento(agora, fmt("eco a %.0f mm numa rua VAZIA de certeza: so pode ser o outro robo, espera [%s]", d, c.ecoTipo_.c_str())); return true; }
+      if (++nav.esperasSeguidas <= 3) { esperaAte = agora + 800; velMmSAtual = 0.0f; m->evento(agora, fmt("eco a %.0f mm numa rua VAZIA de certeza (%d,%d)->(%d,%d) crenca %.2f, andado %.0f falta %.0f: so pode ser o outro robo, espera [%s]", d, nav.ruaDe.c, nav.ruaDe.r, nav.ruaPara.c, nav.ruaPara.r, [&] { core::CubeBelief cp = nav.cubos; return core::streetSlot(cp, nav.ruaDe, nav.ruaPara); }(), andado, faltaDaPonta, c.ecoTipo_.c_str())); return true; }
       nav.esperasSeguidas = 0;
       m->evento(agora, "o outro robo continua na rua: volta e busca outra rota");
       nav.aoBloquear();   // trata como rua bloqueada por enquanto (o mapa de cubos nao muda: p ja e 0)
