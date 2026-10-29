@@ -51,3 +51,11 @@ Conferido no SCServo: `Mode()` escreve o registrador 33 direto, sem unlock; so a
 - That handoff says: jumper on **B** = UART control, A = USB. The Waveshare wiki text I fetched says the opposite (A = UART). The handoff is empirical (Ping, WheelMode, WriteSpe worked), so try **B** first.
 - Same handoff wires it crossed: GPIO17 (TX2) -> adapter RXD, GPIO16 (RX2) <- adapter TXD, common GND, servos on an external 6-12 V supply (never from the ESP32). That is the wiring originally tried here, so the wiki's "RX-RX, TX-TX" advice was a detour.
 - It also confirms: SCServo unmodified, `Serial2.begin(1000000, SERIAL_8N1, 16, 17)`, wheel mode (MODE=1) written with unlock/lock and checked with `ReadMode`, no `SyncWriteSpe` in the library (two `WriteSpe` calls), mode 3 (step) unreliable on this hardware.
+
+## Adapter schematic read (Waveshare Bus Servo Adapter (A)-Sch.pdf, 2026-10-29) - follows the wiki, overrides the other-machine handoff
+- Host UART header H2 = GND / RXD / TXD, 3.3 V logic (SN74LVC1G125/126 buffers on the 3V3 rail): safe for the ESP32, no level shifter needed.
+- H4 jumper: A joins H2 RXD/TXD to U1RXD/U1TXD (UART control); B joins U1RXD/U1TXD to the CH343P (USB). So jumper A = UART, as the wiki says. The handoff's "B = UART" is wrong for this board.
+- Wiring (wiki "RX-RX, TX-TX" is literal): ESP32 TX (GPIO17) -> adapter TXD, ESP32 RX (GPIO16) <- adapter RXD, GND-GND. The adapter's "TXD" is an INPUT (host transmit); it is not crossed. The handoff's crossed wiring is the wrong one.
+- Direction is automatic: Q1 turns on when the host TX line goes low, which enables the bus driver (U3); with TX idle high the bus is routed to RXD (U4). The ESP32 TX must idle high (Serial2.begin does that); no echo of the host's own bytes returns.
+- Servo ports H3/H5: pin 1 = DC_IN0 (through D2), pin 2 = DATA, pin 3 = GND. The servo cable order must match.
+- Bench: with jumper A and TX->TXD, RX<-RXD, the official-library scan (ids 0-253, 6 bauds) still got no reply, and the servo LED blinks (alarm). Remaining suspects: servo cable order/seating at H3/H5, a servo in alarm/fault.
