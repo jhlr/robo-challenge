@@ -1377,6 +1377,7 @@ struct Firmware {
     nav.offLinha = 0;
     nav.platPend.clear();
     portaoPendente = true;
+    semReacaoAte = 0;   // a azul que vem agora E o portao que ele espera: a janela de 1,5 s da saida anterior (ainda em cima da faixa) nao pode engoli-la (voltava e atravessava a cidade 'no verde')
     memoria = Memoria{};
     cruz = MemoriaCruzamento{};
     esquecerCor(memCor);
@@ -1884,8 +1885,7 @@ struct Cena {
       Agente& vitima = fa >= fb ? b : a;
       a.mundo.evento(t, fmt("COLISAO entre os robos: %s vinha avancando mais (%.0f contra %.0f mm/s)", culpado.nome.c_str(), std::max(fa, fb), std::min(fa, fb)));
       reiniciarNoVerde(culpado, "colisao (regras 7.1)");
-      const std::vector<Estado>& r = vitima.carro->rastro();
-      if (r.size() > 80) vitima.carro->colocarEm(r[r.size() - 80]);   // o capitao recoloca o atingido onde estava ~1,6 s antes
+      reiniciarNoVerde(vitima, "colisao: o outro tambem volta ao verde", 0);   // colisao: OS DOIS voltam ao verde (so quem avancava mais perde pontos)
     }
   }
 };
