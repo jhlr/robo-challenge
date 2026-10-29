@@ -189,6 +189,7 @@ struct Mundo {
   std::vector<std::array<float, 3>> opQuadros;   // oponente em cada quadro gravado
   unsigned long long seed = 777;
   unsigned long prox[10] = {20000, 15000, 25000, 30000, 18000, 35000, 50000, 60000, 40000, 45000}, fimPatina = 0, fimAtraso = 0, fimMotor = 0;
+  bool assimetriaSorteada = false;
   unsigned long cooldownColisao = 0;
   int pegosPeloOponente = 0, colisoesOponente = 0, toquesEmCubos = 0, toquesPendentes = 0;
 
@@ -285,6 +286,7 @@ class Carro {
   Mundo* mundo() const { return mundo_; }
   void fatorRodas(double f) { fatorRodas_ = f; }          // patinagem / ganho das rodas (ruido)
   void atrasoLeitura(int ticks) { atrasoTicks_ = ticks; }  // atraso dos sensores RC em ciclos (ruido)
+  void assimetria(double esq, double dir) { aE_ = esq; aD_ = dir; }   // diferenca FIXA entre os dois motores (a partida inteira, ruido)
   void fatorLados(double esq, double dir) { fE_ = esq; fD_ = dir; }   // motor de um lado mais fraco (ruido)
   void prenderSensor(int i, bool preto, unsigned long ateMs) { presoAte_[i] = ateMs; presoValor_[i] = preto ? 1 : 0; }   // sensor RC preso (ruido)
   void ultrassomFalso(unsigned long ateMs, double mm) { usFalsoAte_ = ateMs; usFalsoMm_ = mm; }   // eco falso (mm > 0) ou perda de eco (-1) por um tempo (ruido)
@@ -463,7 +465,7 @@ class Carro {
     const double dt = f_.dtMs / 1000.0, k = 1.0 - exp(-f_.dtMs / f_.tauMs);
     vE_ += (alvoE_ - vE_) * k;
     vD_ += (alvoD_ - vD_) * k;
-    const double ve = vE_ * fE_, vd = vD_ * fD_;
+    const double ve = vE_ * fE_ * aE_, vd = vD_ * fD_ * aD_;
     const double v = (ve + vd) / 2.0 * fatorRodas_, w = (vd - ve) / f_.bitolaMm * f_.derrapagem * fatorRodas_;   // w > 0 = anti-horario (esquerda)
     aMmS2_ = (v - vMmS_) / dt;
     vMmS_ = v;
@@ -512,7 +514,7 @@ class Carro {
   int impulsoTicks_ = 0;
   bool levantado_ = false;
   Mundo* mundo_ = nullptr;
-  double fatorRodas_ = 1.0, fE_ = 1.0, fD_ = 1.0, extraVies_ = 0.0, usFalsoMm_ = 0.0;
+  double fatorRodas_ = 1.0, fE_ = 1.0, fD_ = 1.0, aE_ = 1.0, aD_ = 1.0, extraVies_ = 0.0, usFalsoMm_ = 0.0;
   unsigned long presoAte_[8] = {};
   int presoValor_[8] = {};
   unsigned long usFalsoAte_ = 0;
@@ -583,6 +585,12 @@ inline void Mundo::tick(Carro& c) {
   // --- ruido aleatorio: cada evento entra no log (a pagina mostra) e a mancha e desenhada. Cada tipo tem o seu relogio.
   for (Mancha& m : manchas)
     if (m.ate == static_cast<size_t>(-1) && t >= m.expiraMs) m.ate = c.quadro();
+  if (!assimetriaSorteada) {   // um motor sempre um pouco mais forte que o outro (3 a 10%): vale a partida inteira, e o carro puxa para um lado mesmo em reta
+    assimetriaSorteada = true;
+    const double a = (rnd() < 0.5 ? -1.0 : 1.0) * (0.03 + 0.07 * rnd());
+    c.assimetria(1.0 - a / 2.0, 1.0 + a / 2.0);
+    evento(t, fmt("RUIDO: ASSIMETRIA FIXA dos motores: o %s e %.0f%% mais forte (a partida inteira)", a > 0 ? "direito" : "esquerdo", fabs(a) * 100));
+  }
   auto agenda = [&](int k, unsigned long de, unsigned long ate) { prox[k] = t + de + static_cast<unsigned long>(rnd() * (ate - de)); };
   if (t >= prox[0]) {   // mancha de sujeira: parece linha
     const double dist = 200 + rnd() * 150, lat = (rnd() - 0.5) * 80;
@@ -1179,11 +1187,17 @@ struct Firmware {
     return vista;
   }
 
-  // Sobe ate a linha VERMELHA do alto (TCS do chao) e devolve o tempo andado (ms); quem chama sabe a distancia.
+  // Anda ate a linha VERMELHA na direcao atual (TCS do chao). Duas leituras seguidas (como no sketch): uma leitura errada isolada do TCS nao pode contar como a moldura,
+  // senao o y e a velocidade medidos saem errados.
+  void irAteVermelhoAndando(Carro& c) {
+    int seguidas = 0;
+    andarMm(c, 2000.0, [&] { seguidas = c.piso() == Pista::kPisoVermelho ? seguidas + 1 : 0; return seguidas >= 2; });
+  }
+  // Gira para o norte/sul e vai ate a linha VERMELHA; devolve o tempo andado (ms) (quem chama sabe a distancia).
   unsigned long irAteVermelho(Carro& c, bool norte) {
     girarPara(c, norte ? 90.0 : -90.0);
     const unsigned long t0 = c.agoraMs();
-    andarMm(c, 2000.0, [&] { return c.piso() == Pista::kPisoVermelho; });
+    irAteVermelhoAndando(c);
     return c.agoraMs() - t0;
   }
 
@@ -1192,7 +1206,9 @@ struct Firmware {
   // guardando onde esta cada cor. Daqui para a frente so coleta cor que tem plataforma. `yAtual` e atualizado (termina no slot de cima).
   void observarPlataformas(Carro& c, double& yAtual) {
     Mundo* m = c.mundo();
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    PLAT inicio descida: pos (%.0f,%.0f) rumo %.0f\n", c.estado().x, c.estado().y, rumo);
     const unsigned long ms = irAteVermelho(c, false);
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    PLAT fim descida: pos (%.0f,%.0f) ms %lu\n", c.estado().x, c.estado().y, ms);
     if (ms > 500) { velLivreMmS = static_cast<float>((kAlt - 80.0) / (ms / 1000.0)); velRetaMedida = true; }
     m->evento(c.agoraMs(), fmt("PLATAFORMAS: velocidade reta medida entre as molduras vermelhas = %.0f mm/s", velLivreMmS));
     yAtual = 40.0;   // com a barra na borda da faixa vermelha de baixo, o eixo esta ~40 mm acima dela
@@ -1261,7 +1277,7 @@ struct Firmware {
     // 2) acha a altura (y) SEM depender da pose estimada, que as vezes esta errada: sobe ate a linha VERMELHA do alto (TCS do chao: vermelho = para na hora) e conta a partir dela
     girarPara(c, 90.0);
     if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTREGAR subindo: rumo %.0f, real th %.0f, pos (%.0f,%.0f)\n", rumo, c.estado().th * 57.3, c.estado().x, c.estado().y);
-    andarMm(c, 2000.0, [&] { return c.piso() == Pista::kPisoVermelho; });
+    irAteVermelhoAndando(c);
     double yAtual = kAlt - 40.0;   // com a barra na borda da faixa vermelha, o eixo esta ~40 mm abaixo dela
     if (!nav.plataformasObservadas) observarPlataformas(c, yAtual);
     for (const seguidor::CorCubo cor : std::vector<seguidor::CorCubo>(nav.carga)) {
