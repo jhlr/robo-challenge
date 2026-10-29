@@ -74,7 +74,9 @@ inline Plan planAtCrossing(const PoseBelief& loc, const CubeBelief& cubes, float
   if (colSure && rowSure) return {decideAtCrossing(e.pose, cubes, visits, blocked), Mode::Collect};
   // The row is pinned by the red border (top/bottom), the column by the blue side lines: go to the edge that fixes the coordinate we lack (row first). The target may
   // be off the map: "keep going until the end of the street". Without the column branch the robot kept going up (which teaches the row, never the column) forever.
-  const Node anchor = !rowSure ? Node{e.pose.at.c, static_cast<int8_t>(e.pose.at.r + 1)} : Node{static_cast<int8_t>(e.pose.at.c + 1), e.pose.at.r};
+  Node anchor = !rowSure ? Node{e.pose.at.c, static_cast<int8_t>(e.pose.at.r + 1)} : Node{static_cast<int8_t>(e.pose.at.c + 1), e.pose.at.r};
+  // A cube on the street toward that border (we backed away from it): go to the OTHER border instead of walking back into it (the other red line pins the row down just the same).
+  if (!rowSure && inMap(anchor.c, anchor.r) && isBlocked(blocked, e.pose.at, anchor)) anchor = Node{e.pose.at.c, static_cast<int8_t>(e.pose.at.r - 1)};
   return {{anchor, turnToward(e.pose, anchor), false}, Mode::Anchor};
 }
 

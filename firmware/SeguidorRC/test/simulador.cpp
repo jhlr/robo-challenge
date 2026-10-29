@@ -1026,12 +1026,12 @@ struct Firmware {
         else {
           nav.aoPortao();
           // A barra para em cima da faixa azul e a barra/eixo ainda estao dentro dela: seguir a linha dali o fazia SEGUIR A AZUL como se fosse rua (subia ou descia por ela). Atravessa em
-          // frente, segurando o rumo pelo giroscopio, ate a barra sair da faixa (20 mm + folga da barra e do eixo).
-          andarMm(c, 90.0, [] { return false; });
+          // frente, segurando o rumo pelo giroscopio, ate a barra sair da faixa (20 mm + a barra a ~30 mm do eixo).
+          cruz = MemoriaCruzamento{};
+          comecarASair(cruz, c.agoraMs());   // o debounce conta desde ANTES de andar: o 1o cruzamento fica a ~90 mm do portao e nao pode ser engolido
+          andarMm(c, 40.0, [] { return false; });
           esquecerUltimoComando(memoria);
           memoria.perdeuEm = 0;
-          cruz = MemoriaCruzamento{};
-          comecarASair(cruz, c.agoraMs());
         }
       }
       return;
@@ -1150,6 +1150,7 @@ struct Firmware {
       medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a 302 mm
       if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
       else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
+      if ((a == 'L' || a == 'R') && !nav.loc.inGreen) olharAdiante(c);
       usAnt = -1.0f; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
       tSaidaMs = c.agoraMs();                          // daqui em diante conta o caminho andado na rua nova
       trechoRestante0 = (a == 'L' || a == 'R') ? kPasso - 40.0 : kPasso;   // depois de virar para o lado o eixo ja andou ~40 mm
@@ -1158,6 +1159,20 @@ struct Firmware {
     } else {
       comecarASair(cruz, c.agoraMs());
     }
+  }
+
+  // Depois de virar para uma rua do lado o EIXO ainda esta ~38 mm fora da linha dela e o cone do ultrassom (+-10 graus) passa ao lado de um cubo no meio da rua (a ~150 mm do
+  // cruzamento): ele so apareceria a poucos mm, tarde demais. Olha 35 graus para cada lado (o cubo esta no lado da rua) e, se ha eco perto, FICA apontado para ele: o tratamento
+  // de cubo (para, le a cor, coleta ou desvia) assume dali.
+  void olharAdiante(Carro& c) {
+    const float r0 = rumo;
+    double melhor = -1.0, melhorAng = 0.0;
+    for (const double ang : {35.0, -35.0}) {
+      girarPara(c, r0 + ang);
+      const double d = c.us();
+      if (d > 0.0 && (melhor < 0.0 || d < melhor)) { melhor = d; melhorAng = ang; }
+    }
+    girarPara(c, r0 + (melhor > 0.0 && melhor < 130.0 ? melhorAng : 0.0));
   }
 
   // Vira para a rua do lado. A barra para na BORDA da rua que cruza e o eixo ainda esta ~40 mm antes do centro: girar dali poe a rua a 40 mm do eixo,
@@ -1329,7 +1344,10 @@ struct Firmware {
     const bool sabeY = usarAlinhamento && !std::isnan(yAtual);   // NaN = entrou direto, sem subir ate o vermelho: a linha so se descobre contando cruzamentos
     if (sabeY) {
       const double yAlvo = yDoCruzamento(melhor);
-      if (fabs(yAlvo - yAtual) > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, fabs(yAlvo - yAtual), [] { return false; }); }
+      // A partida (zona morta + inercia) come ate ~40 mm de um deslocamento CURTO (a velocidade medida e a media de uma subida longa, que dilui isso): compensa so ate ~400 mm.
+      // Sem isto ele entrava na cidade ~40 mm ao lado da rua e a busca achava a faixa azul atras.
+      const double dyAbs = fabs(yAlvo - yAtual);
+      if (dyAbs > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, dyAbs + std::max(0.0, 40.0 - dyAbs / 10.0), [] { return false; }); }
     }
     girarPara(c, 0.0);
     core::initInGreen(nav.loc);
@@ -1616,7 +1634,10 @@ struct Firmware {
       c.comandar(cmd.esq, cmd.dir);
       velMmSAtual = ajC.velMmS;
       tick(c);
-      if (azulSeguidas == 0 && agora - cruzandoPortaoDesde > 150) {   // a azul acabou: atravessou o portao
+      // A azul acabou (150 ms depois): atravessou o portao. Mas a rua da linha pode ficar ao lado do eixo (a entrada erra uns 40 mm de y) e, sem linha na barra, a busca achava a faixa
+      // azul ATRAS (a mais perto) e a seguia como rua. Por isso continua em frente, segurando o rumo, ate algum sensor ver preto de novo (a rua) ou 150 mm a mais.
+      const bool algumPreto = p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7];
+      if (azulSeguidas == 0 && agora - cruzandoPortaoDesde > 150 && (algumPreto || agora - cruzandoPortaoDesde > 1300)) {
         cruzandoPortao = false;
         portoes++;
         portaoPendente = false;
@@ -1861,6 +1882,8 @@ struct Resultado {
 };
 
 static const char* gSvgDir = nullptr;
+static unsigned long long gSemente = 0;   // somada a semente do mundo: --lote varia o sorteio de cubos/ruido
+static struct { bool fim = false; int entregues = 0, pontos = 0, toques = 0; double tempoS = 0; } gUltimaMissao;   // resultado da ultima cenarioMissao (para --lote)
 
 // Placar de qualidade do seguimento (reta, cantos, arcos): para comparar uma mudanca na decisao antes e depois.
 static struct { int n = 0; double tempoS = 0, rms = 0, pior = 0; } gPlacar;
@@ -2211,6 +2234,7 @@ static PrecisaoMemoria precisaoMemoria(const Mundo& m, const core::CubeBelief& b
 // Monta a missao no tabuleiro: cubos de varias cores nas ruas, oponente andando, ruido (sinalizado) opcional, e o navegador ligado.
 static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool oponente, bool ruido) {
   using seguidor::CorCubo;
+  m.seed += gSemente * 7919ULL;
   // Plataformas do nosso ecoponto: o juiz poe de 1 a 5, cores distintas (aqui azul, vermelho, amarelo e preto, em marcas vizinhas); verde e marrom ficam SEM plataforma e valem como branco
   m.porPlataformas({{0.5, CorCubo::Azul}, {1.5, CorCubo::Vermelho}, {2.5, CorCubo::Amarelo}, {3.5, CorCubo::Preto}});   // 4 plataformas CENTRADAS entre as bordas, equidistantes (260 mm)
   m.semearRegras(ncubos);
@@ -2251,6 +2275,7 @@ static Resultado cenarioMissao(bool ruido, int meta) {
     for (const Estado& e : c.rastro()) { const bool t = e.y > kAlt - 90, b = e.y < 90, l = e.x < -430; topo += t; base += b; esq += l; perto += t || b || l; }
     fprintf(stderr, "    VERMELHO: %.0f%% do tempo perto das molduras (topo %.0f%%, base %.0f%%, esquerda %.0f%%) de %.0f s\n", 100.0 * perto / c.rastro().size(), 100.0 * topo / c.rastro().size(), 100.0 * base / c.rastro().size(), 100.0 * esq / c.rastro().size(), c.agoraMs() / 1000.0);
   }
+  gUltimaMissao = {fim, fw.nav.entregues, fw.nav.pontos, m.toquesEmCubos, c.agoraMs() / 1000.0};
   const PrecisaoMemoria pm = precisaoMemoria(m, fw.nav.cubos);
   if (getenv("SIM_DEBUG")) fprintf(stderr, "    MEMORIA: acertou %d, achou cubo onde nao ha %d, nao lembra de %d (de %d ruas)\n", pm.certo, pm.falsoPositivo, pm.perdeu, pm.total);
   return {ruido ? "missao completa com ruido: explora, coleta, entrega" : "missao completa: explora, coleta, entrega", fim,
@@ -2776,6 +2801,21 @@ int main(int argc, char** argv) {
     if (!eq) {
       if (!strcmp(argv[i], "-q")) gSo_Placar = true;
       else if (!strcmp(argv[i], "--servir")) servirAoVivo = true;
+      else if (!strcmp(argv[i], "--lote") || !strcmp(argv[i], "--lote-ruido")) {   // missao so com o nosso robo em N sorteios: mede em vez de olhar uma partida so (e caotica)
+        const bool ruido = !strcmp(argv[i], "--lote-ruido");
+        const int n = i + 1 < argc ? atoi(argv[i + 1]) : 10;
+        int ok = 0, toques = 0, entregues = 0;
+        double tempo = 0;
+        for (int k = 0; k < n; k++) {
+          gSemente = static_cast<unsigned long long>(k);
+          if (getenv("SIM_SO") && atoi(getenv("SIM_SO")) != k) continue;
+          cenarioMissao(ruido, 2);
+          printf("semente %2d: %s | entregou %d | pontos %4d | toques em cubos %d | %.0f s\n", k, gUltimaMissao.fim ? "META" : "falhou", gUltimaMissao.entregues, gUltimaMissao.pontos, gUltimaMissao.toques, gUltimaMissao.tempoS);
+          ok += gUltimaMissao.fim; toques += gUltimaMissao.toques; entregues += gUltimaMissao.entregues; tempo += gUltimaMissao.tempoS;
+        }
+        printf("LOTE %s: %d de %d chegaram a meta | %.1f entregas e %.1f toques em cubos por partida | %.0f s em media\n", ruido ? "com ruido" : "sem ruido", ok, n, double(entregues) / n, double(toques) / n, tempo / n);
+        return 0;
+      }
       else gSvgDir = argv[i];
       continue;
     }

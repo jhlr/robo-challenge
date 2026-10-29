@@ -246,6 +246,25 @@ void test_plan_anchors_the_column_when_only_the_column_is_unsure() {
   TEST_ASSERT_TRUE(up.move.turn == core::Turn::Left);          // north is a left turn from east
 }
 
+// Anchoring north (the row is unsure) over a street that a cube blocks would have the robot go back to it forever (it touched the cube each time): go south to the other red border.
+void test_plan_anchors_the_other_way_when_the_street_to_anchor_is_blocked() {
+  core::PoseBelief b;
+  memset(b.p, 0, sizeof(b.p));
+  b.inGreen = false;
+  b.atGate = false;
+  b.p[3][2][0] = 0.5f;   // column 3 for sure, row 2 or 4
+  b.p[3][4][0] = 0.5f;
+  core::CubeBelief cubes;
+  for (int c = 0; c < core::kMapCols; ++c) for (int r = 0; r < core::kMapRows; ++r) cubes.east[c][r] = cubes.north[c][r] = 0.0f;
+  core::Blocked blocked;
+  core::clearBlocked(blocked);
+  const core::Plan open = core::planAtCrossing(b, cubes, core::kMinCoordBelief, nullptr, &blocked);
+  TEST_ASSERT_TRUE(open.move.turn == core::Turn::Left);        // heading east: north is a left turn
+  blocked.north[3][2] = true;                                  // a cube on the street above (3,2)
+  const core::Plan around = core::planAtCrossing(b, cubes, core::kMinCoordBelief, nullptr, &blocked);
+  TEST_ASSERT_TRUE(around.mode == core::Mode::Anchor);
+  TEST_ASSERT_TRUE(around.move.turn == core::Turn::Right);     // south instead
+}
 
 void test_forget_never_raises_a_street_seen_empty() {
   const core::BeliefModel m;
@@ -656,6 +675,7 @@ int main() {
   RUN_TEST(test_exploration_replaces_first_street_when_nothing_likely);
   RUN_TEST(test_delivery_walks_to_column_zero_then_out_the_gate);
   RUN_TEST(test_plan_anchors_the_column_when_only_the_column_is_unsure);
+  RUN_TEST(test_plan_anchors_the_other_way_when_the_street_to_anchor_is_blocked);
   RUN_TEST(test_forget_never_raises_a_street_seen_empty);
   RUN_TEST(test_exploration_goes_to_where_nobody_looked_not_to_known_empty);
   RUN_TEST(test_empty_streets_are_a_normal_way_unless_a_penalty_is_asked);
