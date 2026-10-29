@@ -14,7 +14,7 @@ struct AjustesCruzamento {
 
   // Para saber se a linha sumida e fim de beco. CHUTES: meca e corrija.
   float velMmS = 250.0f;                 // velocidade real andando reto com velReto
-  float becoMm = 127.0f;                 // comprimento do beco depois do ultimo cruzamento (medido na imagem do mapa)
+  float becoMm = 168.0f;                 // comprimento do beco depois do ultimo cruzamento (medido na imagem do mapa)
   float toleranciaBecoPct = 0.4f;        // quanto o tempo de andar o beco pode variar e ainda contar como beco
 };
 

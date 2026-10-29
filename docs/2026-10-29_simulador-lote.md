@@ -27,3 +27,11 @@ Com ruido aleatorio (`--lote-ruido 12`, ruido propositalmente alto): 0 de 12.
 - 4 de 12 sementes terminam com 1 entrega em 601 s (presas depois da 1a entrega ou ancorando).
 - Ancorar com a linha desconhecida assume a linha 0; a correcao do nucleo (`core::planAtCrossing` vai a outra moldura quando a rua esta bloqueada) ainda nao e usada pela
   logica propria de ANCORAR do simulador (`Navegador::aoCruzamento`). Virar o sentido ali simplesmente piorou, entao nao foi aplicado.
+
+## Atualizacao 2026-10-29 (tarde): mapa de rua de 40 cm e varredura parada das plataformas
+
+- Mapa: passo 400 mm, becos 168 mm, ecoponto 291 mm, verde 371 mm (becos/ecoponto/verde: medidas da imagem na escala 400/302; so o passo veio de medida do usuario). Lote de 12 sementes sem ruido: 12 de 12 na meta, 259 s.
+- Plataformas: o carro vai ao meio do mapa, chega a ~170 mm da face e varre -36..+36 graus com o ultrassom (Pitagoras: face = alcance x cos; centro de cada trecho com eco = distancia x tan do meio do trecho). A 250 mm o cone (+-10) fechava o vao de 100 mm. So a primeira entrega sobe ao topo (unica medida de velocidade em reta com distancia conhecida).
+- Cubos: memoria do eco (um eco perto que some por causa do balanco do carro vale como "eco menos o que andou"; se o carro esta torto, realinha com a rua e le de novo). Toques em cubos: 2,0 -> 0,2 por partida.
+- Varredura nos cruzamentos: com pose segura e cruzamento esperado, so gira para o lado cuja rua ainda nao foi medida (as duas medidas: nao gira; so uma: gira uma vez). 30 sementes: 25/30 na meta nos dois casos, 283 s contra 288 s.
+- Falhas que restam (~5 em 30): o carro carregando fica preso num falso alarme no mesmo ponto (ex. semente 11, (1474, 230)); nao investigado.
