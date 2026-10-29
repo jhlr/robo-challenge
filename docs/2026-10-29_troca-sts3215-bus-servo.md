@@ -59,3 +59,8 @@ Conferido no SCServo: `Mode()` escreve o registrador 33 direto, sem unlock; so a
 - Direction is automatic: Q1 turns on when the host TX line goes low, which enables the bus driver (U3); with TX idle high the bus is routed to RXD (U4). The ESP32 TX must idle high (Serial2.begin does that); no echo of the host's own bytes returns.
 - Servo ports H3/H5: pin 1 = DC_IN0 (through D2), pin 2 = DATA, pin 3 = GND. The servo cable order must match.
 - Bench: with jumper A and TX->TXD, RX<-RXD, the official-library scan (ids 0-253, 6 bauds) still got no reply, and the servo LED blinks (alarm). Remaining suspects: servo cable order/seating at H3/H5, a servo in alarm/fault.
+
+## RESOLVED on the bench (2026-10-29): servos answer
+- Cause: a bad cable (replaced) plus the wiring. Working setup = wiki + schematic: jumper A, ESP32 GPIO17 (TX) -> adapter TXD, GPIO16 (RX) <- adapter RXD, GND-GND, official SCServo at 1 Mbaud on Serial2. The handoff's crossed wiring and jumper B were wrong for this board.
+- Scan (ids 0-253, 6 bauds): ids 1 and 2 at 1 Mbaud. Ping/readback: id 1 pos ~1700, id 2 pos ~3630, both mode 1 (wheel), 12.0 V. Id 3 (shoulder) not on the bus yet.
+- Next: connect the third STS3215 ALONE (factory id 1 would collide with the wheel servo 1), set its id to 3 (official ProgramEprom sequence), then the shoulder's first small delta (`d 5`), and the wheel direction signs.
