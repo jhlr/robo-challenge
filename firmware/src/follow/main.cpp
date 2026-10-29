@@ -15,8 +15,8 @@ enum class State { Follow, Advance, Settle, Turn };
 #if defined(CAR_DC)
 hal::DcDrive drive;
 #else
-sts::Bus bus;
-hal::StsDrive drive(bus);
+SMS_STS st;
+hal::StsDrive drive(st);
 #endif
 hal::LineArray line8;
 hal::ColorSensor floorColor;
@@ -72,7 +72,7 @@ bool turnDone() {
 void setup() {
   Serial.begin(115200);
 #if !defined(CAR_DC)
-  bus.begin(Serial2, pins::kStsRx, pins::kStsTx, params::kStsEchoes);
+  hal::beginStsBus(st);
 #endif
   line8.begin();
   hal::beginBuses();

@@ -11,8 +11,8 @@ namespace {
 #if defined(CAR_DC)
 hal::DcDrive drive;
 #else
-sts::Bus bus;
-hal::StsDrive drive(bus);
+SMS_STS st;
+hal::StsDrive drive(st);
 #endif
 hal::LineArray line8;
 hal::Ultrasonic sonar;
@@ -89,21 +89,27 @@ void handle(const String& cmd) {
     case 'h': help(); break;
 #if !defined(CAR_DC)
     case 'p':
-      for (uint8_t id = params::kIdLeft; id <= params::kIdShoulder; ++id) Serial.printf("id %u: %s\n", id, bus.ping(id) ? "OK" : "no reply");
+      for (uint8_t id = params::kIdLeft; id <= params::kIdShoulder; ++id) Serial.printf("id %u: %s\n", id, st.Ping(id) != -1 ? "OK" : "no reply");
       break;
     case 'i':
-      Serial.println(sscanf(cmd.c_str() + 1, "%d %d", &a, &b) == 2 && bus.setId(a, b) ? "ok (power-cycle not needed; p to confirm)" : "fail");
+      if (sscanf(cmd.c_str() + 1, "%d %d", &a, &b) == 2) {  // official ProgramEprom sequence
+        st.unLockEprom(a);
+        st.writeByte(a, SMS_STS_ID, b);
+        st.LockEprom(b);
+        Serial.println("done, p to confirm");
+      } else {
+        Serial.println("usage: i <old> <new>");
+      }
       break;
     case 'm':
       a = cmd.substring(1).toInt();
-      Serial.println(bus.setMode(a, sts::Mode::Servo) && bus.setTorque(a, true) ? "ok" : "fail");
+      Serial.println(st.writeByte(a, SMS_STS_MODE, 0) && st.EnableTorque(a, 1) ? "ok" : "fail");
       break;
     case 't': {
       sscanf(cmd.c_str() + 1, "%d %d", &a, &b);
-      uint16_t pos = 0;
-      const bool ok = bus.moveTo(a, constrain(b, 0, 4095), 800, 30);
+      const bool ok = st.WritePosEx(a, constrain(b, 0, 4095), 800, 30) != 0;
       delay(400);
-      Serial.printf("%s, now at %s\n", ok ? "ok" : "fail", bus.readPosition(a, pos) ? String(pos).c_str() : "?");
+      Serial.printf("%s, now at %d\n", ok ? "ok" : "fail", st.ReadPos(a));
       break;
     }
 #endif
@@ -144,7 +150,7 @@ void setup() {
   Serial.begin(115200);
   delay(300);
 #if !defined(CAR_DC)
-  bus.begin(Serial2, pins::kStsRx, pins::kStsTx, params::kStsEchoes);
+  hal::beginStsBus(st);
 #endif
   line8.begin();
   sonar.begin();
@@ -155,7 +161,7 @@ void setup() {
   // Servos attach AFTER the I2C buses: the bench wiring puts the claw signal on GPIO13, which shares a pin with the floor-sensor I2C (Wire1) in the bench wiring.
   claw.begin(pins::kClaw);
 #if !defined(CAR_DC)
-  Serial.printf("shoulder STS id %u: %s\n", params::kIdShoulder, shoulderBegin(bus) ? "ok" : "no reply");
+  Serial.printf("shoulder STS id %u: %s\n", params::kIdShoulder, shoulderBegin(st) ? "ok" : "no reply");
 #endif
   help();
 }

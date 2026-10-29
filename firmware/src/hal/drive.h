@@ -1,9 +1,12 @@
 #pragma once
 #include <Arduino.h>
 
-#include "hal/sts.h"
+#include <SCServo.h>
 // One drive interface for the two cars being compared: STS3215 on the gear-train laterals (encoders) and yellow TT DC motors through an H-bridge (no encoders).
 namespace hal {
+
+// Official SCServo (Waveshare adapter does the half-duplex direction): UART2 on pins::kStsRx/kStsTx at 1 Mbaud.
+void beginStsBus(SMS_STS& st);
 
 class Drive {
  public:
@@ -19,7 +22,7 @@ class Drive {
 // STS3215 in wheel mode, one per lateral; the position counter (12 bit, unwrapped here) gives odometry through params::kGearRatio.
 class StsDrive : public Drive {
  public:
-  explicit StsDrive(sts::Bus& bus) : bus_(bus) {}
+  explicit StsDrive(SMS_STS& st) : st_(st) {}
   void begin() override;
   void setSpeeds(float left, float right) override;
   bool hasEncoders() const override { return true; }
@@ -29,7 +32,7 @@ class StsDrive : public Drive {
 
  private:
   void poll();
-  sts::Bus& bus_;
+  SMS_STS& st_;
   uint16_t lastL_ = 0, lastR_ = 0;
   float mmL_ = 0.0f, mmR_ = 0.0f;  // signed wheel travel, forward positive
 };

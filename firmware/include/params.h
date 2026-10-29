@@ -14,7 +14,6 @@ constexpr int kRightSign = +1;
 constexpr int kLeftSign = +1;
 constexpr int kRightSign = -1;
 #endif
-constexpr bool kStsEchoes = false;  // true if TX and RX share one wire without an adapter
 
 // Shoulder: servo angle = center + sign * ratio * arm_angle. Assemble with the servo at kShoulderCenterDeg and the bars horizontal (alpha = 0): that is the tooth mesh phase.
 // Arm angles: pick -9.8, mid -16, place +25.5 deg (cad/braco/params.json) -> servo 148, 173, 7 deg.

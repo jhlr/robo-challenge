@@ -1,0 +1,2 @@
+Vendored from https://github.com/waveshare/Servo-Driver-with-ESP32 (SCServo/, MIT, see LICENSE). Official Feetech/Waveshare bus servo library.
+Only change: SCSCL.{h,cpp} (SCS-series servos, unused here) removed, with its #include in SCServo.h, because it emits -Wunused-but-set-parameter and this project fixes warnings at the cause. The STS3215 uses SMS_STS only.

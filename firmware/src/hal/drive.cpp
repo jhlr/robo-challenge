@@ -8,9 +8,14 @@ namespace hal {
 
 #if !defined(CAR_DC)
 // ---- STS3215 ----
+void beginStsBus(SMS_STS& st) {
+  Serial2.begin(1000000, SERIAL_8N1, pins::kStsRx, pins::kStsTx);
+  st.pSerial = &Serial2;
+}
+
 void StsDrive::begin() {
-  bus_.setMode(params::kIdLeft, sts::Mode::Wheel);
-  bus_.setMode(params::kIdRight, sts::Mode::Wheel);
+  st_.WheelMode(params::kIdLeft);
+  st_.WheelMode(params::kIdRight);
   setSpeeds(0.0f, 0.0f);
   resetTravel();
 }
@@ -18,22 +23,24 @@ void StsDrive::begin() {
 void StsDrive::setSpeeds(float left, float right) {
   const int l = static_cast<int>(constrain(left, -1.0f, 1.0f) * params::kStsMaxSteps);
   const int r = static_cast<int>(constrain(right, -1.0f, 1.0f) * params::kStsMaxSteps);
-  bus_.setWheelSpeeds(params::kIdLeft, params::kLeftSign * l, params::kIdRight, params::kRightSign * r);
+  st_.WriteSpe(params::kIdLeft, params::kLeftSign * l);
+  st_.WriteSpe(params::kIdRight, params::kRightSign * r);
 }
 
 void StsDrive::resetTravel() {
   mmL_ = mmR_ = 0.0f;
-  bus_.readPosition(params::kIdLeft, lastL_);
-  bus_.readPosition(params::kIdRight, lastR_);
+  const int l = st_.ReadPos(params::kIdLeft), r = st_.ReadPos(params::kIdRight);
+  if (l >= 0) lastL_ = l;
+  if (r >= 0) lastR_ = r;
 }
 
 void StsDrive::poll() {
-  uint16_t l, r;
-  if (bus_.readPosition(params::kIdLeft, l)) {
+  const int l = st_.ReadPos(params::kIdLeft), r = st_.ReadPos(params::kIdRight);
+  if (l >= 0) {
     mmL_ += params::kLeftSign * core::mmForCounts(core::wrapDelta(lastL_, l), params::kWheelDiaMm, params::kGearRatio);
     lastL_ = l;
   }
-  if (bus_.readPosition(params::kIdRight, r)) {
+  if (r >= 0) {
     mmR_ += params::kRightSign * core::mmForCounts(core::wrapDelta(lastR_, r), params::kWheelDiaMm, params::kGearRatio);
     lastR_ = r;
   }

@@ -40,3 +40,9 @@ Conferido no SCServo: `Mode()` escreve o registrador 33 direto, sem unlock; so a
 - Esquematico do adaptador (nivel logico, silk TX/RX).
 - Medir razao de engrenagem e bitola, tensao dos servos (7,4 V ou 12 V) e a fonte.
 - Working tree tem edicoes de bancada nao commitadas (ombro PWM em `shoulder.*`, `params.h`, `pins.h`, bringup, sensors): nao misturar com esta troca.
+
+## Update (2026-10-29, bench): official library adopted, servo not answering yet
+- Rule 3.3 (do not reinvent the wheel): `hal/sts.{h,cpp}` removed; the firmware now uses the official SCServo (`SMS_STS`), vendored in `firmware/lib/SCServo` (MIT, see `VENDORED.txt`; unused `SCSCL` removed because it warns). `hal::beginStsBus` (Serial2, 1 Mbaud, pins 16/17) is the single owner of the bus setup; `StsDrive`, `shoulder.*`, `bringup` and `follow` call `SMS_STS` directly. ID change = the official ProgramEprom sequence (`unLockEprom`, `writeByte(SMS_STS_ID)`, `LockEprom`).
+- Shoulder begin follows Waveshare's own `setMode(servo)`: unlock, max angle limit (reg 11) = 4095, mode 0, lock. A servo left in wheel/motor mode has limit 0 and would not move.
+- Bench result: with the official library, ping of ids 0-253 at 1M/500k/250k/115200/57600/38400 baud and both wirings of GPIO16/17 got ZERO replies. So it is not the driver, the id or the baud: power (9-12.6 V on the adapter), jumper A, common GND, servo cable, or the adapter's logic level.
+- The ESP32 also showed a serial flood of garbage (repeating 16-byte pattern) with the adapter wired: same symptom as the 2026-10-28 handoff (signal wire on the board corrupts UART0 / boot loop). Suspect: adapter signal lines idling at 5 V into 3.3 V GPIOs, or a power back-feed. To check with a multimeter before wiring again.
