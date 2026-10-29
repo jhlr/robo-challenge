@@ -25,10 +25,10 @@ core::Cor corAnterior = core::DESCONHECIDA, corAceita = core::DESCONHECIDA, corB
 MemoriaCor memCor;
 
 // --- MPU6050 (inercial.h): rumo ancorado na grade, levantado/reposicionado, travado, colisao, lacuna segurando o rumo, calibracao dos motores.
-// Desligado ate ligar o sensor: -DUSA_IMU=1 -DIMU_SDA=<pino> -DIMU_SCL=<pino> (livres: a ponte H ja usa 11-14, 21, 38 e 47). Bitola/eixos: confira o sinal de
-// kSinalGz (+ = anti-horario com o MPU de cabeca para cima) girando o robo a mao para a esquerda e olhando o rumo no Monitor Serial.
+// Fiacao de bancada (2026-10-29, MPU removido para a instalacao dos sensores; ligue com USA_IMU 1): VCC = GPIO42, GND = GPIO41, SCL = GPIO40, SDA = GPIO39 (4 pinos seguidos, na ordem do modulo; GPIO15-18 sao da garra/ombro/ponte do firmware do braco, em include/pins.h; VCC e GND vem de GPIOs, ver iniciarAlimentacaoImu). 
+// Bitola/eixos: confira o sinal de kSinalGz (+ = anti-horario com o MPU de cabeca para cima) girando o robo a mao para a esquerda e olhando o rumo no Monitor Serial.
 #ifndef USA_IMU
-#define USA_IMU 0
+#define USA_IMU 0   // 1 quando o MPU estiver instalado (sem ele o setup espera o sensor para sempre)
 #endif
 #if USA_IMU
 #include <Adafruit_MPU6050.h>
@@ -36,12 +36,20 @@ MemoriaCor memCor;
 
 #include "../../../src/core/yaw.h"   // dono da integracao do giroscopio (viés + dt)
 #ifndef IMU_SDA
-#define IMU_SDA -1
-#define IMU_SCL -1
+#define IMU_SDA 39
+#define IMU_SCL 40
 #endif
+// O modulo e alimentado por GPIOs (nivel constante): VCC = alto, GND = baixo. Um GPIO entrega ~40 mA, de sobra para o MPU6050 (~4 mA).
+// AD0 fica solto: o modulo GY-521 tem pull-down, entao o endereco e 0x68.
+constexpr int kImuVcc = 42, kImuGnd = 41;   // GPIO39-42 so servem de JTAG se voce o ligar
 static_assert(IMU_SDA >= 0 && IMU_SCL >= 0, "defina os pinos do MPU6050 (-DIMU_SDA=.. -DIMU_SCL=..)");
 constexpr float kSinalGz = 1.0f;
-constexpr bool kCalibrarMotores = true;   // no setup, gira no eixo sozinho (~2 s) e mede zona morta e graus por segundo
+// 1 = SO o MPU: setup mede o vies e para (sem calibrar motores nem a barra), loop so imprime rumo/giro/aceleracao; os motores nunca recebem comando. 0 = sketch completo.
+#ifndef SO_TESTE_IMU
+#define SO_TESTE_IMU 1
+#endif
+constexpr bool kCalibrarMotores = true;
+constexpr bool kCompensarAssimetria = true;   // anda ~150 mm para tras e para frente no setup (espaco livre) para igualar a forca dos dois motores   // no setup, gira no eixo sozinho (~2 s) e mede zona morta e graus por segundo
 Adafruit_MPU6050 mpu;
 AjustesInercial ajustesInercial;
 Imu imu = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -109,6 +117,13 @@ Exploracao exploracao;   // cruzamentos ja visitados (relativos a partida): vira
 int cruzamentos = 0;
 
 #if USA_IMU
+// Liga o MPU6050 pelos GPIOs e espera ele subir (GND primeiro, VCC depois).
+void iniciarAlimentacaoImu() {
+  pinMode(kImuGnd, OUTPUT); digitalWrite(kImuGnd, LOW);
+  pinMode(kImuVcc, OUTPUT); digitalWrite(kImuVcc, HIGH);
+  delay(100);
+}
+
 // Le o MPU e integra o rumo (com o vies medido parado, e corrigido nas retas).
 void lerImu() {
   sensors_event_t a, g, t;
@@ -357,6 +372,7 @@ void setup() {
 #endif
 
 #if USA_IMU
+  iniciarAlimentacaoImu();
   Wire.begin(IMU_SDA, IMU_SCL);
   while (!mpu.begin()) { dbg.println("!!! MPU6050 nao respondeu, tentando de novo..."); delay(1000); }
   dbg.println("Medindo o vies do giroscopio: nao mexa no robo (1 s)");
@@ -369,6 +385,29 @@ void setup() {
   }
   viesGz = vies.bias();
   ultimoImuMs = millis();
+#if SO_TESTE_IMU
+  parar(ponte);
+  dbg.println("TESTE SO DO MPU: motores desligados. Gire o robo a mao: rumo (graus, + = esquerda), giro (graus/s), aceleracao (g).");
+  return;
+#endif
+  if (kCompensarAssimetria) {   // 3 rodadas curtas de re/frente (~150 mm cada) com o MESMO PWM nos dois lados: o giroscopio diz para que lado o carro puxa e o lado fraco ganha forca
+    AjustesAssimetria aa;
+    aa.pwm = ajustes.velReto;
+    aa.bitolaMm = ajustes.bitolaMm;
+    aa.velMmS = ajustesCruzamento.velMmS;
+    Assimetria assim;
+    definirCompensacao({1.0f, 1.0f});
+    ComandoAssimetria k;
+    do {
+      lerImu();
+      k = passoAssimetria(assim, imu.gzRadS - viesGz, millis(), aa);
+      mover(ponte, k.esq, k.dir);
+      delay(5);
+    } while (!k.terminou);
+    parar(ponte);
+    if (assim.fase == Assimetria::Pronto) definirCompensacao({assim.ganhoEsq, assim.ganhoDir});
+    dbg.printf("assimetria dos motores: esquerda x%.3f, direita x%.3f (%s)\n", assim.ganhoEsq, assim.ganhoDir, assim.fase == Assimetria::Pronto ? "ok" : "FALHOU: sem compensacao");
+  }
   if (kCalibrarMotores) {   // gira no eixo ate o giroscopio acusar: zona morta e graus por segundo de verdade
     Calibracao cal;
     AjustesCalibracao ac;
@@ -406,6 +445,15 @@ void setup() {
 void loop() {
 #if USA_BLE
   ble.atualizar();
+#endif
+#if SO_TESTE_IMU
+  static unsigned long ultimoPrintMs = 0;
+  lerImu();
+  if (millis() - ultimoPrintMs >= 200) {
+    ultimoPrintMs = millis();
+    dbg.printf("rumo=%7.1f graus | giro=%7.1f graus/s | acel x=%5.2f y=%5.2f z=%5.2f g\n", rumo, (imu.gzRadS - viesGz) * 57.29578f, imu.ax, imu.ay, imu.az);
+  }
+  return;
 #endif
   if (parado) { parar(ponte); return; }
   ler(barra);

@@ -9,11 +9,13 @@
 //   cruzamento.h   detecta o cruzamento (S1 e S8 no preto)     (so conta, nao usa pinos nem millis())
 //   saude.h        marca sensor preto por tempo demais           (so conta, nao usa pinos nem millis())
 //   inercial.h     MPU6050: rumo ancorado na grade, levantado/reposicionado, travado, colisao, lacuna (so conta)
+//   assimetria.h   mede a diferenca entre os motores andando em reta com o giroscopio e da o ganho do lado fraco (so conta)
 //   calibracao.h   mede zona morta e graus por segundo girando no eixo com o giroscopio (so conta)
 //   ponte_h.h      manda a velocidade para a ponte TB6612FNG   (usa pinos)
 // Cada peca funciona sozinha; o sketch liga uma na outra (veja examples/SeguidorBasico).
 #include "seguidor/alvo.h"
 #include "seguidor/borda.h"
+#include "seguidor/assimetria.h"
 #include "seguidor/calibracao.h"
 #include "seguidor/cruzamento.h"
 #include "seguidor/decisao.h"

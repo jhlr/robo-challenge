@@ -12,6 +12,12 @@ struct PinosPonteH {
 
 void iniciar(const PinosPonteH& pinos, int frequenciaPwmHz = 20000);   // 20 kHz: fora da faixa audivel
 
+// Compensacao da assimetria dos motores (ver assimetria.h): o PWM de cada lado e multiplicado por este ganho (>= 1 no lado fraco, 1 no forte) e limitado em 255. Vale para todo mover().
+struct CompensacaoMotores {
+  float esq = 1.0f, dir = 1.0f;
+};
+void definirCompensacao(const CompensacaoMotores& compensacao);
+
 // Velocidade -255 a 255, positivo = frente.
 void mover(const PinosPonteH& pinos, int velEsq, int velDir);
 

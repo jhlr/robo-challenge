@@ -19,7 +19,16 @@ void motor(int in1, int in2, int pwm, int vel) {
   analogWrite(pwm, vel);
 }
 
+CompensacaoMotores gCompensacao;
+
+int comGanho(int vel, float ganho) {
+  const float v = vel * ganho;
+  return v > 255.0f ? 255 : v < -255.0f ? -255 : static_cast<int>(v);
+}
+
 }  // namespace
+
+void definirCompensacao(const CompensacaoMotores& compensacao) { gCompensacao = compensacao; }
 
 void iniciar(const PinosPonteH& p, int frequenciaPwmHz) {
   const int saidas[] = {p.ain1, p.ain2, p.pwma, p.bin1, p.bin2, p.pwmb, p.stby};
@@ -33,8 +42,8 @@ void iniciar(const PinosPonteH& p, int frequenciaPwmHz) {
 }
 
 void mover(const PinosPonteH& p, int velEsq, int velDir) {
-  motor(p.ain1, p.ain2, p.pwma, velEsq);
-  motor(p.bin1, p.bin2, p.pwmb, velDir);
+  motor(p.ain1, p.ain2, p.pwma, comGanho(velEsq, gCompensacao.esq));
+  motor(p.bin1, p.bin2, p.pwmb, comGanho(velDir, gCompensacao.dir));
 }
 
 void parar(const PinosPonteH& p) {

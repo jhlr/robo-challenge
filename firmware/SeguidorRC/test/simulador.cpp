@@ -30,6 +30,7 @@
 #include "../../src/core/map.h"
 #include "../../src/core/navigator.h"
 #include "seguidor/alvo.h"
+#include "seguidor/assimetria.h"
 #include "seguidor/borda.h"
 #include "seguidor/calibracao.h"
 #include "seguidor/inercial.h"
@@ -288,6 +289,7 @@ class Carro {
   Mundo* mundo() const { return mundo_; }
   void fatorRodas(double f) { fatorRodas_ = f; }          // patinagem / ganho das rodas (ruido)
   void atrasoLeitura(int ticks) { atrasoTicks_ = ticks; }  // atraso dos sensores RC em ciclos (ruido)
+  double gE_ = 1.0, gD_ = 1.0;   // ganho da compensacao dos motores (firmware -> ponte)
   void assimetria(double esq, double dir) { aE_ = esq; aD_ = dir; }   // diferenca FIXA entre os dois motores (a partida inteira, ruido)
   void fatorLados(double esq, double dir) { fE_ = esq; fD_ = dir; }   // motor de um lado mais fraco (ruido)
   void prenderSensor(int i, bool preto, unsigned long ateMs) { presoAte_[i] = ateMs; presoValor_[i] = preto ? 1 : 0; }   // sensor RC preso (ruido)
@@ -466,7 +468,10 @@ class Carro {
     return pista_.distancia((x + x2) / 2, (y + y2) / 2);
   }
 
-  void comandar(int esq, int dir) { alvoE_ = alvo(esq); alvoD_ = alvo(dir); }
+  // Compensacao dos motores (aumenta a forca do lado fraco), como definirCompensacao() da ponte H real: multiplica o PWM e limita em 255.
+  void compensar(double esq, double dir) { gE_ = esq; gD_ = dir; }
+  static int comGanho(int pwm, double g) { const double v = pwm * g; return static_cast<int>(v > 255 ? 255 : v < -255 ? -255 : v); }
+  void comandar(int esq, int dir) { alvoE_ = alvo(comGanho(esq, gE_)); alvoD_ = alvo(comGanho(dir, gD_)); }
   void parar() { alvoE_ = alvoD_ = 0; }
 
   // Passa um ciclo (dtMs) com o comando atual.
@@ -983,6 +988,30 @@ struct Firmware {
   // ---- MPU (inercial.h). Desligado por padrao: os cenarios antigos rodam como antes.
   bool usaImu = false, usaAncora = true;
   AjustesInercial ai;
+  Assimetria assimMpu;      // ganhos medidos pelo giroscopio em reta no inicio (1,1 = nao mediu)
+  bool compensarMotores = true;
+  void aplicarCompensacao(Carro& c) const {
+    if (!compensarMotores) { c.compensar(1.0, 1.0); return; }
+    c.compensar(assimMpu.ganhoEsq, assimMpu.ganhoDir);
+  }
+  // No verde, parado: 3 rodadas curtas de re/frente com o MESMO PWM nos dois lados; o giroscopio diz para que lado o carro puxa e o lado fraco ganha forca.
+  void calibrarAssimetria(Carro& c) {
+    if (!usaImu || !compensarMotores) return;
+    AjustesAssimetria aj;
+    aj.pwm = ajustes.velReto; aj.velMmS = ajC.velMmS; aj.bitolaMm = ajustes.bitolaMm;
+    assimMpu = Assimetria{};
+    c.compensar(1.0, 1.0);
+    ComandoAssimetria k{0, 0, false};
+    for (int i = 0; i < 8000 && !k.terminou; i++) {
+      k = passoAssimetria(assimMpu, ultimoImu.gzRadS - vies, c.agoraMs(), aj);
+      c.comandar(k.esq, k.dir);
+      tick(c);
+    }
+    c.parar();
+    if (assimMpu.fase != Assimetria::Pronto) assimMpu = Assimetria{};
+    aplicarCompensacao(c);
+    if (c.mundo()) c.mundo()->evento(c.agoraMs(), fmt("ASSIMETRIA dos motores (giroscopio em reta): esquerda x%.3f, direita x%.3f", assimMpu.ganhoEsq, assimMpu.ganhoDir));
+  }
   float rumo = 0.0f, vies = 0.0f;   // rumo em graus (+ esquerda, 0 = de frente); vies em rad/s (estimado parado no inicio)
   Imu ultimoImu = {0, 0, 0, 1};
   unsigned long ultimoMsImu = 0;
@@ -1825,7 +1854,7 @@ struct Firmware {
       }
       return;
     }
-    if (nav.ativo && nav.loc.inGreen && c.mundo() && !inicioFeito) { inicioFeito = true; entrarNaCidade(c, NAN); return; }
+    if (nav.ativo && nav.loc.inGreen && c.mundo() && !inicioFeito) { inicioFeito = true; calibrarAssimetria(c); entrarNaCidade(c, NAN); return; }
     if (nav.ativo && nav.loc.inGreen && precisaAlinhar) { alinharNaRua(c); return; }
     if (nav.ativo && nav.loc.inGreen && !(p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7])) {   // no verde: sem linha, anda reto para o portao
       Comando cmd{};
@@ -2315,6 +2344,29 @@ static Resultado cenarioCalibracao(double zonaReal) {
   const double verdade = 2.0 * (cal.velMedida * f.mmSPorPwm) / f.bitolaMm * f.derrapagem * 57.29578;
   const bool ok = fim && cal.fase == Calibracao::Pronto && fabs(cal.zonaMortaPwm - zonaReal) <= 6 && fabs(cal.grausPorSegundo - verdade) < 0.1 * verdade;
   return {fmt("calibracao de motores (zona real %.0f)", zonaReal), ok, fmt("achou zona %d (real %.0f), %.0f graus/s a PWM %d (real %.0f; o chute era %.0f)", cal.zonaMortaPwm, zonaReal, cal.grausPorSegundo, cal.velMedida, verdade, Ajustes{}.grausPorSegundoBusca)};
+}
+
+// Assimetria dos motores: com o MESMO PWM nos dois lados o carro puxa para um lado; o giroscopio em reta mede e o lado fraco ganha forca. Compara o desvio de rumo numa reta
+// de 2 s sem e com a compensacao, e confere os ganhos (o lado fraco sobe quase o que faltava; o forte fica em 1).
+static Resultado cenarioAssimetria(double assim) {   // assim > 0: direita mais forte (o carro puxa para a esquerda)
+  Pista vazia;
+  auto desvioReta = [&](bool compensar) {
+    Carro c(vazia, norte(0, 0), gFis);
+    c.assimetria(1.0 - assim / 2.0, 1.0 + assim / 2.0);
+    Firmware fw;
+    fw.ligarImu(c);
+    if (compensar) fw.calibrarAssimetria(c);
+    const double th0 = c.estado().th;
+    for (int i = 0; i < 400; i++) { c.comandar(fw.ajustes.velReto, fw.ajustes.velReto); fw.tick(c); }   // 2 s
+    c.parar();
+    return std::make_pair(remainder(c.estado().th - th0, 2 * M_PI) * 57.29578, fw.assimMpu);
+  };
+  const auto sem = desvioReta(false), com = desvioReta(true);
+  const double ganho = assim > 0 ? com.second.ganhoEsq : com.second.ganhoDir, outro = assim > 0 ? com.second.ganhoDir : com.second.ganhoEsq;
+  const double razaoDir = (1.0 + assim / 2.0) / (1.0 - assim / 2.0);
+  const double verdade = assim > 0 ? razaoDir : 1.0 / razaoDir;   // quanto o lado fraco precisa subir
+  const bool ok = fabs(sem.first) > 5.0 && fabs(com.first) < 0.25 * fabs(sem.first) && fabs(ganho - verdade) < 0.15 * (verdade - 1.0) + 0.002 && outro == 1.0;
+  return {fmt("assimetria dos motores (%+.0f%%)", assim * 100), ok, fmt("desvio em 2 s: %.1f graus sem, %.1f com; ganho do lado fraco x%.3f (real x%.3f), do forte x%.3f", sem.first, com.first, ganho, verdade, outro)};
 }
 
 // Lacuna segurando o rumo pelo giroscopio: a lacuna pode ser maior do que o ultimo comando levava.
@@ -3046,6 +3098,7 @@ int main(int argc, char** argv) {
   rs.push_back(cenarioTravado());
   rs.push_back(cenarioColisao());
   for (double z : {65.0, 80.0, 95.0}) rs.push_back(cenarioCalibracao(z));
+  for (double a : {0.04, -0.07}) rs.push_back(cenarioAssimetria(a));
   for (double l : {60.0, 100.0, 150.0}) {
     rs.push_back(cenarioLacunaImu(l));
     rs.back().informativo = l > 100.0;

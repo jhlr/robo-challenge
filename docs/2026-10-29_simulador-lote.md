@@ -74,3 +74,18 @@ Resultado com ruido: **0/30 na meta**. Isolando cada fonte (`SIM_SEM_RUIDO=<masc
 | Sem qualquer uma das outras 9 fontes (uma por vez) | 0/30 | 601 s |
 
 Conclusao: a unica fonte que derruba o carro e a assimetria fixa dos motores (diferenca de 1,5 a 5% entre os lados), e sozinha ja basta. Sinal no log: o rumo real fica 14 a 37 graus fora do rumo do giroscopio dentro do ecoponto (LOOK th 166, 158, 151 em vez de 180). Na pista, com linha, ele corrige; fora dela (verde e ecoponto) nao. Motores TT amarelos reais costumam diferir 5 a 10%, entao e o ponto a medir no carro.
+
+## Assimetria dos motores: o giroscopio mede, o lado fraco ganha forca (30 sementes)
+
+`seguidor/assimetria.h` (pura): no verde, parado, 3 rodadas curtas (~150 mm) alternando re e frente com o MESMO PWM nos dois lados. O giroscopio da o giro w em reta e, como w = (vD - vE)/bitola, a razao das forcas sai de vD/vE = (v + w*b/2)/(v - w*b/2); a compensacao SOBE o lado fraco (o forte fica em 1). As rodadas seguintes partem do ganho da anterior e fecham o que a derrapagem das rodas "comeu". `ponte_h` ganhou `definirCompensacao` (ganho por lado, limitado a 255); no simulador e `Carro::compensar`. O exemplo `SeguidorBasico` chama no setup (`kCompensarAssimetria`).
+
+| Modo | Na meta (30) | Tempo medio |
+|---|---|---|
+| Sem ruido, antes | 29/30 | 174 s |
+| Sem ruido, com a calibracao | 28/30 | 187 s |
+| Ruido pela metade, antes | 0/30 | 602 s |
+| Ruido pela metade, com a calibracao | **19/30** | 331 s |
+
+Guarda: `cenarioAssimetria` (+4% e -7%): desvio de rumo numa reta de 2 s cai de 6,1 / -10,6 graus para 0,6 / 0,1; ganho do lado fraco x1,044 (real x1,041) e x1,076 (real x1,073). Visto VERMELHO: sem a calibracao os 2 casos falham (59/61).
+
+Tentado e REMOVIDO (barra de 8 sensores): integrador lento no erro medio da linha em retas (linha a direita do centro = o carro vai para a esquerda = sobe a esquerda). Com ki alto (4e-5/ms) derrubou o lote limpo (5/30); com ki baixo (1e-6/ms) ficou igual a sem trim; sozinho, com ruido, 0/30: o desvio acontece fora da linha (verde e ecoponto), onde a barra nao ve nada, e a convergencia leva um minuto de reta. A barra serve para VERIFICAR a compensacao, nao para descobri-la: fica como ideia (medir o erro medio da linha na 1a rua e avisar se sobrou > 1 sensor).
