@@ -21,47 +21,29 @@ inline void markVisited(Visits& v, Node at) {
   if (inMap(at.c, at.r) && v.n[at.c][at.r] < 255) ++v.n[at.c][at.r];
 }
 
-// First junction of the shortest way to the nearest junction among the least visited ones. false when there is nowhere to go.
-inline bool stepToLeastVisited(const Pose& pose, const Visits& visits, Node* next, const Blocked* blocked = nullptr) {
-  int dist[kMapCols][kMapRows];
-  Node from[kMapCols][kMapRows];
-  for (int c = 0; c < kMapCols; ++c)
-    for (int r = 0; r < kMapRows; ++r) dist[c][r] = -1;
-  Node queue[kMapNodes];
-  int head = 0, tail = 0;
-  dist[pose.at.c][pose.at.r] = 0;
-  queue[tail++] = pose.at;
-  static const int8_t kStep[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
-  while (head < tail) {
-    const Node n = queue[head++];
-    for (const auto& s : kStep) {
-      const int c = n.c + s[0], r = n.r + s[1];
-      if (!inMap(c, r) || dist[c][r] >= 0) continue;
-      if (isBlocked(blocked, n, Node{static_cast<int8_t>(c), static_cast<int8_t>(r)})) continue;
-      dist[c][r] = dist[n.c][n.r] + 1;
-      from[c][r] = n;
-      queue[tail++] = Node{static_cast<int8_t>(c), static_cast<int8_t>(r)};
-    }
-  }
-  // least visited, then nearest, then the first in a fixed order (deterministic); the junction we stand on does not count
+// First junction of the cheapest way to the nearest junction among the least visited ones (soft penalty on empty streets when `belief` is given). false when there is nowhere to go.
+inline bool stepToLeastVisited(const Pose& pose, const Visits& visits, Node* next, const Blocked* blocked = nullptr, const CubeBelief* belief = nullptr) {
+  Routes routes;
+  routesFrom(pose.at, belief, blocked, routes);
+  // least visited, then cheapest, then the first in a fixed order (deterministic); the junction we stand on does not count
   bool found = false;
   Node target{0, 0};
-  int bestVisits = 1 << 20, bestDist = 1 << 20;
+  int bestVisits = 1 << 20;
+  float bestDist = 1e9f;
   for (int c = 0; c < kMapCols; ++c)
     for (int r = 0; r < kMapRows; ++r) {
-      if (dist[c][r] <= 0) continue;
+      const Node n{static_cast<int8_t>(c), static_cast<int8_t>(r)};
+      if (n == pose.at || !reachable(routes, n)) continue;
       const int v = visits.n[c][r];
-      if (v < bestVisits || (v == bestVisits && dist[c][r] < bestDist)) {
+      if (v < bestVisits || (v == bestVisits && routes.dist[c][r] < bestDist)) {
         bestVisits = v;
-        bestDist = dist[c][r];
-        target = Node{static_cast<int8_t>(c), static_cast<int8_t>(r)};
+        bestDist = routes.dist[c][r];
+        target = n;
         found = true;
       }
     }
   if (!found) return false;
-  Node cur = target;
-  while (!(from[cur.c][cur.r] == pose.at)) cur = from[cur.c][cur.r];
-  *next = cur;
+  *next = firstStepTo(routes, pose.at, target);
   return true;
 }
 
@@ -79,47 +61,28 @@ inline int unseenAround(const CubeBelief& b, Node n) {
 }
 
 inline bool stepToUnseen(const Pose& pose, const CubeBelief& belief, const Visits& visits, Node* next, const Blocked* blocked = nullptr) {
-  int dist[kMapCols][kMapRows];
-  Node from[kMapCols][kMapRows];
-  for (int c = 0; c < kMapCols; ++c)
-    for (int r = 0; r < kMapRows; ++r) dist[c][r] = -1;
-  Node queue[kMapNodes];
-  int head = 0, tail = 0;
-  dist[pose.at.c][pose.at.r] = 0;
-  queue[tail++] = pose.at;
-  static const int8_t kStep[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
-  while (head < tail) {
-    const Node n = queue[head++];
-    for (const auto& s : kStep) {
-      const int c = n.c + s[0], r = n.r + s[1];
-      if (!inMap(c, r) || dist[c][r] >= 0) continue;
-      if (isBlocked(blocked, n, Node{static_cast<int8_t>(c), static_cast<int8_t>(r)})) continue;
-      dist[c][r] = dist[n.c][n.r] + 1;
-      from[c][r] = n;
-      queue[tail++] = Node{static_cast<int8_t>(c), static_cast<int8_t>(r)};
-    }
-  }
+  Routes routes;
+  routesFrom(pose.at, &belief, blocked, routes);
   bool found = false;
   Node target{0, 0};
   float bestScore = 0.0f;
   int bestVisits = 1 << 20;
   for (int c = 0; c < kMapCols; ++c)
     for (int r = 0; r < kMapRows; ++r) {
-      if (dist[c][r] <= 0) continue;
-      const int unseen = unseenAround(belief, Node{static_cast<int8_t>(c), static_cast<int8_t>(r)});
+      const Node n{static_cast<int8_t>(c), static_cast<int8_t>(r)};
+      if (n == pose.at || !reachable(routes, n)) continue;
+      const int unseen = unseenAround(belief, n);
       if (unseen == 0) continue;
-      const float score = static_cast<float>(unseen) / static_cast<float>(dist[c][r]);
+      const float score = static_cast<float>(unseen) / routes.dist[c][r];
       if (score > bestScore || (score == bestScore && visits.n[c][r] < bestVisits)) {
         bestScore = score;
         bestVisits = visits.n[c][r];
-        target = Node{static_cast<int8_t>(c), static_cast<int8_t>(r)};
+        target = n;
         found = true;
       }
     }
   if (!found) return false;
-  Node cur = target;
-  while (!(from[cur.c][cur.r] == pose.at)) cur = from[cur.c][cur.r];
-  *next = cur;
+  *next = firstStepTo(routes, pose.at, target);
   return true;
 }
 

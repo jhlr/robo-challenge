@@ -23,6 +23,34 @@ struct AjustesAlvo {
 
 inline bool ruaTemCubo(float usMm, const AjustesAlvo& aj = {}) { return usMm > 0.0f && usMm < aj.ruaMm; }
 
+// ---- O ultrassom NAO ve so a rua da frente: com alcance de ~900 mm, em linha reta ele alcanca ate 3 ruas (o cone e estreito: so cubos NO EIXO da rua). O eco vale como
+// informacao e como objetivo: um cubo a 2 ruas de distancia ja entra na memoria. Geometria (mm): o eixo para 38 antes do centro do cruzamento, a ponta do sensor fica 100 a frente do
+// eixo, o cubo tem 25 de meia largura e fica de 112 a 190 depois do cruzamento onde a rua comeca. `s` = distancia do CENTRO do cruzamento de onde a rua 0 comeca ate o centro do cubo.
+constexpr float kPassoMm = 302.0f, kCuboMinMm = 112.0f, kCuboMaxMm = 190.0f, kPontaMaisMeioCuboMenosEixoMm = 100.0f + 25.0f - 38.0f;
+
+// Em qual rua da linha reta a frente (0 = a primeira, que sai do cruzamento de partida) esta o cubo que deu este eco? `andadoMm` = quanto o eixo ja andou desde a parada no cruzamento
+// (0 na varredura, parado). -1 se o eco cai perto de um cruzamento (ambiguo: nao e cubo de rua).
+inline int ruaDoEco(float usMm, float andadoMm) {
+  if (usMm <= 0.0f) return -1;
+  const float s = andadoMm + usMm + kPontaMaisMeioCuboMenosEixoMm;
+  const int k = static_cast<int>(s / kPassoMm);
+  const float resto = s - k * kPassoMm;
+  return (resto >= kCuboMinMm - 40.0f && resto <= kCuboMaxMm + 40.0f) ? k : -1;
+}
+
+// Sem eco ate `alcanceMm`: quais ruas (da primeira a ultima) ficaram TODAS vistas vazias? Devolve a ultima rua inteira dentro do alcance (-1 se nenhuma). Ruas que o carro ja passou
+// (andadoMm grande) saem do comeco: so interessam as de k >= primeiraRuaAindaAFrente.
+inline int ultimaRuaVistaVazia(float andadoMm, float alcanceMm) {
+  const float sMax = andadoMm + alcanceMm + kPontaMaisMeioCuboMenosEixoMm;
+  if (sMax < kCuboMaxMm) return -1;
+  return static_cast<int>((sMax - kCuboMaxMm) / kPassoMm);
+}
+inline int primeiraRuaAindaAFrente(float andadoMm) {
+  const float sMin = andadoMm + kPontaMaisMeioCuboMenosEixoMm;   // o que o sensor ja nao alcanca para tras
+  const int k = static_cast<int>((sMin - kCuboMinMm + kPassoMm - 1.0f) / kPassoMm);
+  return k < 0 ? 0 : k;
+}
+
 // d0 -> d1 em dtMs, enquanto o robo andava `velPropriaMmS` PARA o eco (negativo = se afastando). true = o alvo se mexeu por conta propria.
 inline bool ecoMovel(float d0Mm, float d1Mm, float dtMs, float velPropriaMmS, const AjustesAlvo& aj = {}) {
   if (d0Mm <= 0.0f || d1Mm <= 0.0f || dtMs <= 0.0f) return false;

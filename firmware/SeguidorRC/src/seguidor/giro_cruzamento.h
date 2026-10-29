@@ -26,7 +26,11 @@ struct AjustesGiroCruzamento {
   float giroGraus = 90.0f;     // quanto gira para cada lado
   float tolerancia = 0.2f;     // as amostras entre giroGraus*(1-tol) e giroGraus*(1+tol) contam como "a 90 graus"
   int estreitoMax = 3;         // padrao estreito (uma linha cruzando a barra): de 1 a isto acesos. Nao exige o centro: com a barra sobre a linha o eixo fica ~30 mm ao lado dela
-  int acesosMaxRua = 6;        // mais sensores acesos que isto a 90 graus nao e uma rua (e mancha): uma rua cruza a barra em poucos sensores
+  int acesosMaxRua = 6;
+  // O robo gira sobre o eixo e a frente (170 mm de largura) varre ~130 mm: um cubo a ~110 mm do cruzamento na rua do lado seria atingido pelo giro. Se o ultrassom, apontando
+  // para o lado, ve algo a menos disto, PARA de girar para esse lado (ha rua E tem cubo ali: nao empurra, o cubo entra na memoria pelo eco).
+  float usParaGiroMm = 95.0f;
+  float usParaGiroDepoisDeGraus = 25.0f;   // so vale depois de girar isto (a frente, antes de girar, e a rua de onde veio)        // mais sensores acesos que isto a 90 graus nao e uma rua (e mancha): uma rua cruza a barra em poucos sensores
 };
 
 struct ResultadoGiro {
@@ -113,6 +117,7 @@ struct Varredura {
   Oito resultado = Oito::FalsoAlarme;
   ResultadoGiro ruas{false, -1, -1, false, false, -1.0f, -1.0f, -1.0f};
   int ladoEndireitou = 0;      // +1 esquerda, -1 direita, 0 nao
+  bool parouPorCubo[2] = {false, false};   // [0] = o lado em que comecou, [1] = o outro: parou de girar porque o ultrassom viu um cubo perto
 };
 
 struct ComandoVarredura {
@@ -141,18 +146,24 @@ inline ComandoVarredura passoVarredura(Varredura& v, const AmostraGiro& leitura,
   };
   auto terminar = [&](bool endireitou) {
     v.ruas = avaliarGiro(buf, v.n, aj);
+    // parou por causa de um cubo perto: ha rua ali (e ha cubo nela), mesmo sem ter chegado aos 90 graus para ler a linha
+    if (v.parouPorCubo[0]) { (v.lado > 0 ? v.ruas.ruaEsquerda : v.ruas.ruaDireita) = 1; }
+    if (v.parouPorCubo[1]) { (v.lado > 0 ? v.ruas.ruaDireita : v.ruas.ruaEsquerda) = 1; }
+    v.ruas.cruzamento = v.ruas.cruzamento || (v.vinhaSeguindo && v.ruas.ruaEsquerda == 1 && v.ruas.ruaDireita == 1 && (v.parouPorCubo[0] || v.parouPorCubo[1]));
     v.resultado = endireitou ? Oito::Endireitou : classificarOito(v.vinhaSeguindo, v.ruas);
     v.fase = Varredura::Pronta;
   };
 
   switch (v.fase) {
     case Varredura::AteLado:
+      if (leitura.us > 0.0f && leitura.us <= aj.usParaGiroMm && g > aj.usParaGiroDepoisDeGraus) { v.parouPorCubo[0] = true; para(Varredura::AteOutro); return girar(-v.lado); }
       if (g >= aj.giroGraus || estourou) {
         if (!v.vinhaSeguindo && padraoEstreito(leitura.acesos, aj)) { v.ladoEndireitou = v.lado; terminar(true); return {0, 0, true}; }
         para(Varredura::AteOutro);
       }
       return girar(v.lado);
     case Varredura::AteOutro:
+      if (leitura.us > 0.0f && leitura.us <= aj.usParaGiroMm && g < -aj.usParaGiroDepoisDeGraus) { v.parouPorCubo[1] = true; para(Varredura::Volta); return girar(v.lado); }
       if (g <= -aj.giroGraus || estourou) {
         if (!v.vinhaSeguindo && padraoEstreito(leitura.acesos, aj)) { v.ladoEndireitou = -v.lado; terminar(true); return {0, 0, true}; }
         para(Varredura::Volta);

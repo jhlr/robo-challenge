@@ -273,6 +273,21 @@ void test_exploration_goes_to_where_nobody_looked_not_to_known_empty() {
   TEST_ASSERT_FALSE(core::nextTowardBestCube(pose, b, &n, core::kKnownEmpty));   // and no street worth a trip at all
 }
 
+
+void test_empty_streets_are_a_normal_way_unless_a_penalty_is_asked() {
+  core::CubeBelief b{};
+  for (int c = 0; c < core::kMapCols; ++c) for (int r = 0; r < core::kMapRows; ++r) b.east[c][r] = b.north[c][r] = 0.4f;   // everything unseen
+  core::Routes plain, soft;
+  b.east[0][0] = b.east[1][0] = b.east[2][0] = 0.01f;                          // the straight way east was seen empty
+  core::routesFrom(core::Node{0, 0}, nullptr, nullptr, plain);
+  core::routesFrom(core::Node{0, 0}, &b, nullptr, soft);                       // default: empty streets are walked like any other
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, plain.dist[3][0], soft.dist[3][0]);
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f, soft.dist[3][0]);
+  core::routesFrom(core::Node{0, 0}, &b, nullptr, soft, 0.35f);                // optional soft preference for unseen streets
+  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 3.0f + 3 * 0.35f, soft.dist[3][0]);          // costs more...
+  TEST_ASSERT_TRUE(soft.dist[3][0] < 1e8f);                                    // ...but is never forbidden
+}
+
 void test_forget_returns_to_prior() {
   const core::BeliefModel m;
   core::CubeBelief b{};
@@ -630,6 +645,7 @@ int main() {
   RUN_TEST(test_plan_anchors_the_column_when_only_the_column_is_unsure);
   RUN_TEST(test_forget_never_raises_a_street_seen_empty);
   RUN_TEST(test_exploration_goes_to_where_nobody_looked_not_to_known_empty);
+  RUN_TEST(test_empty_streets_are_a_normal_way_unless_a_penalty_is_asked);
   RUN_TEST(test_forget_returns_to_prior);
   RUN_TEST(test_observation_moves_belief_the_right_way);
   RUN_TEST(test_observe_street_picks_the_right_slot);

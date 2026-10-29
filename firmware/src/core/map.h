@@ -82,46 +82,76 @@ inline Pose moveTo(const Pose& pose, Node next) {
 // the nearest). Returns the first junction to drive to; false when nothing is likely enough. The street is walked from its nearer end. Ties keep the first one found in a fixed order, so the result is deterministic.
 constexpr float kMinBelief = 0.3f;
 
-inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node* next, float minBelief = kMinBelief, const Blocked* blocked = nullptr, Node* goalA = nullptr, Node* goalZ = nullptr) {
-  int dist[kMapCols][kMapRows];
-  Node from[kMapCols][kMapRows];
-  for (int c = 0; c < kMapCols; ++c)
-    for (int r = 0; r < kMapRows; ++r) dist[c][r] = -1;
+// A street already seen EMPTY can never hold a cube, so there is no point INSISTING on it (it is never a target), but it is a perfectly good WAY: routes treat it like any other street
+// (penalty 0). `emptyPenalty` stays a parameter in case a small preference for unseen streets is ever wanted (a positive value makes routes through unseen streets slightly cheaper).
+constexpr float kEmptyStreetPenalty = 0.0f;
+constexpr float kEmptyBelow = 0.1f;   // P below this = looked at and empty
 
-  Node queue[kMapNodes];
-  int head = 0, tail = 0;
-  dist[pose.at.c][pose.at.r] = 0;
-  queue[tail++] = pose.at;
+struct Routes {
+  float dist[kMapCols][kMapRows];   // cost of the cheapest way from the start (1e9 = unreachable)
+  Node from[kMapCols][kMapRows];    // the junction before it on that way
+};
+
+inline float streetCost(const CubeBelief* belief, Node a, Node z, float emptyPenalty) {
+  if (belief == nullptr) return 1.0f;
+  return 1.0f + (streetSlot(*belief, a, z) < kEmptyBelow ? emptyPenalty : 0.0f);
+}
+
+// Cheapest ways (Bellman-Ford on 30 junctions: tiny). `belief` may be null: every street then costs 1 (plain shortest path).
+inline void routesFrom(Node start, const CubeBelief* belief, const Blocked* blocked, Routes& r, float emptyPenalty = kEmptyStreetPenalty) {
+  for (int c = 0; c < kMapCols; ++c)
+    for (int rr = 0; rr < kMapRows; ++rr) { r.dist[c][rr] = 1e9f; r.from[c][rr] = Node{-1, -1}; }
+  r.dist[start.c][start.r] = 0.0f;
   static const int8_t kStep[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
-  while (head < tail) {
-    const Node n = queue[head++];
-    for (const auto& s : kStep) {
-      const int c = n.c + s[0], r = n.r + s[1];
-      if (!inMap(c, r) || dist[c][r] >= 0) continue;
-      if (isBlocked(blocked, n, Node{static_cast<int8_t>(c), static_cast<int8_t>(r)})) continue;   // cannot drive through a blocked street
-      dist[c][r] = dist[n.c][n.r] + 1;
-      from[c][r] = n;
-      queue[tail++] = Node{static_cast<int8_t>(c), static_cast<int8_t>(r)};
-    }
+  for (int pass = 0; pass < kMapNodes; ++pass) {
+    bool changed = false;
+    for (int c = 0; c < kMapCols; ++c)
+      for (int rr = 0; rr < kMapRows; ++rr) {
+        if (r.dist[c][rr] >= 1e8f) continue;
+        const Node n{static_cast<int8_t>(c), static_cast<int8_t>(rr)};
+        for (const auto& s : kStep) {
+          const int c2 = c + s[0], r2 = rr + s[1];
+          if (!inMap(c2, r2)) continue;
+          const Node m{static_cast<int8_t>(c2), static_cast<int8_t>(r2)};
+          if (isBlocked(blocked, n, m)) continue;
+          const float d = r.dist[c][rr] + streetCost(belief, n, m, emptyPenalty);
+          if (d < r.dist[c2][r2] - 1e-6f) { r.dist[c2][r2] = d; r.from[c2][r2] = n; changed = true; }
+        }
+      }
+    if (!changed) break;
   }
+}
+
+inline bool reachable(const Routes& r, Node n) { return r.dist[n.c][n.r] < 1e8f; }
+
+// The junction right after `start` on the way to `target`.
+inline Node firstStepTo(const Routes& r, Node start, Node target) {
+  Node cur = target;
+  while (!(r.from[cur.c][cur.r] == start)) cur = r.from[cur.c][cur.r];
+  return cur;
+}
+
+inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node* next, float minBelief = kMinBelief, const Blocked* blocked = nullptr, Node* goalA = nullptr, Node* goalZ = nullptr) {
+  Routes routes;
+  routesFrom(pose.at, &belief, blocked, routes);
 
   float best = 0.0f;
   Node target{0, 0};
   Node bestA{0, 0}, bestZ{0, 0};
-  auto consider = [&](float p, int cost, Node goal) {
-    if (p < minBelief || cost < 1) return;
-    const float score = p / static_cast<float>(cost);
+  auto consider = [&](float p, float cost, Node goal) {
+    if (p < minBelief || cost < 1.0f) return;
+    const float score = p / cost;
     if (score > best) {
       best = score;
       target = goal;
     }
   };
   forEachPlace(belief, [&](float p, Node a, Node z) {
-    if (isBlocked(blocked, a, z) || (dist[a.c][a.r] < 0 && dist[z.c][z.r] < 0)) return;   // blocked, or unreachable without crossing a blocked street
+    if (isBlocked(blocked, a, z) || (!reachable(routes, a) && !reachable(routes, z))) return;   // blocked, or unreachable without crossing a blocked street
     // a street cube is walked from its nearer end; if the robot already stands on that end, the goal is the other one
-    const bool aNearer = dist[a.c][a.r] <= dist[z.c][z.r];
+    const bool aNearer = routes.dist[a.c][a.r] <= routes.dist[z.c][z.r];
     const float before = best;
-    consider(p, (aNearer ? dist[a.c][a.r] : dist[z.c][z.r]) + 1, aNearer ? z : a);
+    consider(p, (aNearer ? routes.dist[a.c][a.r] : routes.dist[z.c][z.r]) + 1.0f, aNearer ? z : a);
     if (best > before) { bestA = a; bestZ = z; }   // the street that holds the cube we are heading for
   });
   if (goalA) *goalA = bestA;
@@ -129,10 +159,8 @@ inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node*
   if (best <= 0.0f) return false;
 
   // Walk back from the goal; the junction right after pose.at is the step.
-  Node cur = target;
-  if (cur == pose.at) return false;  // cannot happen for a street (its goal end is never the robot's own junction); kept as a guard
-  while (!(from[cur.c][cur.r] == pose.at)) cur = from[cur.c][cur.r];
-  *next = cur;
+  if (target == pose.at) return false;  // cannot happen for a street (its goal end is never the robot's own junction); kept as a guard
+  *next = firstStepTo(routes, pose.at, target);
   return true;
 }
 
