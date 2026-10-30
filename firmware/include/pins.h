@@ -15,13 +15,14 @@ constexpr int kStsTx = 17;
 #endif
 
 // One I2C bus, behind a PCA9548 8-channel multiplexer (params::kMux*): front RGB, floor RGB and the IMU. The two TCS34725 share address 0x29, hence the mux.
-constexpr int kI2cSda = 22;
+constexpr int kI2cSda = 21;
 constexpr int kI2cScl = 23;
 
-constexpr int kTrig = 14;
-constexpr int kEcho = 12;  // HC-SR04 ECHO needs a 5 V -> 3.3 V divider. GPIO12 is a strapping pin (must be low at boot): the idle ECHO is low, keep it that way
+constexpr int kTrig = 18;
+constexpr int kEcho = 19;  // HC-SR04 ECHO needs a 5 V -> 3.3 V divider
 
-constexpr int kLine[] = {36, 39, 35, 32, 33, 19, 23, 4};  // QRE8D channels, left to right
+// QRE8D channels, S1 (left) .. S8 (right), as wired 2026-10-30. S7/S8 = GPIO35/34 are INPUT-ONLY: fine for a digital QRE8D, but the RC reading (SeguidorRC) must charge the pin, so those two cannot work there.
+constexpr int kLine[] = {14, 27, 26, 25, 33, 32, 35, 34};
 constexpr int kLineCount = sizeof(kLine) / sizeof(kLine[0]);
 
 constexpr int kClaw = 18;      // SG90 signal (claw)

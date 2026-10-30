@@ -11,6 +11,7 @@
 #include "../../../src/hal/drive.h"        // dono das rodas STS (velocidade + odometria)
 #include "../../../src/hal/sensors.h"      // dono do I2C (PCA9548), TCS34725, MPU6050 e ultrassom
 #include "../../../include/params.h"       // canais do multiplexador
+#include "../../../include/pins.h"         // pinos (barra, I2C, ultrassom, bus dos STS)
 
 using namespace seguidor;
 
@@ -74,9 +75,8 @@ void lerCor() {
 
 // --- Ligacao (S1 = ponta esquerda ... S8 = ponta direita; os pinos dos sensores precisam ser < 32) ---
 // Barra montada ESPELHADA em relacao ao codigo do colega (confirmado pelo usuario em 2026-10-28): S1 (esquerda) e o pino 1 ... S8 (direita) e o pino 8.
-// Barra QRE-8D (informado em 2026-10-30): S1..S8 = GPIO 15, 2, 0, 4, 16, 17, 5, 18, todos < 32. ATENCAO: 16 e 17 sao o barramento dos STS (pins::kStsRx/kStsTx), colisao ainda
-// nao resolvida; 0, 2 e 15 sao pinos de boot (GPIO0 em nivel baixo na partida entra em modo de gravacao).
-const uint8_t pinosSensores[kSensores] = {15, 2, 0, 4, 16, 17, 5, 18};
+// Barra QRE-8D: pinos em include/pins.h (pins::kLine, S1 = ponta esquerda ... S8 = ponta direita), uma fonte so.
+const uint8_t pinosSensores[kSensores] = {pins::kLine[0], pins::kLine[1], pins::kLine[2], pins::kLine[3], pins::kLine[4], pins::kLine[5], pins::kLine[6], pins::kLine[7]};
 
 // Rodas: os STS fecham a velocidade em malha fechada, entao nao ha zona morta nem assimetria de motor para compensar. O comando da decisao (-255..255) vira -1..1.
 SMS_STS sts;

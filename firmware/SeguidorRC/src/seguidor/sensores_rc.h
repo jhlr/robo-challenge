@@ -6,7 +6,7 @@
 namespace seguidor {
 
 // Barra de 8 sensores tipo RC: carrega o pino e mede o tempo de descarga. Branco = tempo curto | Preto = tempo longo.
-// Os 8 pinos precisam ser menores que 32: um unico registrador (GPIO_IN_REG) le todos de uma vez.
+// Os pinos sao lidos de uma vez em dois registradores (GPIO0-31 e GPIO32-39). Pinos 34-39 sao SO DE ENTRADA: nao carregam o capacitor, o sensor nao reage.
 struct BarraRC {
   // Ajustes
   unsigned int tempoMaxUs = 2500;   // valor do preto
@@ -20,8 +20,9 @@ struct BarraRC {
   bool ok[kSensores] = {};                   // false = nao reagiu na calibracao, ignorado
   bool preto[kSensores] = {};                // true = esse sensor ve a linha
   unsigned int tempoLeituraUs = 2500;        // so espera ate o maior limiar (calculado na calibracao)
-  uint32_t mascara[kSensores] = {};          // bit de cada sensor no registrador de entrada
-  uint32_t mascaraTodos = 0;
+  uint32_t mascaraBaixa[kSensores] = {};     // bit de cada sensor no registrador de GPIO0-31 (0 se o pino e 32+)
+  uint32_t mascaraAlta[kSensores] = {};      // idem para GPIO32-39 (bit = pino - 32)
+  uint32_t todosBaixa = 0, todosAlta = 0;
 };
 
 void iniciar(BarraRC& barra, const uint8_t pinos[kSensores]);

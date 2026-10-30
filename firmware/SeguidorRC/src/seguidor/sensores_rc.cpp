@@ -4,6 +4,7 @@
 
 // Fora de qualquer namespace: o REG_READ do IDF declara uma funcao extern de assert, e dentro do namespace anonimo isso vira um warning de "static nunca definida".
 static inline uint32_t entradaGpio0a31() { return REG_READ(GPIO_IN_REG); }
+static inline uint32_t entradaGpio32a39() { return REG_READ(GPIO_IN1_REG); }
 
 namespace seguidor {
 
@@ -23,17 +24,19 @@ void lerTempos(BarraRC& b, unsigned int limite) {
   // 2) Solta os pinos e mede quanto tempo cada um demora para cair
   for (int i = 0; i < kSensores; i++) pinMode(b.pinos[i], INPUT);
 
-  uint32_t pendentes = b.mascaraTodos;   // pinos que ainda estao em HIGH
+  uint32_t pendentesBaixa = b.todosBaixa, pendentesAlta = b.todosAlta;   // pinos que ainda estao em HIGH
   const uint32_t inicio = micros();
-  while (pendentes) {
+  while (pendentesBaixa || pendentesAlta) {
     const uint32_t t = micros() - inicio;
     if (t >= limite) break;
-    const uint32_t caiu = ~entradaGpio0a31() & pendentes;
-    if (caiu) {
+    const uint32_t caiuBaixa = ~entradaGpio0a31() & pendentesBaixa;
+    const uint32_t caiuAlta = ~entradaGpio32a39() & pendentesAlta;
+    if (caiuBaixa || caiuAlta) {
       for (int i = 0; i < kSensores; i++) {
-        if (caiu & b.mascara[i]) b.leituras[i] = t;
+        if ((caiuBaixa & b.mascaraBaixa[i]) || (caiuAlta & b.mascaraAlta[i])) b.leituras[i] = t;
       }
-      pendentes &= ~caiu;
+      pendentesBaixa &= ~caiuBaixa;
+      pendentesAlta &= ~caiuAlta;
     }
   }
 }
@@ -42,10 +45,13 @@ void lerTempos(BarraRC& b, unsigned int limite) {
 
 void iniciar(BarraRC& b, const uint8_t pinos[kSensores]) {
   b.pinos = pinos;
-  b.mascaraTodos = 0;
+  b.todosBaixa = b.todosAlta = 0;
   for (int i = 0; i < kSensores; i++) {
-    b.mascara[i] = 1UL << pinos[i];
-    b.mascaraTodos |= b.mascara[i];
+    const bool alto = pinos[i] >= 32;
+    b.mascaraBaixa[i] = alto ? 0 : 1UL << pinos[i];
+    b.mascaraAlta[i] = alto ? 1UL << (pinos[i] - 32) : 0;
+    b.todosBaixa |= b.mascaraBaixa[i];
+    b.todosAlta |= b.mascaraAlta[i];
   }
 }
 
@@ -87,7 +93,7 @@ bool calibrar(BarraRC& b, Print& saida) {
     char linha[64];
     snprintf(linha, sizeof(linha), "  S%d     %4u   %4u    %4u", i + 1, minimo[i], maximo[i], b.limiar[i]);
     saida.print(linha);
-    if (!b.ok[i]) saida.print("  <-- NAO REAGIU! Sensor ignorado");
+    if (!b.ok[i]) saida.print(b.pinos[i] >= 34 ? "  <-- NAO REAGIU! GPIO so de entrada: nao carrega o RC. Sensor ignorado" : "  <-- NAO REAGIU! Sensor ignorado");
     saida.println();
   }
 

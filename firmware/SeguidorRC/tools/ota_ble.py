@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Grava firmware no SeguidorRC por Bluetooth LE (protocolo em src/seguidor/ota_ble.h).
 
-    pip3 install bleak
+    python3 -m venv ~/.venvs/seguidor && ~/.venvs/seguidor/bin/pip install bleak   # uma vez (o pip3 do sistema recusa: PEP 668)
     cd firmware && pio run -e seguidor
-    python3 SeguidorRC/tools/ota_ble.py                      # usa .pio/build/seguidor/firmware.bin
-    python3 SeguidorRC/tools/ota_ble.py caminho/firmware.bin --segredo meu-segredo
+    ~/.venvs/seguidor/bin/python SeguidorRC/tools/ota_ble.py                      # usa .pio/build/seguidor/firmware.bin
+    ~/.venvs/seguidor/bin/python SeguidorRC/tools/ota_ble.py caminho/firmware.bin --segredo meu-segredo
 
 O robo precisa estar PARADO e sem outro aparelho conectado (feche o console_ble.py). O segredo tem de ser o mesmo do OTA_SEGREDO do sketch.
 O primeiro firmware com OTA (e a tabela de particoes min_spiffs) vai por USB: pio run -e seguidor -t upload.
