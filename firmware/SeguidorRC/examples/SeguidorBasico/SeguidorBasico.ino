@@ -320,6 +320,21 @@ void mostrarAjustes() {
   dbg.printf("velReto=%d velCorrecaoLeve=%d velCorrecaoForte=%d zonaMortaPwm=%d periodoCorrecaoMs=%lu\n", ajustes.velReto, ajustes.velCorrecaoLeve, ajustes.velCorrecaoForte, ajustes.zonaMortaPwm, ajustes.periodoCorrecaoMs);
 }
 
+// Teste das rodas (comando `roda`): so com o robo parado, ideal com as rodas no ar. Gira por 1 s e diz o que a odometria do hal (StsDrive) viu.
+// forwardMm() > 0 = a roda anda para frente; spinDeg() > 0 = o robo gira para a direita. Os mm usam kGearRatio/kTrackMm CHUTADOS: o sinal vale, a grandeza nao.
+void testarRodas(const char* nome, float esq, float dir) {
+  rodas.resetTravel();
+  rodas.setSpeeds(esq, dir);
+  delay(1000);
+  parar();
+  delay(150);
+  const float mm = rodas.forwardMm(), graus = rodas.spinDeg();
+  if (mm == 0.0f && graus == 0.0f) { dbg.printf("%s: sem leitura dos STS (nao andou ou o barramento 16/17 nao responde)\n", nome); return; }
+  dbg.printf("%s: media %.0f mm, giro %.0f graus (%s)\n", nome, mm, graus,
+             esq == dir ? (mm > 0 ? "frente: sinais certos" : "RE: inverta os DOIS sinais (kLeftSign e kRightSign)")
+                        : (graus > 0 ? "robo gira para a direita" : "robo gira para a esquerda"));
+}
+
 void aoReceberComando(const String& linha) {
   String l = linha;
   l.trim();
@@ -329,6 +344,7 @@ void aoReceberComando(const String& linha) {
   const String arg = sp < 0 ? "" : l.substring(sp + 1);
   if (cmd == "ajuda" || cmd == "h" || cmd == "?") {
     dbg.println("comandos: estado | parar | seguir | teste on/off | debug on/off | tele on/off | ajustes | ajuste <nome> <valor>");
+    dbg.println("          roda esq|dir|ambas|giro (1 s a 30%, so parado, de preferencia com as rodas no ar)");
     dbg.println("          zerar (rumo=0) | nomes: velReto velCorrecaoLeve velCorrecaoForte zonaMortaPwm periodoCorrecaoMs");
   } else if (cmd == "estado") {
     dbg.printf("t=%lu ms | %s | teste=%d debug=%d tele=%d | cruzamentos=%d | portaoPendente=%d\n", millis(), parado ? "PARADO" : "andando", kModoTeste, kDebug, telemetria, cruzamentos, portaoPendente);
@@ -337,6 +353,13 @@ void aoReceberComando(const String& linha) {
 #endif
     mostrarAjustes();
   } else if (cmd == "parar") { parado = true; parar(); dbg.println("ok: parado");
+  } else if (cmd == "roda") {
+    if (!parado) { dbg.println("mande 'parar' antes (o loop do seguidor brigaria com o teste)"); return; }
+    if (arg == "esq") testarRodas("esquerda sozinha", 0.3f, 0.0f);
+    else if (arg == "dir") testarRodas("direita sozinha", 0.0f, 0.3f);
+    else if (arg == "ambas") testarRodas("as duas", 0.3f, 0.3f);
+    else if (arg == "giro") testarRodas("esquerda frente, direita re", 0.3f, -0.3f);
+    else dbg.println("uso: roda esq | dir | ambas | giro");
   } else if (cmd == "seguir") { parado = false; dbg.println("ok: andando");
   } else if (cmd == "teste") { kModoTeste = arg == "on"; dbg.printf("ok: modo teste %s\n", kModoTeste ? "ligado (motores desligados)" : "desligado");
   } else if (cmd == "debug") { kDebug = arg == "on"; dbg.printf("ok: debug %s\n", kDebug ? "ligado" : "desligado");
