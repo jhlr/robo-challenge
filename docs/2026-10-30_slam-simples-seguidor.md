@@ -30,6 +30,8 @@ Descartados (peso demais, nenhum ganho com mapa conhecido): EKF-SLAM, FastSLAM /
 ## Estado (2026-10-30)
 - Feito: `onCrossing(pose, mm)` + `refineWheelScale` em `core/localizer.h` (69 testes) e o sketch `SeguidorBasico` portado para os STS: `hal::StsDrive` no lugar da ponte H, odometria entre cruzamentos alimentando o localizador, assimetria removida do sketch. Builda limpo: `cd firmware && pio run -e seguidor`.
 - Nao testado no robo. Faltam: reconciliar pinos dos sensores (13/14/18/19/21/22/23/25 do HANDOFF vs `pins.h`), sinais de roda (kLeftSign/kRightSign), `onTurn` do navegador (nao ligado), medir `kGearRatio`/`kTrackMm`.
+- I2C (2026-10-30): MPU6050 e os dois TCS34725 estao num PCA9548 (SDA 22, SCL 23; canais: RGB frente 0, RGB chao 1, MPU 2; endereco 0x70 ASSUMIDO). `hal::muxSelect` e cada sensor do `hal` escolhem o canal antes de falar; Wire1 e os pinos 13/14 do chao sairam. Ultrassom: trig 14, echo 12. O sketch agora usa `hal::Imu/ColorSensor/Ultrasonic` (as copias dele foram removidas); `USA_COR` e `USA_ULTRASSOM` ficam ligados por padrao, `USA_IMU` continua 0.
+- CONFLITO ABERTO: a barra do HANDOFF (S1..S8 = 13,14,18,19,21,22,23,25) colide com trig 14 (S2), SDA 22 (S6) e SCL 23 (S7); 18 tambem e a garra em `pins.h`. Precisa dizer onde a barra esta ligada de fato.
 - Peso morto a decidir: `ponte_h.*` e `assimetria.*` na biblioteca (o simulador ainda usa `assimetria.h`).
 
 ## Pontas soltas

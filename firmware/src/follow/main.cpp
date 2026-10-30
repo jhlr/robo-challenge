@@ -76,7 +76,7 @@ void setup() {
 #endif
   line8.begin();
   hal::beginBuses();
-  floorColor.begin(Wire1);
+  floorColor.begin(params::kMuxFloorRgb);
   imu.begin();
   hal::beginIndicators();
   drive.begin();

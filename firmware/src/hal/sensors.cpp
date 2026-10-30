@@ -27,50 +27,65 @@ void Ultrasonic::begin() {
   digitalWrite(pins::kTrig, LOW);
 }
 
-uint16_t Ultrasonic::readMm() {
+uint16_t Ultrasonic::readMm(uint32_t timeoutUs) {
   digitalWrite(pins::kTrig, LOW);
   delayMicroseconds(2);
   digitalWrite(pins::kTrig, HIGH);
   delayMicroseconds(10);
   digitalWrite(pins::kTrig, LOW);
-  const unsigned long us = pulseIn(pins::kEcho, HIGH, 25000);
+  const unsigned long us = pulseIn(pins::kEcho, HIGH, timeoutUs);
   return us == 0 ? 0xFFFF : static_cast<uint16_t>(us * 0.1715f);
 }
 
 // ---- TCS34725 ----
-bool ColorSensor::begin(TwoWire& bus) {
-  ok_ = tcs_.begin(TCS34725_ADDRESS, &bus);
+bool ColorSensor::begin(uint8_t muxChannel) {
+  channel_ = muxChannel;
+  muxSelect(channel_);
+  ok_ = tcs_.begin(TCS34725_ADDRESS, &Wire);
   return ok_;
 }
 
 bool ColorSensor::read(ColorSample& out) {
   if (!ok_) return false;
+  muxSelect(channel_);
   tcs_.getRawData(&out.r, &out.g, &out.b, &out.c);
   out.floor = core::classify(out.r, out.g, out.b, out.c);
   return true;
 }
 
-// ---- I2C buses ----
-// Wire: IMU + front RGB. Wire1: floor RGB. Both TCS34725 sit at 0x29, hence one per bus.
+// ---- I2C bus + PCA9548 ----
+namespace {
+int8_t openChannel = -1;  // -1 = unknown (the mux powers up with every channel closed)
+}  // namespace
+
+void muxSelect(uint8_t channel) {
+  if (openChannel == static_cast<int8_t>(channel)) return;
+  Wire.beginTransmission(params::kMuxAddr);
+  Wire.write(static_cast<uint8_t>(1u << channel));
+  if (Wire.endTransmission() == 0) openChannel = channel;
+  else openChannel = -1;  // no ACK: try again next time instead of trusting the cache
+}
+
 void beginBuses() {
   Wire.begin(pins::kI2cSda, pins::kI2cScl);
   Wire.setClock(400000);
-  Wire1.begin(pins::kFloorSda, pins::kFloorScl);
-  Wire1.setClock(400000);
+  openChannel = -1;
 }
 
-// ---- MPU6050 on Wire ----
+// ---- MPU6050 (mux channel params::kMuxImu) ----
 namespace {
 Adafruit_MPU6050 mpu;
 }  // namespace
 
 bool Imu::begin() {
+  muxSelect(params::kMuxImu);
   ok_ = mpu.begin(0x68, &Wire);  // ASSUMPTION: MPU6050 at 0x68
   return ok_;
 }
 
 bool Imu::read(ImuSample& out) {
   if (!ok_) return false;
+  muxSelect(params::kMuxImu);
   sensors_event_t a, g, t;
   mpu.getEvent(&a, &g, &t);
   out = {a.acceleration.x, a.acceleration.y, a.acceleration.z, g.gyro.x, g.gyro.y, g.gyro.z};

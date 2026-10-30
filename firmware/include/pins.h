@@ -14,13 +14,12 @@ constexpr int kStsRx = 16;  // UART2, half-duplex STS3215 bus via adapter board
 constexpr int kStsTx = 17;
 #endif
 
-constexpr int kI2cSda = 21;  // Wire: IMU + front RGB (TCS34725, fixed addr 0x29)
-constexpr int kI2cScl = 22;
-constexpr int kFloorSda = 13;  // Wire1: floor RGB (second TCS34725, same addr: needs its own bus)
-constexpr int kFloorScl = 14;
+// One I2C bus, behind a PCA9548 8-channel multiplexer (params::kMux*): front RGB, floor RGB and the IMU. The two TCS34725 share address 0x29, hence the mux.
+constexpr int kI2cSda = 22;
+constexpr int kI2cScl = 23;
 
-constexpr int kTrig = 25;
-constexpr int kEcho = 34;  // input-only pin; HC-SR04 ECHO needs a 5 V -> 3.3 V divider
+constexpr int kTrig = 14;
+constexpr int kEcho = 12;  // HC-SR04 ECHO needs a 5 V -> 3.3 V divider. GPIO12 is a strapping pin (must be low at boot): the idle ECHO is low, keep it that way
 
 constexpr int kLine[] = {36, 39, 35, 32, 33, 19, 23, 4};  // QRE8D channels, left to right
 constexpr int kLineCount = sizeof(kLine) / sizeof(kLine[0]);

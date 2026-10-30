@@ -156,9 +156,8 @@ void setup() {
   sonar.begin();
   hal::beginIndicators();
   hal::beginBuses();
-  Serial.printf("front rgb: %s | floor rgb: %s | imu: %s\n", frontColor.begin(Wire) ? "ok" : "FAIL",
-                floorColor.begin(Wire1) ? "ok" : "FAIL", imu.begin() ? "ok" : "FAIL");
-  // Servos attach AFTER the I2C buses: the bench wiring puts the claw signal on GPIO13, which shares a pin with the floor-sensor I2C (Wire1) in the bench wiring.
+  Serial.printf("front rgb: %s | floor rgb: %s | imu: %s\n", frontColor.begin(params::kMuxFrontRgb) ? "ok" : "FAIL",
+                floorColor.begin(params::kMuxFloorRgb) ? "ok" : "FAIL", imu.begin() ? "ok" : "FAIL");
   claw.begin(pins::kClaw);
 #if !defined(CAR_DC)
   Serial.printf("shoulder STS id %u: %s\n", params::kIdShoulder, shoulderBegin(st) ? "ok" : "no reply");

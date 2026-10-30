@@ -9,52 +9,37 @@
 
 #include "../../../src/core/localizer.h"   // dono da pose no mapa: o sketch so avisa portao e cruzamento
 #include "../../../src/hal/drive.h"        // dono das rodas STS (velocidade + odometria)
+#include "../../../src/hal/sensors.h"      // dono do I2C (PCA9548), TCS34725, MPU6050 e ultrassom
+#include "../../../include/params.h"       // canais do multiplexador
 
 using namespace seguidor;
 
 // --- Cor da linha (TCS34725 do chao): as ruas terminam numa linha VERMELHA (cima/baixo) ou AZUL (laterais). Ela acende S1 e S8 como um cruzamento,
 // mas e a borda do mapa: nao se confirma girando, o robo da meia-volta e volta para dentro do mapa (ou, com cubo na mao, espera o navegador).
-// Desligado ate ligar o sensor: troque para 1, instale a biblioteca "Adafruit TCS34725" e defina os pinos do I2C do TCS (livres: este sketch
-// ja usa 11-14, 21, 38 e 47 na ponte H). A tabela de cores e a do firmware principal (core/color_table.h): uma so, nao copie.
-#define USA_COR 0
+// Desligado ate ligar o sensor: troque para 1 (o I2C e o do multiplexador PCA9548, pins.h/params.h). A tabela de cores e a do firmware principal (core/color_table.h): uma so, nao copie.
+#define USA_COR 1
 #if USA_COR
-#include <Adafruit_TCS34725.h>
-#include <Wire.h>
-
 #include "../../../src/core/color_table.h"
-constexpr int tcsSda = -1, tcsScl = -1;   // DEFINA
-static_assert(tcsSda >= 0 && tcsScl >= 0, "defina os pinos do TCS34725 (tcsSda, tcsScl)");
-Adafruit_TCS34725 tcs(TCS34725_INTEGRATIONTIME_24MS, TCS34725_GAIN_4X);
+hal::ColorSensor corChao;   // TCS34725 do chao: canal params::kMuxFloorRgb do PCA9548 (hal/sensors.*)
 core::Cor corAnterior = core::DESCONHECIDA, corAceita = core::DESCONHECIDA, corBruta = core::DESCONHECIDA;
 #endif
 MemoriaCor memCor;
 
 // --- MPU6050 (inercial.h): rumo ancorado na grade, levantado/reposicionado, travado, colisao, lacuna segurando o rumo, calibracao dos motores.
-// Fiacao de bancada (2026-10-29, MPU removido para a instalacao dos sensores; ligue com USA_IMU 1): VCC = GPIO42, GND = GPIO41, SCL = GPIO40, SDA = GPIO39 (4 pinos seguidos, na ordem do modulo; GPIO15-18 sao da garra/ombro/ponte do firmware do braco, em include/pins.h; VCC e GND vem de GPIOs, ver iniciarAlimentacaoImu). 
+// O MPU esta atras do multiplexador PCA9548 (I2C em pins::kI2cSda/kI2cScl, canal params::kMuxImu), junto com os dois TCS34725.
 // Bitola/eixos: confira o sinal de kSinalGz (+ = anti-horario com o MPU de cabeca para cima) girando o robo a mao para a esquerda e olhando o rumo no Monitor Serial.
 #ifndef USA_IMU
 #define USA_IMU 0   // 1 quando o MPU estiver instalado (sem ele o setup espera o sensor para sempre)
 #endif
 #if USA_IMU
-#include <Adafruit_MPU6050.h>
-#include <Wire.h>
-
 #include "../../../src/core/yaw.h"   // dono da integracao do giroscopio (viés + dt)
-#ifndef IMU_SDA
-#define IMU_SDA 39
-#define IMU_SCL 40
-#endif
-// O modulo e alimentado por GPIOs (nivel constante): VCC = alto, GND = baixo. Um GPIO entrega ~40 mA, de sobra para o MPU6050 (~4 mA).
-// AD0 fica solto: o modulo GY-521 tem pull-down, entao o endereco e 0x68.
-constexpr int kImuVcc = 42, kImuGnd = 41;   // GPIO39-42 so servem de JTAG se voce o ligar
-static_assert(IMU_SDA >= 0 && IMU_SCL >= 0, "defina os pinos do MPU6050 (-DIMU_SDA=.. -DIMU_SCL=..)");
+hal::Imu mpu;   // MPU6050: canal params::kMuxImu do PCA9548 (hal/sensors.*)
 constexpr float kSinalGz = 1.0f;
 // 1 = SO o MPU: setup mede o vies e para (sem calibrar motores nem a barra), loop so imprime rumo/giro/aceleracao; os motores nunca recebem comando. 0 = sketch completo.
 #ifndef SO_TESTE_IMU
 #define SO_TESTE_IMU 1
 #endif
 constexpr bool kCalibrarMotores = true;
-Adafruit_MPU6050 mpu;
 AjustesInercial ajustesInercial;
 Imu imu = {0.0f, 0.0f, 0.0f, 1.0f};
 float rumo = 0.0f;                 // graus, + = esquerda, 0 = de frente para dentro da cidade (SEMPRE assim depois de levantado)
@@ -79,9 +64,9 @@ void lerCor() {
   static unsigned long ultima = 0;
   if (millis() - ultima < 60) return;
   ultima = millis();
-  uint16_t r, g, b, c;
-  tcs.getRawData(&r, &g, &b, &c);
-  corBruta = core::classificarCor(r, g, b, c);
+  hal::ColorSample amostra;
+  if (!corChao.read(amostra)) return;
+  corBruta = core::classificarCor(amostra.r, amostra.g, amostra.b, amostra.c);
   corAceita = core::filtrarCor(corBruta, corAnterior, corAceita);   // so acredita se repetir em duas leituras
   anotarCor(memCor, corAceita == core::VERMELHO ? CorLinha::Vermelho : (corAceita == core::AZUL ? CorLinha::Azul : CorLinha::Outra), millis());
 #endif
@@ -134,18 +119,11 @@ Exploracao exploracao;   // cruzamentos ja visitados (relativos a partida): vira
 int cruzamentos = 0;
 
 #if USA_IMU
-// Liga o MPU6050 pelos GPIOs e espera ele subir (GND primeiro, VCC depois).
-void iniciarAlimentacaoImu() {
-  pinMode(kImuGnd, OUTPUT); digitalWrite(kImuGnd, LOW);
-  pinMode(kImuVcc, OUTPUT); digitalWrite(kImuVcc, HIGH);
-  delay(100);
-}
-
 // Le o MPU e integra o rumo (com o vies medido parado, e corrigido nas retas).
 void lerImu() {
-  sensors_event_t a, g, t;
-  mpu.getEvent(&a, &g, &t);
-  imu = {kSinalGz * g.gyro.z, a.acceleration.x / 9.80665f, a.acceleration.y / 9.80665f, a.acceleration.z / 9.80665f};
+  hal::ImuSample m;
+  if (!mpu.read(m)) return;
+  imu = {kSinalGz * m.gz, m.ax / 9.80665f, m.ay / 9.80665f, m.az / 9.80665f};
   const unsigned long agora = millis();
   rumo = core::integrateYaw(rumo, imu.gzRadS, viesGz, (agora - ultimoImuMs) / 1000.0f);
   ultimoImuMs = agora;
@@ -153,26 +131,17 @@ void lerImu() {
 #endif
 
 // --- Ultrassom HC-SR04 (alvo.h): pronto e DESLIGADO ate o sensor existir. Na varredura das duas pontas ele le o eco ao longo de cada rua (cubo na rua = eco menor que ~330 mm).
-// Ligue com -DUSA_ULTRASSOM=1 -DUS_TRIG=<pino> -DUS_ECHO=<pino> (o ECHO do HC-SR04 e 5 V: use divisor para 3,3 V). TCS34725 da frente (cor do cubo): -DUSA_TCS_FRENTE=1,
-// fica no mesmo I2C do MPU (core/color_table.h classifica); a logica de coleta e do navegador (ainda so no simulador: test/simulador.cpp).
+// Ligue com -DUSA_ULTRASSOM=1 (pinos em pins.h: trig 14, echo 12; o ECHO do HC-SR04 e 5 V: use divisor para 3,3 V). O TCS34725 da frente (cor do cubo) e o canal params::kMuxFrontRgb
+// (core/color_table.h classifica); a logica de coleta e do navegador (ainda so no simulador: test/simulador.cpp).
 #ifndef USA_ULTRASSOM
-#define USA_ULTRASSOM 0
+#define USA_ULTRASSOM 1
 #endif
 #if USA_ULTRASSOM
-#ifndef US_TRIG
-#define US_TRIG -1
-#define US_ECHO -1
-#endif
-static_assert(US_TRIG >= 0 && US_ECHO >= 0, "defina os pinos do ultrassom (-DUS_TRIG=.. -DUS_ECHO=..)");
+hal::Ultrasonic sonar;   // pins::kTrig / pins::kEcho
 // Distancia em mm ate o eco a frente (-1 = sem eco ate ~1,5 m). Bloqueia ate 9 ms no pior caso.
 float lerUltrassomMm() {
-  digitalWrite(US_TRIG, LOW);
-  delayMicroseconds(2);
-  digitalWrite(US_TRIG, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(US_TRIG, LOW);
-  const unsigned long us = pulseIn(US_ECHO, HIGH, 9000);
-  return us == 0 ? -1.0f : us * 0.343f / 2.0f;
+  const uint16_t mm = sonar.readMm(9000);
+  return mm == 0xFFFF ? -1.0f : mm;
 }
 #else
 float lerUltrassomMm() { return -1.0f; }
@@ -206,19 +175,21 @@ float girarAte(float agora, float alvo, int& n) {
 #endif
   const int v = ajustes.velBuscaExterna;
   mover(paraEsquerda ? -v : v, paraEsquerda ? v : -v);   // rodas em sentidos opostos
+#if !USA_IMU
   unsigned long t0 = micros();
+#endif
   const unsigned long inicio = millis();
   while ((paraEsquerda ? agora < alvo : agora > alvo) && millis() - inicio < 3000) {
     ler(barra);
-    const unsigned long t1 = micros();
 #if USA_IMU
     lerImu();
     agora = rumo - rumoRef;
 #else
+    const unsigned long t1 = micros();
     const float passo = ajustes.grausPorSegundoBusca * (t1 - t0) * 1e-6f;
     agora += paraEsquerda ? passo : -passo;
-#endif
     t0 = t1;
+#endif
     if (n < kMaxAmostras) amostras[n++] = {agora, barra.preto[0], barra.preto[kSensores - 1], acesos()};
   }
   parar();
@@ -235,21 +206,23 @@ Oito varrer(bool vinhaSeguindo, int lado) {
   const float rumo0 = rumo;
 #endif
   AmostraGiro leitura = {0.0f, barra.preto[0], barra.preto[kSensores - 1], acesos(), lerUltrassomMm()};   // como chegou
+#if !USA_IMU
   unsigned long t0 = micros();
+#endif
   const unsigned long inicio = millis();
   while (millis() - inicio < 20000) {
     const ComandoVarredura k = passoVarredura(v, leitura, millis(), ajustes.velBuscaExterna, ajustesGiro, amostras, kMaxAmostras);
     if (k.terminou) break;
     mover(k.esq, k.dir);
     ler(barra);
-    const unsigned long t1 = micros();
 #if USA_IMU
     lerImu();
     estimado = rumo - rumo0;   // angulo pelo giroscopio
 #else
+    const unsigned long t1 = micros();
     estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * (t1 - t0) * 1e-6f;   // angulo estimado por tempo
-#endif
     t0 = t1;
+#endif
     leitura = {estimado, barra.preto[0], barra.preto[kSensores - 1], acesos(), lerUltrassomMm()};
   }
   parar();
@@ -398,24 +371,22 @@ void setup() {
   ajustes.folgaZonaPwm = 0;
   iniciar(barra, pinosSensores);
 #if USA_ULTRASSOM
-  pinMode(US_TRIG, OUTPUT);
-  pinMode(US_ECHO, INPUT);
+  sonar.begin();
+#endif
+#if USA_COR || USA_IMU
+  hal::beginBuses();
 #endif
 #if USA_COR
-  Wire.begin(tcsSda, tcsScl);
-  if (!tcs.begin(0x29, &Wire)) dbg.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
+  if (!corChao.begin(params::kMuxFloorRgb)) dbg.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
 #endif
 
 #if USA_IMU
-  iniciarAlimentacaoImu();
-  Wire.begin(IMU_SDA, IMU_SCL);
   while (!mpu.begin()) { dbg.println("!!! MPU6050 nao respondeu, tentando de novo..."); delay(1000); }
   dbg.println("Medindo o vies do giroscopio: nao mexa no robo (1 s)");
   core::GyroBias vies;
   for (int i = 0; i < 200; i++) {
-    sensors_event_t a, g, t;
-    mpu.getEvent(&a, &g, &t);
-    core::addStillSample(vies, kSinalGz * g.gyro.z);
+    hal::ImuSample m;
+    if (mpu.read(m)) core::addStillSample(vies, kSinalGz * m.gz);
     delay(5);
   }
   viesGz = vies.bias();

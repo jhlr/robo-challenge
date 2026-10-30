@@ -16,17 +16,21 @@ class LineArray {  // QRE8D: 8 digital outputs
 class Ultrasonic {
  public:
   void begin();
-  uint16_t readMm();  // 0xFFFF = no echo. Blocks up to 25 ms.
+  uint16_t readMm(uint32_t timeoutUs = 25000);  // 0xFFFF = no echo. Blocks up to timeoutUs.
 };
 
 struct ColorSample { uint16_t r, g, b, c; core::Floor floor; };
 
-// TCS34725 on a given I2C bus. Two instances (front, floor) because the address is fixed at 0x29.
+// PCA9548: only one channel talks at a time. Every sensor selects its channel before touching the bus; selecting the open channel costs nothing.
+void muxSelect(uint8_t channel);
+
+// TCS34725 behind a mux channel. Two instances (front, floor) because the address is fixed at 0x29.
 class ColorSensor {
  public:
-  bool begin(TwoWire& bus);  // call beginBuses() first
+  bool begin(uint8_t muxChannel);  // call beginBuses() first
   bool read(ColorSample& out);
  private:
+  uint8_t channel_ = 0;
   Adafruit_TCS34725 tcs_{TCS34725_INTEGRATIONTIME_24MS, TCS34725_GAIN_4X};
   bool ok_ = false;
 };
@@ -58,7 +62,7 @@ class Servo {
   ServoSpec spec_;
   int pin_ = -1;
 };
-void beginBuses();  // Wire (IMU, front RGB) and Wire1 (floor RGB)
+void beginBuses();  // Wire on pins::kI2cSda/kI2cScl, facing the PCA9548
 void beginIndicators();
 void beep(uint16_t ms);
 void led(bool on);
