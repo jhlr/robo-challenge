@@ -10,19 +10,22 @@ namespace seguidor {
 
 namespace {
 
+bool podeCarregar(int pino) { return pino < 34; }
+
 // Espera ate `limite` us. Os 8 pinos sao lidos de uma vez no registrador de entrada
 // (nada de digitalRead em laco) e a medida para assim que todos descarregam.
 void lerTempos(BarraRC& b, unsigned int limite) {
   // 1) Carrega os capacitores dos sensores
   for (int i = 0; i < kSensores; i++) {
+    b.leituras[i] = b.tempoMaxUs;
+    if (!podeCarregar(b.pinos[i])) continue;   // GPIO34-39 so de entrada: tentar escrever so enche a serial de erros e o sensor nunca reage
     pinMode(b.pinos[i], OUTPUT);
     digitalWrite(b.pinos[i], HIGH);
-    b.leituras[i] = b.tempoMaxUs;
   }
   delayMicroseconds(10);
 
   // 2) Solta os pinos e mede quanto tempo cada um demora para cair
-  for (int i = 0; i < kSensores; i++) pinMode(b.pinos[i], INPUT);
+  for (int i = 0; i < kSensores; i++) if (podeCarregar(b.pinos[i])) pinMode(b.pinos[i], INPUT);
 
   uint32_t pendentesBaixa = b.todosBaixa, pendentesAlta = b.todosAlta;   // pinos que ainda estao em HIGH
   const uint32_t inicio = micros();
@@ -47,6 +50,7 @@ void iniciar(BarraRC& b, const uint8_t pinos[kSensores]) {
   b.pinos = pinos;
   b.todosBaixa = b.todosAlta = 0;
   for (int i = 0; i < kSensores; i++) {
+    if (!podeCarregar(pinos[i])) continue;   // nunca carrega: fora das mascaras, a leitura fica no maximo e a calibracao o marca como morto
     const bool alto = pinos[i] >= 32;
     b.mascaraBaixa[i] = alto ? 0 : 1UL << pinos[i];
     b.mascaraAlta[i] = alto ? 1UL << (pinos[i] - 32) : 0;
