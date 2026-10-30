@@ -2,6 +2,9 @@
 
 #include <soc/gpio_reg.h>
 
+// Fora de qualquer namespace: o REG_READ do IDF declara uma funcao extern de assert, e dentro do namespace anonimo isso vira um warning de "static nunca definida".
+static inline uint32_t entradaGpio0a31() { return REG_READ(GPIO_IN_REG); }
+
 namespace seguidor {
 
 namespace {
@@ -25,7 +28,7 @@ void lerTempos(BarraRC& b, unsigned int limite) {
   while (pendentes) {
     const uint32_t t = micros() - inicio;
     if (t >= limite) break;
-    const uint32_t caiu = ~REG_READ(GPIO_IN_REG) & pendentes;
+    const uint32_t caiu = ~entradaGpio0a31() & pendentes;
     if (caiu) {
       for (int i = 0; i < kSensores; i++) {
         if (caiu & b.mascara[i]) b.leituras[i] = t;

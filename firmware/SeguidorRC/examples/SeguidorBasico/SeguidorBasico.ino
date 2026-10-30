@@ -1,9 +1,14 @@
-// Seguidor de linha preta sem PID. ESP32-S3 + TB6612FNG + barra de 8 sensores RC.
-// Placa na Arduino IDE: "ESP32S3 Dev Module". Monitor Serial a 115200.
+// Seguidor de linha preta sem PID. ESP32 DevKit + 2 STS3215 (um por lateral, bus serial) + barra de 8 sensores RC.
+// Compila pelo PlatformIO (env `seguidor`): a tracao e o hal/drive.* do firmware, nao existe mais ponte H. Monitor Serial a 115200.
 //
 // O loop e sempre: ler sensores -> (cruzamento?) -> decidir -> mexer motores.
 
 #include <SeguidorRC.h>
+
+#include <SCServo.h>
+
+#include "../../../src/core/localizer.h"   // dono da pose no mapa: o sketch so avisa portao e cruzamento
+#include "../../../src/hal/drive.h"        // dono das rodas STS (velocidade + odometria)
 
 using namespace seguidor;
 
@@ -49,7 +54,6 @@ constexpr float kSinalGz = 1.0f;
 #define SO_TESTE_IMU 1
 #endif
 constexpr bool kCalibrarMotores = true;
-constexpr bool kCompensarAssimetria = true;   // anda ~150 mm para tras e para frente no setup (espaco livre) para igualar a forca dos dois motores   // no setup, gira no eixo sozinho (~2 s) e mede zona morta e graus por segundo
 Adafruit_MPU6050 mpu;
 AjustesInercial ajustesInercial;
 Imu imu = {0.0f, 0.0f, 0.0f, 1.0f};
@@ -85,8 +89,21 @@ void lerCor() {
 
 // --- Ligacao (S1 = ponta esquerda ... S8 = ponta direita; os pinos dos sensores precisam ser < 32) ---
 // Barra montada ESPELHADA em relacao ao codigo do colega (confirmado pelo usuario em 2026-10-28): S1 (esquerda) e o pino 1 ... S8 (direita) e o pino 8.
-const uint8_t pinosSensores[kSensores] = {1, 2, 3, 4, 5, 6, 7, 8};
-const PinosPonteH ponte = {.ain1 = 12, .ain2 = 11, .pwma = 13, .bin1 = 14, .bin2 = 21, .pwmb = 47, .stby = 38};
+// Pinos do HANDOFF.md do outro PC (S1..S8 = 13,14,18,19,21,22,23,25; LEDON 26), todos < 32. NAO reconciliado com firmware/include/pins.h (13/14 e 21/22 sao I2C la, 25 e o trig).
+const uint8_t pinosSensores[kSensores] = {13, 14, 18, 19, 21, 22, 23, 25};
+
+// Rodas: os STS fecham a velocidade em malha fechada, entao nao ha zona morta nem assimetria de motor para compensar. O comando da decisao (-255..255) vira -1..1.
+SMS_STS sts;
+hal::StsDrive rodas(sts);
+void mover(int esq, int dir) { rodas.setSpeeds(esq / 255.0f, dir / 255.0f); }
+void parar() { rodas.setSpeeds(0.0f, 0.0f); }
+void aplicar(const Comando& c) { if (c.parar) parar(); else mover(c.esq, c.dir); }
+
+// Localizacao no mapa (core/localizer.h) com a odometria dos STS: distancia entre cruzamentos separa rua, cruzamento perdido e fantasma.
+// O localizador ainda nao recebe onTurn (o navegador que decide as viradas nao esta ligado): vale em reta ate o primeiro desvio.
+core::PoseBelief pose;
+core::LocalizerModel modeloPose;
+float escalaRoda = 1.0f;   // multiplica a odometria; refinada a cada rua limpa (core::refineWheelScale)
 
 #ifndef USA_BLE
 #define USA_BLE 1   // depuracao por Bluetooth LE (Nordic UART): console_ble.py, nRF Connect ou Serial Bluetooth Terminal (modo BLE)
@@ -188,7 +205,7 @@ float girarAte(float agora, float alvo, int& n) {
   const float rumoRef = rumo - agora;   // angulo pelo giroscopio, a partir de onde comecou
 #endif
   const int v = ajustes.velBuscaExterna;
-  mover(ponte, paraEsquerda ? -v : v, paraEsquerda ? v : -v);   // rodas em sentidos opostos
+  mover(paraEsquerda ? -v : v, paraEsquerda ? v : -v);   // rodas em sentidos opostos
   unsigned long t0 = micros();
   const unsigned long inicio = millis();
   while ((paraEsquerda ? agora < alvo : agora > alvo) && millis() - inicio < 3000) {
@@ -204,7 +221,7 @@ float girarAte(float agora, float alvo, int& n) {
     t0 = t1;
     if (n < kMaxAmostras) amostras[n++] = {agora, barra.preto[0], barra.preto[kSensores - 1], acesos()};
   }
-  parar(ponte);
+  parar();
   return agora;
 }
 
@@ -223,7 +240,7 @@ Oito varrer(bool vinhaSeguindo, int lado) {
   while (millis() - inicio < 20000) {
     const ComandoVarredura k = passoVarredura(v, leitura, millis(), ajustes.velBuscaExterna, ajustesGiro, amostras, kMaxAmostras);
     if (k.terminou) break;
-    mover(ponte, k.esq, k.dir);
+    mover(k.esq, k.dir);
     ler(barra);
     const unsigned long t1 = micros();
 #if USA_IMU
@@ -235,7 +252,7 @@ Oito varrer(bool vinhaSeguindo, int lado) {
     t0 = t1;
     leitura = {estimado, barra.preto[0], barra.preto[kSensores - 1], acesos(), lerUltrassomMm()};
   }
-  parar(ponte);
+  parar();
   auto rua = [](int x) { return x < 0 ? "?" : (x ? "SIM" : "nao"); };
   dbg.printf("    1o lado: %s | rua a esquerda: %s | rua a direita: %s | %d amostras\n", lado > 0 ? "esquerda" : "direita", rua(v.ruas.ruaEsquerda), rua(v.ruas.ruaDireita), v.n);
   if (v.ruas.usEsq > 0 || v.ruas.usDir > 0 || v.ruas.usFrente > 0) dbg.printf("    ultrassom: esquerda %.0f mm | frente %.0f mm | direita %.0f mm (-1 = nada)\n", v.ruas.usEsq, v.ruas.usFrente, v.ruas.usDir);
@@ -247,6 +264,8 @@ void bordaDoMapa(AcaoCruzamento acao) {
   if (acao == AcaoCruzamento::Portao) {
     dbg.println(">>> PORTAO azul (nosso): segue em frente");
     portaoPendente = false;
+    core::onOwnBlue(pose);   // portao: coluna 0, de frente para dentro, linha desconhecida
+    rodas.resetTravel();
     semReacaoAte = millis() + 1500;   // ainda em cima da faixa azul do portao
     esquecerCor(memCor);
     esquecerUltimoComando(memoria);
@@ -269,11 +288,22 @@ void bordaDoMapa(AcaoCruzamento acao) {
   cruzamento = MemoriaCruzamento{};   // depois dos 180 graus a barra nao esta mais na faixa da borda: o cruzamento do beco (a 127 mm) precisa ser detectado, o debounce de 300 ms o engolia
 }
 
+// Cruzamento confirmado: a distancia que as rodas fizeram desde o anterior (ou desde o portao) entra no localizador. Depois do portao a distancia nao e de uma rua: nao calibra a roda.
+void atualizarPose() {
+  const float brutoMm = rodas.forwardMm();
+  const bool primeiro = pose.atGate;
+  core::onCrossing(pose, brutoMm * escalaRoda, modeloPose);
+  if (!primeiro) escalaRoda = core::refineWheelScale(escalaRoda, brutoMm, modeloPose);
+  rodas.resetTravel();
+  const core::Estimate e = core::estimate(pose);
+  dbg.printf("    pose: coluna %d linha %d (%.0f%%) | %.0f mm desde o anterior | escala da roda %.3f\n", e.pose.at.c, e.pose.at.r, e.confidence * 100.0f, brutoMm * escalaRoda, escalaRoda);
+}
+
 // As duas pontas acesas (S1 e S8), ACIMA DE TODAS AS OUTRAS REGRAS, em qualquer situacao (inclusive perdido/buscando): para e varre 90 graus, comecando pelo
 // lado MENOS EXPLORADO do mapa (rumo do MPU + cruzamentos ja visitados). Seguindo a linha: cruzamento se ha rua dos dois lados. Perdido: era ele de lado em cima da
 // linha; se ficou estreito depois de virar, endireitou e segue por ela. A decisao de qual rua seguir sera do navegador (ainda nao ligado aqui).
 void pararNoCruzamento() {
-  parar(ponte);
+  parar();
   const AcaoCruzamento acao = acaoNaPonta(corRecente(memCor, millis(), kJanelaCorMs), temCubo, portaoPendente);
   if (acao != AcaoCruzamento::Cruzamento) { bordaDoMapa(acao); return; }
   if (kModoTeste) { dbg.println(">>> S1 e S8 no preto (modo teste: nao gira)"); comecarASair(cruzamento, millis()); return; }
@@ -287,6 +317,7 @@ void pararNoCruzamento() {
   const Oito oito = varrer(vinhaSeguindo, lado);
   if (oito == Oito::Cruzamento) {
     cruzamentos++;
+    atualizarPose();
 #if USA_IMU
     registrarCruzamento(exploracao, rumo);
 #endif
@@ -326,7 +357,7 @@ void aoReceberComando(const String& linha) {
     dbg.printf("rumo=%.1f graus | vies gz=%.4f rad/s\n", rumo, viesGz);
 #endif
     mostrarAjustes();
-  } else if (cmd == "parar") { parado = true; parar(ponte); dbg.println("ok: parado");
+  } else if (cmd == "parar") { parado = true; parar(); dbg.println("ok: parado");
   } else if (cmd == "seguir") { parado = false; dbg.println("ok: andando");
   } else if (cmd == "teste") { kModoTeste = arg == "on"; dbg.printf("ok: modo teste %s\n", kModoTeste ? "ligado (motores desligados)" : "desligado");
   } else if (cmd == "debug") { kDebug = arg == "on"; dbg.printf("ok: debug %s\n", kDebug ? "ligado" : "desligado");
@@ -360,7 +391,11 @@ void setup() {
 #if USA_BLE
   ble.iniciar("SeguidorRC", aoReceberComando);
 #endif
-  iniciar(ponte);
+  hal::beginStsBus(sts);
+  rodas.begin();
+  core::initInGreen(pose);
+  ajustes.zonaMortaPwm = 0;   // STS nao tem zona morta (velocidade em malha fechada): normalizar() nao levanta nada
+  ajustes.folgaZonaPwm = 0;
   iniciar(barra, pinosSensores);
 #if USA_ULTRASSOM
   pinMode(US_TRIG, OUTPUT);
@@ -386,28 +421,10 @@ void setup() {
   viesGz = vies.bias();
   ultimoImuMs = millis();
 #if SO_TESTE_IMU
-  parar(ponte);
+  parar();
   dbg.println("TESTE SO DO MPU: motores desligados. Gire o robo a mao: rumo (graus, + = esquerda), giro (graus/s), aceleracao (g).");
   return;
 #endif
-  if (kCompensarAssimetria) {   // 3 rodadas curtas de re/frente (~150 mm cada) com o MESMO PWM nos dois lados: o giroscopio diz para que lado o carro puxa e o lado fraco ganha forca
-    AjustesAssimetria aa;
-    aa.pwm = ajustes.velReto;
-    aa.bitolaMm = ajustes.bitolaMm;
-    aa.velMmS = ajustesCruzamento.velMmS;
-    Assimetria assim;
-    definirCompensacao({1.0f, 1.0f});
-    ComandoAssimetria k;
-    do {
-      lerImu();
-      k = passoAssimetria(assim, imu.gzRadS - viesGz, millis(), aa);
-      mover(ponte, k.esq, k.dir);
-      delay(5);
-    } while (!k.terminou);
-    parar(ponte);
-    if (assim.fase == Assimetria::Pronto) definirCompensacao({assim.ganhoEsq, assim.ganhoDir});
-    dbg.printf("assimetria dos motores: esquerda x%.3f, direita x%.3f (%s)\n", assim.ganhoEsq, assim.ganhoDir, assim.fase == Assimetria::Pronto ? "ok" : "FALHOU: sem compensacao");
-  }
   if (kCalibrarMotores) {   // gira no eixo ate o giroscopio acusar: zona morta e graus por segundo de verdade
     Calibracao cal;
     AjustesCalibracao ac;
@@ -416,10 +433,10 @@ void setup() {
     do {
       lerImu();
       k = passoCalibracao(cal, imu.gzRadS - viesGz, millis(), ac);
-      mover(ponte, k.esq, k.dir);
+      mover(k.esq, k.dir);
       delay(5);
     } while (!k.terminou);
-    parar(ponte);
+    parar();
     if (cal.fase == Calibracao::Pronto) {
       ajustes.zonaMortaPwm = cal.zonaMortaPwm;
       ajustes.velBuscaExterna = cal.velMedida;   // a velocidade em que os graus por segundo foram medidos
@@ -455,7 +472,7 @@ void loop() {
   }
   return;
 #endif
-  if (parado) { parar(ponte); return; }
+  if (parado) { parar(); return; }
   ler(barra);
   lerCor();
 #if USA_COR
@@ -466,7 +483,7 @@ void loop() {
     for (int i = 0; i < kSensores; i++) algum = algum || barra.preto[i];
     const core::Cor viu = algum ? corBruta : corAceita;
     if (millis() >= semReacaoAte && (viu == core::VERMELHO || (viu == core::AZUL && !portaoPendente))) {
-      parar(ponte);
+      parar();
       bordaDoMapa(temCubo ? AcaoCruzamento::Navegador : AcaoCruzamento::MeiaVolta);
       semReacaoAte = millis() + 1500;
       return;
@@ -476,7 +493,7 @@ void loop() {
 #if USA_IMU
   lerImu();
   const EventoPostura evento = atualizarPickup(pickup, imu, millis(), ajustesInercial);
-  if (evento == EventoPostura::FoiLevantado) { parar(ponte); dbg.println(">>> LEVANTADO: motores parados"); }
+  if (evento == EventoPostura::FoiLevantado) { parar(); dbg.println(">>> LEVANTADO: motores parados"); }
   if (evento == EventoPostura::Reposicionado) {
     // Depois de levantado ele e SEMPRE posto em algum lugar do verde, apontando para frente: rumo 0, pose desconhecida (o mapa de cubos fica).
     // O localizador (core/localizer.h, initInGreen) tem de receber o mesmo reset quando for ligado aqui.
@@ -490,9 +507,10 @@ void loop() {
     esquecerCor(memCor);
     tUltimoCruzamento = 0;
     portaoPendente = true;   // vai entrar de novo pelo nosso portao
+    core::initInGreen(pose);
     dbg.printf(">>> REPOSICIONADO (%d): rumo 0, de frente\n", reposicionamentos);
   }
-  if (!motoresLiberados(pickup)) { parar(ponte); return; }
+  if (!motoresLiberados(pickup)) { parar(); return; }
   if (colisaoDetectada(colisao, imu, true, millis(), ajustesInercial)) dbg.printf(">>> COLISAO forte (pico %.1f g)\n", colisao.picoG);
 #endif
   const int travados = atualizarSaude(barra.preto, millis(), saude, barra.ok);
@@ -503,7 +521,9 @@ void loop() {
     pararNoCruzamento();
     return;
   }
+#if USA_IMU
   const unsigned long perdeuAntes = memoria.perdeuEm;
+#endif
   Comando c = decidir(barra.preto, millis(), ajustes, memoria);
 #if USA_IMU
   if (memoria.perdeuEm != 0 && perdeuAntes == 0) rumoAoPerder = rumo;
@@ -514,9 +534,9 @@ void loop() {
   if (tr == AcaoTracao::Reforcar) dbg.printf(">>> andando menos que o esperado: reforco de PWM %d\n", tracao.reforco);
   if (tr == AcaoTracao::Recuar) {
     dbg.println(">>> TRAVADO mesmo com reforco: recua um pouco");
-    mover(ponte, -ajustes.velReto, -ajustes.velReto);
+    mover(-ajustes.velReto, -ajustes.velReto);
     delay(300);
-    parar(ponte);
+    parar();
     tracao.reforco = 0;
     return;
   }
@@ -530,10 +550,10 @@ void loop() {
     fimDeBecoAvisado = true;
     dbg.println(">>> FIM DE BECO: a linha acabou onde o beco termina (borda do mapa)");
   }
-  aplicar(ponte, c);
+  aplicar(c);
 
   if (kModoTeste) {
-    parar(ponte);
+    parar();
     esquecerUltimoComando(memoria);
   }
 

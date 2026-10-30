@@ -27,6 +27,11 @@ Descartados (peso demais, nenhum ganho com mapa conhecido): EKF-SLAM, FastSLAM /
 ## Ordem sugerida
 (5)+(4) primeiro, porque dependem do porte para STS que ja esta na fila; depois (1)-(3) e (6). O simulador (`firmware/SeguidorRC/test/simulador.cpp`, `--lote N`) mede cada uma: 28/30 e 187 s sem ruido e o baseline.
 
+## Estado (2026-10-30)
+- Feito: `onCrossing(pose, mm)` + `refineWheelScale` em `core/localizer.h` (69 testes) e o sketch `SeguidorBasico` portado para os STS: `hal::StsDrive` no lugar da ponte H, odometria entre cruzamentos alimentando o localizador, assimetria removida do sketch. Builda limpo: `cd firmware && pio run -e seguidor`.
+- Nao testado no robo. Faltam: reconciliar pinos dos sensores (13/14/18/19/21/22/23/25 do HANDOFF vs `pins.h`), sinais de roda (kLeftSign/kRightSign), `onTurn` do navegador (nao ligado), medir `kGearRatio`/`kTrackMm`.
+- Peso morto a decidir: `ponte_h.*` e `assimetria.*` na biblioteca (o simulador ainda usa `assimetria.h`).
+
 ## Pontas soltas
 - Artigo/ferramenta: "localizacao em grafo com odometria barata + marcos de cruzamento" e publicavel como relato de competicao; o diferencial e medir o ganho em lote no simulador.
 - Nada aqui foi implementado nem medido.
