@@ -6,6 +6,7 @@
 //   DepuracaoBLE ble;                 // e um Print: ble.printf(...), ble.println(...)
 //   Tee dbg(Serial, ble);             // escreve nos dois: Monitor Serial (USB) E Bluetooth
 //   ble.iniciar("SeguidorRC", aoReceberLinha);   // no setup
+//   ble.anunciar();                   // depois de iniciar() (e de qualquer outro servico no mesmo servidor, ver ota_ble.h)
 //   ble.atualizar();                  // no loop: manda o que esta na fila e entrega as linhas recebidas a aoReceberLinha (no loop, nao na tarefa do BLE)
 //
 // Sem ninguem conectado o que se escreve e descartado (nao enche a memoria). A fila de saida tem 4 KB; se encher (conexao lenta) as linhas MAIS NOVAS sao descartadas
@@ -38,6 +39,13 @@ class DepuracaoBLE : public Print, public BLEServerCallbacks, public BLECharacte
     BLECharacteristic* rx = servico->createCharacteristic(kUuidRx, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
     rx->setCallbacks(this);
     servico->start();
+  }
+
+  // O servidor, para outros servicos (ex.: OtaBLE) entrarem nele ANTES de anunciar().
+  BLEServer* servidor() const { return servidor_; }
+
+  // Comeca a ser achado. Chame depois de criar todos os servicos.
+  void anunciar() {
     BLEAdvertising* anuncio = BLEDevice::getAdvertising();
     anuncio->addServiceUUID(kUuidServico);
     anuncio->setScanResponse(true);
@@ -101,7 +109,8 @@ class DepuracaoBLE : public Print, public BLEServerCallbacks, public BLECharacte
   // BLEServerCallbacks
   void onConnect(BLEServer*) override {   // assinatura sem parametro: existe nas duas pilhas (Bluedroid e NimBLE)
     conectado_ = true;
-    cabeca_ = cauda_ = 0;
+    cabeca_ = 0;
+    cauda_ = 0;
     perdidos_ = 0;
   }
   void onDisconnect(BLEServer*) override {

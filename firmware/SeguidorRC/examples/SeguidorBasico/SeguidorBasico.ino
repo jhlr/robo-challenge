@@ -74,8 +74,9 @@ void lerCor() {
 
 // --- Ligacao (S1 = ponta esquerda ... S8 = ponta direita; os pinos dos sensores precisam ser < 32) ---
 // Barra montada ESPELHADA em relacao ao codigo do colega (confirmado pelo usuario em 2026-10-28): S1 (esquerda) e o pino 1 ... S8 (direita) e o pino 8.
-// Pinos do HANDOFF.md do outro PC (S1..S8 = 13,14,18,19,21,22,23,25; LEDON 26), todos < 32. NAO reconciliado com firmware/include/pins.h (13/14 e 21/22 sao I2C la, 25 e o trig).
-const uint8_t pinosSensores[kSensores] = {13, 14, 18, 19, 21, 22, 23, 25};
+// Barra QRE-8D (informado em 2026-10-30): S1..S8 = GPIO 15, 2, 0, 4, 16, 17, 5, 18, todos < 32. ATENCAO: 16 e 17 sao o barramento dos STS (pins::kStsRx/kStsTx), colisao ainda
+// nao resolvida; 0, 2 e 15 sao pinos de boot (GPIO0 em nivel baixo na partida entra em modo de gravacao).
+const uint8_t pinosSensores[kSensores] = {15, 2, 0, 4, 16, 17, 5, 18};
 
 // Rodas: os STS fecham a velocidade em malha fechada, entao nao ha zona morta nem assimetria de motor para compensar. O comando da decisao (-255..255) vira -1..1.
 SMS_STS sts;
@@ -95,7 +96,12 @@ float escalaRoda = 1.0f;   // multiplica a odometria; refinada a cada rua limpa 
 #endif
 #if USA_BLE
 #include <seguidor/depuracao_ble.h>
+#include <seguidor/ota_ble.h>
+#ifndef OTA_SEGREDO
+#define OTA_SEGREDO "troque-este-segredo"   // o mesmo em tools/ota_ble.py (--segredo): sem ele ninguem grava firmware por BLE
+#endif
 DepuracaoBLE ble;
+OtaBLE ota;
 Tee dbg(Serial, ble);   // tudo que o robo escreve vai ao Monitor Serial (USB) E ao Bluetooth
 #else
 Print& dbg = Serial;
@@ -363,6 +369,8 @@ void setup() {
   Serial.begin(115200);
 #if USA_BLE
   ble.iniciar("SeguidorRC", aoReceberComando);
+  ota.iniciar(ble.servidor(), OTA_SEGREDO);   // PRIMEIRO no setup: um firmware que chega aqui ainda pode ser atualizado
+  ble.anunciar();
 #endif
   hal::beginStsBus(sts);
   rodas.begin();
@@ -433,6 +441,8 @@ void setup() {
 void loop() {
 #if USA_BLE
   ble.atualizar();
+  ota.atualizar();
+  if (ota.ativo()) { parar(); return; }   // atualizando o firmware: robo parado
 #endif
 #if SO_TESTE_IMU
   static unsigned long ultimoPrintMs = 0;
