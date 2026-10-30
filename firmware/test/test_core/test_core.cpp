@@ -496,6 +496,48 @@ void test_loc_gate_gives_column_and_heading_not_row() {
   TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.2f, b.p[0][0][0]);
 }
 
+void test_loc_distance_one_street_moves_one_junction() {
+  core::PoseBelief b;
+  core::onOwnBlueAtRow(b, 2, 1.0f);
+  core::onCrossing(b);                                    // column 0
+  core::onCrossing(b, 410.0f);
+  TEST_ASSERT_TRUE(b.p[1][2][0] > 0.99f);
+}
+
+void test_loc_distance_two_streets_means_a_missed_crossing() {
+  core::PoseBelief b;
+  core::onOwnBlueAtRow(b, 2, 1.0f);
+  core::onCrossing(b);
+  core::onCrossing(b, 790.0f);
+  TEST_ASSERT_TRUE(b.p[2][2][0] > 0.99f);
+}
+
+void test_loc_distance_far_too_short_is_a_phantom_crossing() {
+  core::PoseBelief b;
+  core::onOwnBlueAtRow(b, 2, 1.0f);
+  core::onCrossing(b);
+  core::onCrossing(b, 150.0f);
+  TEST_ASSERT_TRUE(b.p[0][2][0] > 0.99f);                 // did not move
+}
+
+void test_loc_distance_without_a_previous_crossing_uses_the_prior() {
+  core::PoseBelief b;
+  core::onOwnBlue(b);
+  core::onCrossing(b, 9999.0f);                           // still at the gate: first junction, distance means nothing
+  TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.2f, b.p[0][0][0]);
+}
+
+void test_wheel_scale_converges_on_a_long_reading() {
+  float scale = 1.0f;
+  for (int i = 0; i < 30; ++i) scale = core::refineWheelScale(scale, 440.0f);   // raw odometry keeps reading 440 mm per street
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 400.0f / 440.0f, scale);
+}
+
+void test_wheel_scale_ignores_implausible_streets() {
+  TEST_ASSERT_EQUAL_FLOAT(1.0f, core::refineWheelScale(1.0f, 800.0f));   // missed crossing
+  TEST_ASSERT_EQUAL_FLOAT(1.0f, core::refineWheelScale(1.0f, 150.0f));   // phantom
+}
+
 void test_loc_gate_with_known_row_knows_the_row() {
   core::PoseBelief b;
   core::onOwnBlueAtRow(b, 2, 0.9f);   // came back through the gate lined up with row 2 (the row is far enough from its neighbours: 400 mm)
@@ -678,6 +720,12 @@ int main() {
   RUN_TEST(test_gyro_turn_finishes_on_the_angle);
   RUN_TEST(test_gyro_turn_times_out_if_the_gyro_is_dead);
   RUN_TEST(test_loc_gate_gives_column_and_heading_not_row);
+  RUN_TEST(test_loc_distance_one_street_moves_one_junction);
+  RUN_TEST(test_loc_distance_two_streets_means_a_missed_crossing);
+  RUN_TEST(test_loc_distance_far_too_short_is_a_phantom_crossing);
+  RUN_TEST(test_loc_distance_without_a_previous_crossing_uses_the_prior);
+  RUN_TEST(test_wheel_scale_converges_on_a_long_reading);
+  RUN_TEST(test_wheel_scale_ignores_implausible_streets);
   RUN_TEST(test_loc_gate_with_known_row_knows_the_row);
   RUN_TEST(test_loc_counts_columns_along_the_street);
   RUN_TEST(test_loc_running_past_the_last_column_means_we_miscounted);

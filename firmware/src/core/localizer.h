@@ -13,6 +13,7 @@
 //   onLineEnd()       the line ended right after a junction (end of a stub)
 //   onForbidden(kind) red under any sensor, or the other team's blue: both only exist beyond the last junction
 // estimate() gives the best pose and how sure we are. Below a confidence bar the robot should not trust the map and go find an anchor.
+#include <math.h>
 #include <string.h>
 
 #include "core/map.h"
@@ -36,6 +37,9 @@ struct LocalizerModel {
   float pEndInterior = 0.03f;       // line "ends" in the middle of the map (gap in the tape, sensor glitch)
   float pForbiddenOutside = 0.95f;  // a forbidden colour is read only beyond the last junction
   float pForbiddenInside = 0.02f;
+  float streetMm = 400.0f;          // centre to centre of two neighbouring junctions (the arena's measured pitch)
+  float travelSigmaFrac = 0.12f;    // odometry error over one street, as a fraction of streetMm
+  float phantomBelow = 0.5f;        // travelled less than this many streets: not a junction, a glitch on the tape
 };
 
 inline float totalMass(const PoseBelief& b) {
@@ -116,14 +120,9 @@ inline void onTurn(PoseBelief& b, int leftQuarterTurns) {
 // True when the junction after (c, r) in direction h is outside the map.
 inline bool facesOutside(int c, int r, int h) { return !inMap(c + kDirs[h][0], r + kDirs[h][1]); }
 
-// A crossing arrived. The first one after the gate is the first junction itself (column 0); after that we moved one junction (two if one was missed).
-// Facing outside at the edge cannot produce a crossing, so those states disappear: that is evidence too.
-inline bool onCrossing(PoseBelief& b, const LocalizerModel& m = {}) {
-  if (b.inGreen) return true;  // no pose to move
-  if (b.atGate) {
-    b.atGate = false;
-    return true;
-  }
+// Move every state one junction ahead with weight w1, two with weight w2 (a crossing went unnoticed). Facing outside at the edge cannot produce
+// a crossing, so those states disappear: that is evidence too.
+inline bool advance(PoseBelief& b, float w1, float w2) {
   PoseBelief n;
   memset(&n, 0, sizeof(n));
   for (int c = 0; c < kMapCols; ++c)
@@ -133,14 +132,51 @@ inline bool onCrossing(PoseBelief& b, const LocalizerModel& m = {}) {
         if (mass <= 0.0f) continue;
         const int c1 = c + kDirs[h][0], r1 = r + kDirs[h][1];
         if (!inMap(c1, r1)) continue;
-        n.p[c1][r1][h] += mass * (1.0f - m.pMissCrossing);
+        n.p[c1][r1][h] += mass * w1;
         const int c2 = c1 + kDirs[h][0], r2 = r1 + kDirs[h][1];
-        if (inMap(c2, r2)) n.p[c2][r2][h] += mass * m.pMissCrossing;
+        if (inMap(c2, r2)) n.p[c2][r2][h] += mass * w2;
       }
   n.atGate = false;
   n.inGreen = false;
   b = n;
   return normalize(b);
+}
+
+// A crossing arrived, distance unknown. The first one after the gate is the first junction itself (column 0); after that we moved one junction
+// (two if one was missed, with the fixed prior pMissCrossing).
+inline bool onCrossing(PoseBelief& b, const LocalizerModel& m = {}) {
+  if (b.inGreen) return true;  // no pose to move
+  if (b.atGate) {
+    b.atGate = false;
+    return true;
+  }
+  return advance(b, 1.0f - m.pMissCrossing, m.pMissCrossing);
+}
+
+// Same, with the distance the wheels covered since the previous crossing (core/odo.h mmForCounts). The distance decides between "one street"
+// (~streetMm), "a crossing went unnoticed" (~2 streets) and "not a junction at all" (under phantomBelow streets: the pose does not move).
+// Returns false only when the model and the world disagree (see normalize).
+inline bool onCrossing(PoseBelief& b, float travelledMm, const LocalizerModel& m = {}) {
+  if (b.inGreen || b.atGate) return onCrossing(b, m);  // no previous crossing to measure from
+  const float streets = travelledMm / m.streetMm;
+  if (streets < m.phantomBelow) return true;
+  auto like = [&](float k) {
+    const float z = (streets - k) / (m.travelSigmaFrac * k);   // error grows with the distance walked
+    return expf(-0.5f * z * z) / k;
+  };
+  const float w1 = (1.0f - m.pMissCrossing) * like(1.0f);
+  const float w2 = m.pMissCrossing * like(2.0f);
+  const float s = w1 + w2;
+  if (s < 1e-12f) return onCrossing(b, m);  // far from both: no distance information, fall back to the prior
+  return advance(b, w1 / s, w2 / s);
+}
+
+// The street pitch is known, so every clean single street recalibrates the wheel scale (diameter x gear error): scale multiplies mmForCounts.
+// Slow average, and only for a plausible street (within 15% of one pitch), so a missed or phantom crossing cannot drag it.
+inline float refineWheelScale(float scale, float travelledMm, const LocalizerModel& m = {}, float rate = 0.2f) {
+  const float measured = travelledMm * scale;
+  if (fabsf(measured / m.streetMm - 1.0f) > 0.15f) return scale;
+  return scale * (1.0f + rate * (m.streetMm / measured - 1.0f));
 }
 
 // Weight every state by how likely the reading is there, then rescale.
