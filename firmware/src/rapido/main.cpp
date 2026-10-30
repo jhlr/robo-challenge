@@ -10,6 +10,7 @@
 #include "core/line.h"
 #include "core/pid.h"
 #include "hal/drive.h"
+#include "params.h"
 #include "pins.h"
 
 #ifndef OTA_SEGREDO
@@ -50,6 +51,12 @@ void stop() {
   drive.setSpeeds(0.0f, 0.0f);
 }
 
+// Does each wheel servo answer on the bus? (-1 = no reply: wiring, jumper, or servo power)
+void pingWheels() {
+  const int l = st.Ping(params::kIdLeft), r = st.Ping(params::kIdRight);
+  dbg.printf("STS esquerda (id %u): %s | direita (id %u): %s\n", params::kIdLeft, l >= 0 ? "responde" : "SEM RESPOSTA", params::kIdRight, r >= 0 ? "responde" : "SEM RESPOSTA");
+}
+
 void show() {
   dbg.printf("%s | v=%.2f kp=%.2f kd=%.2f | invesq=%d invdir=%d espelhar=%d\n", running ? "ANDANDO" : "PARADO", baseSpeed, pid.kp, pid.kd, signLeft < 0, signRight < 0, mirror);
 }
@@ -69,7 +76,15 @@ void onCommand(const String& line) {
   else if (cmd == "invesq") signLeft = -signLeft;
   else if (cmd == "invdir") signRight = -signRight;
   else if (cmd == "espelhar") mirror = !mirror;
-  else if (cmd != "estado") dbg.println("comandos: seguir | parar | v <0..0.6> | kp <x> | kd <x> | invesq | invdir | espelhar | estado");
+  else if (cmd == "ping") pingWheels();
+  else if (cmd == "giro") {   // wheel test, blocking: both wheels forward 1.5 s, then stop (car in the air!)
+    running = false;
+    drive2(0.25f, 0.25f);
+    delay(1500);
+    stop();
+    dbg.println("ok: giro de teste terminado");
+  }
+  else if (cmd != "estado") dbg.println("comandos: seguir | parar | ping | giro | v <0..0.6> | kp <x> | kd <x> | invesq | invdir | espelhar | estado");
   show();
 }
 }  // namespace
@@ -82,6 +97,7 @@ void setup() {
 
   hal::beginStsBus(st);
   drive.begin();
+  pingWheels();
   for (int i = 0; i < kSensores; i++) barPins[i] = pins::kLine[i];
   seguidor::iniciar(barra, barPins);
 
