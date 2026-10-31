@@ -30,6 +30,9 @@ constexpr float kShoulderMaxMoveDeg = 90.0f;
 
 // STS car: servo steps/s at full command; the lateral gear train sits between servo and wheel (see kGearRatio).
 constexpr int kStsMaxSteps = 3400;
+// STS input-voltage window in EEPROM (x0.1 V). Factory max is 8.0 V: on a 12 V supply every reply carries the voltage-error bit and the LED flashes (2026-10-31).
+constexpr uint8_t kStsVoltMax = 140;
+constexpr uint8_t kStsVoltMin = 40;
 // DC car (yellow TT, no encoders): duty below this does not move the car; speed at full duty and spin rate must be measured (advance by time, turns by gyro).
 constexpr float kDcMinDuty = 0.25f;
 constexpr float kDcFullSpeedMmS = 400.0f;

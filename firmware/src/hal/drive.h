@@ -8,6 +8,9 @@ namespace hal {
 // Official SCServo (Waveshare adapter does the half-duplex direction): UART2 on pins::kStsRx/kStsTx at 1 Mbaud.
 void beginStsBus(SMS_STS& st);
 
+// Makes the servo's EEPROM voltage window (params::kStsVoltMin..kStsVoltMax) cover the supply; writes only when it differs (EEPROM wear). Returns false if the servo did not answer.
+bool ensureStsVoltageWindow(SMS_STS& st, uint8_t id);
+
 class Drive {
  public:
   virtual ~Drive() = default;

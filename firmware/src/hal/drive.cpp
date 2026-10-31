@@ -13,7 +13,21 @@ void beginStsBus(SMS_STS& st) {
   st.pSerial = &Serial2;
 }
 
+bool ensureStsVoltageWindow(SMS_STS& st, uint8_t id) {
+  constexpr uint8_t kRegMaxVolt = 14, kRegMinVolt = 15;
+  const int maxV = st.readByte(id, kRegMaxVolt), minV = st.readByte(id, kRegMinVolt);
+  if (maxV < 0 || minV < 0) return false;
+  if (maxV == params::kStsVoltMax && minV == params::kStsVoltMin) return true;
+  st.unLockEprom(id);
+  st.writeByte(id, kRegMaxVolt, params::kStsVoltMax);
+  st.writeByte(id, kRegMinVolt, params::kStsVoltMin);
+  st.LockEprom(id);
+  return st.readByte(id, kRegMaxVolt) == params::kStsVoltMax && st.readByte(id, kRegMinVolt) == params::kStsVoltMin;
+}
+
 void StsDrive::begin() {
+  ensureStsVoltageWindow(st_, params::kIdLeft);
+  ensureStsVoltageWindow(st_, params::kIdRight);
   st_.WheelMode(params::kIdLeft);
   st_.WheelMode(params::kIdRight);
   setSpeeds(0.0f, 0.0f);
