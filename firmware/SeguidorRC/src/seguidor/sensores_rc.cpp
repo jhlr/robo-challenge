@@ -45,8 +45,8 @@ bool calibrar(BarraRC& b, Print& saida) {
     unsigned int minimo = b.tempoMaxUs, maximo = 0;
     for (int k = 0; k < b.quantos; k++) {
       if (b.indice[k] != i) continue;
-      minimo = b.qtr.calibrationOn.minimum[k];
-      maximo = b.qtr.calibrationOn.maximum[k];
+      minimo = b.qtr.calibrationOff.minimum[k];   // QTRReadMode::Off grava em calibrationOff; calibrationOn nem e alocado
+      maximo = b.qtr.calibrationOff.maximum[k];
     }
     b.limiar[i] = (minimo + maximo) / 2;
     b.ok[i] = maximo >= minimo && (maximo - minimo) >= b.faixaMinUs;
