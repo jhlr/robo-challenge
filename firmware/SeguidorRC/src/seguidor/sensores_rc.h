@@ -1,12 +1,13 @@
 #pragma once
 #include <Arduino.h>
+#include <QTRSensors.h>
 
 #include "decisao.h"   // kSensores
 
 namespace seguidor {
 
-// Barra de 8 sensores tipo RC: carrega o pino e mede o tempo de descarga. Branco = tempo curto | Preto = tempo longo.
-// Os pinos sao lidos de uma vez em dois registradores (GPIO0-31 e GPIO32-39). Pinos 34-39 sao SO DE ENTRADA: nao carregam o capacitor, o sensor nao reage.
+// Barra de 8 sensores QRE-8D (tipo RC): leitura e calibracao feitas pela biblioteca oficial Pololu QTRSensors; esta camada so mapeia S1..S8, ignora os mortos e decide preto/branco.
+// GPIO34-39 sao SO DE ENTRADA: o modo RC precisa carregar o pino, entao esses sensores nao reagem e ficam de fora da QTRSensors.
 struct BarraRC {
   // Ajustes
   unsigned int tempoMaxUs = 2500;   // valor do preto
@@ -20,9 +21,9 @@ struct BarraRC {
   bool ok[kSensores] = {};                   // false = nao reagiu na calibracao, ignorado
   bool preto[kSensores] = {};                // true = esse sensor ve a linha
   unsigned int tempoLeituraUs = 2500;        // so espera ate o maior limiar (calculado na calibracao)
-  uint32_t mascaraBaixa[kSensores] = {};     // bit de cada sensor no registrador de GPIO0-31 (0 se o pino e 32+)
-  uint32_t mascaraAlta[kSensores] = {};      // idem para GPIO32-39 (bit = pino - 32)
-  uint32_t todosBaixa = 0, todosAlta = 0;
+  QTRSensors qtr;                            // so com os pinos que podem carregar
+  uint8_t indice[kSensores] = {};            // posicao de cada sensor vivo na QTRSensors -> S1..S8
+  uint8_t quantos = 0;
 };
 
 void iniciar(BarraRC& barra, const uint8_t pinos[kSensores]);

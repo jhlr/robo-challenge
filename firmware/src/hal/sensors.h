@@ -1,9 +1,12 @@
 #pragma once
 #include <Arduino.h>
 #include <Adafruit_TCS34725.h>
+#include <ESP32Servo.h>
+#include <NewPing.h>
 #include <Wire.h>
 
 #include "core/color.h"
+#include "pins.h"
 // One thin wrapper per sensor. All hardware access in the firmware goes through here.
 namespace hal {
 
@@ -13,10 +16,12 @@ class LineArray {  // QRE8D: 8 digital outputs
   void read(float* out);  // 1.0 = sees the line, 0.0 = floor
 };
 
-class Ultrasonic {
+class Ultrasonic {  // HC-SR04 through the NewPing library
  public:
-  void begin();
+  void begin() {}
   uint16_t readMm(uint32_t timeoutUs = 25000);  // 0xFFFF = no echo. Blocks up to timeoutUs.
+ private:
+  NewPing sonar_{pins::kTrig, pins::kEcho, 400};
 };
 
 struct ColorSample { uint16_t r, g, b, c; core::Floor floor; };
@@ -60,7 +65,7 @@ class Servo {
   void writeUs(float us);     // raw pulse width; the only call a continuous-rotation servo uses
  private:
   ServoSpec spec_;
-  int pin_ = -1;
+  ::Servo servo_;  // ESP32Servo
 };
 void beginBuses();  // Wire on pins::kI2cSda/kI2cScl, facing the PCA9548
 void beginIndicators();
