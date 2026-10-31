@@ -1,5 +1,5 @@
-// Minimal line follower for the STS car: P+D on the line position, nothing else (no junctions, no map). Built to run TODAY on the bar as wired:
-// S7/S8 (GPIO35/34) are input-only, so the RC driver marks them dead and the controller uses the working sensors only (S1..S6).
+// Minimal line follower for the STS car: P+D on the line position, nothing else (no junctions, no map).
+// A sensor that does not react in calibration is dropped and the controller uses the working ones only.
 // Everything is tunable and reversible over Bluetooth (console_ble.py): wheel directions are still unmeasured, so `invesq` / `invdir` / `espelhar` exist.
 // Updates go over BLE too (ota_ble.py), so this app keeps the OTA service first in setup().
 #include <Arduino.h>
@@ -101,7 +101,7 @@ void setup() {
   for (int i = 0; i < kSensores; i++) barPins[i] = pins::kLine[i];
   seguidor::iniciar(barra, barPins);
 
-  // Slide the car over the line by hand for 5 s (motors off). Needs 6 working sensors: S7/S8 are dead on this wiring, so S1..S6 must all react.
+  // Slide the car over the line by hand for 5 s (motors off). Needs at least 6 working sensors.
   while (!seguidor::calibrar(barra, dbg)) {
     dbg.println("Calibracao INVALIDA (menos de 6 sensores reagiram). De novo em 2 s...");
     const uint32_t until = millis() + 2000;

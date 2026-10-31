@@ -21,8 +21,8 @@ constexpr int kI2cScl = 23;
 constexpr int kTrig = 18;
 constexpr int kEcho = 19;  // HC-SR04 ECHO needs a 5 V -> 3.3 V divider
 
-// QRE8D channels, S1 (left) .. S8 (right), as wired 2026-10-30. S7/S8 = GPIO35/34 are INPUT-ONLY: fine for a digital QRE8D, but the RC reading (SeguidorRC) must charge the pin, so those two cannot work there.
-constexpr int kLine[] = {14, 27, 26, 25, 33, 32, 35, 34};
+// QRE8D channels, S1 (left) .. S8 (right), as wired 2026-10-31. All 8 pins can drive an output, which the RC reading needs (GPIO34-39 cannot).
+constexpr int kLine[] = {13, 4, 14, 27, 26, 25, 33, 32};
 constexpr int kLineCount = sizeof(kLine) / sizeof(kLine[0]);
 
 constexpr int kClaw = 18;      // SG90 signal (claw)
