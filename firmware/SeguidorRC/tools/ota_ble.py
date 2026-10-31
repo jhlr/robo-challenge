@@ -33,7 +33,7 @@ def mensagem_iniciar(imagem: bytes, segredo: str) -> bytes:
     return b"\x01" + tamanho + sha + mac
 
 
-async def enviar(imagem: bytes, nome: str, segredo: str) -> None:
+async def enviar(imagem: bytes, nome: str, segredo: str, pausa: float) -> None:
     print(f"Procurando '{nome}' por Bluetooth LE (10 s)...")
     dispositivo = await BleakScanner.find_device_by_name(nome, timeout=10.0)
     if dispositivo is None:
@@ -65,6 +65,7 @@ async def enviar(imagem: bytes, nome: str, segredo: str) -> None:
                 parte = imagem[enviados:min(enviados + pacote, fim_janela)]
                 await cliente.write_gatt_char(OTA_DADOS, parte, response=False)
                 enviados += len(parte)
+                await asyncio.sleep(pausa)  # write sem resposta nao tem controle de fluxo no Mac: sem pausa o BLE descarta pacotes
             recebidos = await esperar(0x11)
             if recebidos != enviados:
                 sys.exit(f"\nPerdeu bytes: enviei {enviados}, o robo gravou {recebidos}")
@@ -80,7 +81,8 @@ if __name__ == "__main__":
     ap.add_argument("firmware", nargs="?", type=Path, default=PADRAO)
     ap.add_argument("--nome", default="SeguidorRC")
     ap.add_argument("--segredo", default="troque-este-segredo")
+    ap.add_argument("--pausa", type=float, default=0.012, help="segundos entre pacotes de dados (suba se travar)")
     args = ap.parse_args()
     if not args.firmware.is_file():
         sys.exit(f"Nao achei {args.firmware} (rode: cd firmware && pio run -e seguidor)")
-    asyncio.run(enviar(args.firmware.read_bytes(), args.nome, args.segredo))
+    asyncio.run(enviar(args.firmware.read_bytes(), args.nome, args.segredo, args.pausa))
