@@ -25,7 +25,7 @@ constexpr int kEcho = 19;  // HC-SR04 ECHO needs a 5 V -> 3.3 V divider
 constexpr int kLine[] = {13, 4, 14, 27, 26, 25, 33, 32};
 constexpr int kLineCount = sizeof(kLine) / sizeof(kLine[0]);
 
-constexpr int kClaw = 18;      // SG90 signal (claw)
+constexpr int kClaw = 22;      // SG90 signal (claw)
 constexpr int kBuzzer = 26;
 constexpr int kLed = 27;
 }  // namespace pins
