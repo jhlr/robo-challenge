@@ -2,12 +2,12 @@
 // The board rests on its own pin tips on the flat floor (no standoffs: the pin rows sit right at the long edges). All sizes are parameters: measure YOUR board and adjust.
 $fn = 48;
 
-board_l = 51.5;   // board length (same as cad/modelo_robo/robot_completo.scad)
-board_w = 28.6;   // board width
+board_l = 47.0;   // board length (same as cad/modelo_robo/robot_completo.scad)
+board_w = 25.0;   // board width
 board_t = 1.6;
 pin_tip = 3.0;    // pin tips below the PCB (board stands on them)
 header_h = 2.5;   // plastic header above the PCB
-clr = 0.15;        // clearance per side
+clr = 0.2;        // clearance per side
 wall = 1.5;
 floor_t = 1.5;
 
