@@ -57,6 +57,7 @@ void pingWheels() {
   dbg.printf("STS esquerda (id %u): %s | direita (id %u): %s\n", params::kIdLeft, l >= 0 ? "responde" : "SEM RESPOSTA", params::kIdRight, r >= 0 ? "responde" : "SEM RESPOSTA");
 }
 
+
 void show() {
   dbg.printf("%s | v=%.2f kp=%.2f kd=%.2f | invesq=%d invdir=%d espelhar=%d\n", running ? "ANDANDO" : "PARADO", baseSpeed, pid.kp, pid.kd, signLeft < 0, signRight < 0, mirror);
 }
@@ -101,13 +102,12 @@ void setup() {
   for (int i = 0; i < kSensores; i++) barPins[i] = pins::kLine[i];
   seguidor::iniciar(barra, barPins);
 
-  // Slide the car over the line by hand for 5 s (motors off). Needs at least 6 working sensors.
-  while (!seguidor::calibrar(barra, dbg)) {
-    dbg.println("Calibracao INVALIDA (menos de 6 sensores reagiram). De novo em 2 s...");
-    const uint32_t until = millis() + 2000;
-    while (millis() < until) { ble.atualizar(); ota.atualizar(); }
+  // No calibration: fixed threshold (BarraRC::limiarUs). Needs at least 6 live sensors.
+  if (!seguidor::aplicarLimiar(barra, dbg)) {
+    dbg.println("!!! Menos de 6 sensores vivos na barra: parado.");
+    while (true) { ble.atualizar(); ota.atualizar(); }
   }
-  dbg.println("Calibrado. Coloque o carro na linha: parte em 3 s. `parar` pelo Bluetooth interrompe.");
+  dbg.println("Coloque o carro na linha: parte em 3 s. `parar` pelo Bluetooth interrompe.");
   const uint32_t until = millis() + 3000;
   while (millis() < until) { ble.atualizar(); ota.atualizar(); }
   pid.reset();

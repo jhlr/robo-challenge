@@ -453,10 +453,10 @@ void setup() {
 #endif
   ajustes = normalizar(ajustes);
   delay(1000);
-  // Nao anda com calibracao ruim: sensor morto ou robo parado fazia o carro rodopiar
-  while (!calibrar(barra, Serial)) {
-    dbg.println("Calibracao INVALIDA (poucos sensores reagiram). Tentando de novo em 2 s...");
-    delay(2000);
+  // Nao anda com sensores demais mortos (GPIO so de entrada): o carro rodopiava
+  if (!aplicarLimiar(barra, Serial)) {
+    dbg.println("!!! Poucos sensores vivos na barra: parado.");
+    while (true) delay(1000);
   }
   delay(2000);   // tempo para colocar o robo na linha
 }
