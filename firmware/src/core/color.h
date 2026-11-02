@@ -25,6 +25,8 @@ inline Hsv toHsv(uint16_t r, uint16_t g, uint16_t b) {
   return o;
 }
 
+// SCALE WARNING: these clear-channel thresholds assume the raw range of the 24 ms / 4x sensor config (up to ~10000). core/color_table.h was measured on a different scale
+// (white clear = 243, black = 69), so the two classifiers do not agree on the same sensor. Re-measure with the bring-up readout and keep ONE of them.
 constexpr uint16_t kDarkClear = 400;    // below this the surface is black
 constexpr uint16_t kWhiteClear = 5000;  // grey/white surface brighter than this
 constexpr float kMinSat = 0.30f;

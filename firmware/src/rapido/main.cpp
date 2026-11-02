@@ -36,7 +36,7 @@ float maxSpeed = 0.60f;       // hard cap per wheel
 int signLeft = +1, signRight = +1;  // flip a wheel that turns the wrong way
 bool mirror = false;          // flip left/right of the bar (S1 is assumed to be the LEFT end)
 bool running = false;
-core::Pid pid(1.0f, 0.0f, 0.12f, 2.0f);
+core::Pid pid(1.0f, 0.0f, 0.12f, 2.0f);   // dTau set in setup(): the bar is digital, raw D saturates on every sensor step
 
 int lastSide = +1;            // where the line was last seen: -1 left, +1 right
 uint32_t lostSince = 0;
@@ -92,6 +92,7 @@ void onCommand(const String& line) {
 
 void setup() {
   Serial.begin(115200);
+  pid.dTau = params::kPidDerivTau;
   ble.iniciar("SeguidorRC", onCommand);
   ota.iniciar(ble.servidor(), OTA_SEGREDO);   // FIRST in setup: any firmware that reaches this line can still be replaced over BLE
   ble.anunciar();

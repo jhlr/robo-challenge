@@ -13,10 +13,14 @@ bool shoulderBegin(SMS_STS& s) {
   st = &s;
   if (st->Ping(params::kIdShoulder) == -1) return false;
   // Same sequence as the Waveshare driver's setMode(servo): a servo left in wheel/motor mode has max angle 0 and would not move.
-  st->unLockEprom(params::kIdShoulder);
-  st->writeWord(params::kIdShoulder, SMS_STS_MAX_ANGLE_LIMIT_L, 4095);
-  st->writeByte(params::kIdShoulder, SMS_STS_MODE, 0);
-  st->LockEprom(params::kIdShoulder);
+  // EEPROM has a limited write life: write only when the servo is not already in position mode with the full angle range.
+  const int limit = st->readWord(params::kIdShoulder, SMS_STS_MAX_ANGLE_LIMIT_L), mode = st->readByte(params::kIdShoulder, SMS_STS_MODE);
+  if (limit != 4095 || mode != 0) {
+    st->unLockEprom(params::kIdShoulder);
+    st->writeWord(params::kIdShoulder, SMS_STS_MAX_ANGLE_LIMIT_L, 4095);
+    st->writeByte(params::kIdShoulder, SMS_STS_MODE, 0);
+    st->LockEprom(params::kIdShoulder);
+  }
   return st->EnableTorque(params::kIdShoulder, 1) != 0;
 }
 
@@ -29,7 +33,7 @@ bool shoulderRotate(float servoDeg) {
   while (millis() - t0 < kTimeoutMs) {
     delay(30);
     const int p = st->ReadPos(params::kIdShoulder);
-    if (p >= 0 && abs(p - static_cast<int>(target)) <= kArrivedSteps) break;
+    if (p >= 0 && abs(p - static_cast<int>(target)) <= kArrivedSteps) return true;
   }
-  return true;
+  return false;   // commanded but never arrived (stalled, blocked or lost the bus)
 }

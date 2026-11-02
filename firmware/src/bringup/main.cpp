@@ -134,7 +134,7 @@ void handle(const String& cmd) {
 #else
       const float deg = cmd.substring(1).toFloat();
       if (shoulderRotate(deg)) Serial.printf("turned %+.1f deg (%s)\n", deg, deg > 0 ? "up" : "down");
-      else Serial.printf("REFUSED: %.1f deg is 0, beyond +-%.0f, out of the 0-4095 range, or the servo did not answer\n", deg, params::kShoulderMaxMoveDeg);
+      else Serial.printf("NOT DONE: %.1f deg is 0, beyond +-%.0f, out of the 0-4095 range, the servo did not answer, or it did not arrive in 3 s\n", deg, params::kShoulderMaxMoveDeg);
       break;
 #endif
     }

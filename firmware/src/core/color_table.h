@@ -23,6 +23,9 @@ constexpr RefCor kCoresRef[NUM_CORES] = {
     {104, 44, 32, 150},  // VERMELHO
 };
 constexpr float kDistanciaMaxima = 0.15f;  // acima disso a cor fica DESCONHECIDA
+// A reading is believed only if the best reference is clearly closer than the runner-up (best <= kRazaoAmbigua * second). PRETO, VERDE and AZUL are dim and nearly the same
+// chroma in the current table (VERDE-AZUL differ by 0.0026, 60x below kDistanciaMaxima): without this the winner among them was noise. Re-measure the table to separate them.
+constexpr float kRazaoAmbigua = 0.5f;
 
 // Squared distance between a reading and one reference: chroma (r, g, b as fractions of their sum) weighs 4x, brightness relative to BRANCO 0.5x.
 inline float distanciaCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const RefCor& ref, const RefCor& branco) {
@@ -40,15 +43,19 @@ inline Cor classificarCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const 
                           float distanciaMaxima = kDistanciaMaxima) {
   if (static_cast<float>(r) + g + b < 1.0f) return DESCONHECIDA;
   Cor melhor = DESCONHECIDA;
-  float menor = 1e9f;
+  float menor = 1e9f, segundo = 1e9f;
   for (int i = 0; i < NUM_CORES; ++i) {
     const float d = distanciaCor(r, g, b, c, refs[i], refs[BRANCO]);
     if (d < menor) {
+      segundo = menor;
       menor = d;
       melhor = static_cast<Cor>(i);
+    } else if (d < segundo) {
+      segundo = d;
     }
   }
-  return menor <= distanciaMaxima ? melhor : DESCONHECIDA;
+  if (menor > distanciaMaxima) return DESCONHECIDA;
+  return menor <= kRazaoAmbigua * segundo ? melhor : DESCONHECIDA;
 }
 
 inline const char* nomeCor(Cor cor) { return cor < NUM_CORES ? kNomesCores[cor] : "DESCONHECIDA"; }

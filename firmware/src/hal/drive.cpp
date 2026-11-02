@@ -26,8 +26,8 @@ bool ensureStsVoltageWindow(SMS_STS& st, uint8_t id) {
 }
 
 void StsDrive::begin() {
-  ensureStsVoltageWindow(st_, params::kIdLeft);
-  ensureStsVoltageWindow(st_, params::kIdRight);
+  for (const uint8_t id : {params::kIdLeft, params::kIdRight})
+    if (!ensureStsVoltageWindow(st_, id)) Serial.printf("WARNING: STS %u did not confirm the voltage window (no reply or EEPROM write failed)\n", id);
   st_.WheelMode(params::kIdLeft);
   st_.WheelMode(params::kIdRight);
   setSpeeds(0.0f, 0.0f);
@@ -79,11 +79,17 @@ void DcDrive::begin() {
   digitalWrite(pins::kMotorStby, HIGH);  // wake the TB6612FNG only once the inputs are idle
 }
 
+// below kDcMinDuty the TT motors do not turn: map 0..1 onto kDcMinDuty..1
+float DcDrive::duty(float v) {
+  const float a = fabsf(constrain(v, -1.0f, 1.0f));
+  return a == 0.0f ? 0.0f : params::kDcMinDuty + (1.0f - params::kDcMinDuty) * a;
+}
+
+float DcDrive::mmPerSecond(float cmd) const { return params::kDcFullSpeedMmS * duty(cmd); }
+
 void DcDrive::drive(int pinA, int pinB, float v) {
   v = constrain(v, -1.0f, 1.0f);
-  // below kDcMinDuty the TT motors do not turn: map 0..1 onto kDcMinDuty..1
-  const float duty = (v == 0.0f) ? 0.0f : params::kDcMinDuty + (1.0f - params::kDcMinDuty) * fabsf(v);
-  const uint32_t d = static_cast<uint32_t>(duty * 1023.0f);
+  const uint32_t d = static_cast<uint32_t>(duty(v) * 1023.0f);
   ledcWrite(pinA, v > 0 ? d : 0);
   ledcWrite(pinB, v < 0 ? d : 0);
 }

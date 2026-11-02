@@ -17,6 +17,7 @@ class Drive {
   virtual void begin() = 0;
   virtual void setSpeeds(float left, float right) = 0;  // -1..1, forward positive
   virtual bool hasEncoders() const = 0;
+  virtual float mmPerSecond(float cmd) const { return 0.0f; }  // estimated forward speed for a command 0..1 when there are no encoders
   virtual void resetTravel() {}
   virtual float forwardMm() { return 0.0f; }  // mean wheel travel since resetTravel() (needs encoders)
   virtual float spinDeg() { return 0.0f; }    // + = turned right, since resetTravel() (needs encoders)
@@ -47,8 +48,10 @@ class DcDrive : public Drive {
   void begin() override;
   void setSpeeds(float left, float right) override;
   bool hasEncoders() const override { return false; }
+  float mmPerSecond(float cmd) const override;
 
  private:
+  static float duty(float v);  // |v| 0..1 -> PWM duty 0..1 (0 stays 0, anything else starts at kDcMinDuty)
   static void drive(int pinA, int pinB, float v);
 };
 

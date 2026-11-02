@@ -53,6 +53,48 @@ void test_pid_sign_and_clamp() {
   TEST_ASSERT_FLOAT_WITHIN(1e-4f, -0.5f, p.step(-2.0f, 0.01f));
 }
 
+void test_pid_no_integral_when_ki_zero() {
+  core::Pid p(1.0f, 0.0f, 0.0f, 1.0f);
+  for (int i = 0; i < 1000; ++i) p.step(1.0f, 0.01f);
+  TEST_ASSERT_EQUAL_FLOAT(0.0f, p.integ);
+}
+
+void test_pid_derivative_filter_tames_a_step() {
+  core::Pid raw(0.0f, 0.0f, 0.12f, 2.0f), filt(0.0f, 0.0f, 0.12f, 2.0f);
+  filt.dTau = 0.1f;
+  raw.step(0.0f, 0.004f);
+  filt.step(0.0f, 0.004f);
+  const float spikeRaw = raw.step(0.29f, 0.004f);    // one sensor step at a few ms per tick
+  const float spikeFilt = filt.step(0.29f, 0.004f);
+  TEST_ASSERT_FLOAT_WITHIN(1e-3f, 2.0f, spikeRaw);   // raw D hits the clamp
+  TEST_ASSERT_TRUE(spikeFilt < 0.5f);
+}
+
+void test_routes_from_outside_the_map_is_all_unreachable() {
+  core::Routes r;
+  core::routesFrom(core::Node{-1, 2}, nullptr, nullptr, r);
+  TEST_ASSERT_FALSE(core::reachable(r, core::Node{0, 2}));
+  TEST_ASSERT_FALSE(core::reachable(r, core::Node{-1, 2}));
+}
+
+void test_first_step_to_unreachable_target_stays_put() {
+  core::Routes r;
+  core::Blocked b;
+  core::clearBlocked(b);
+  for (int rr = 0; rr < core::kMapRows; ++rr) b.east[0][rr] = true;   // wall between column 0 and 1
+  core::routesFrom(core::Node{0, 0}, nullptr, &b, r);
+  const core::Node s = core::firstStepTo(r, core::Node{0, 0}, core::Node{3, 3});
+  TEST_ASSERT_EQUAL(0, s.c);
+  TEST_ASSERT_EQUAL(0, s.r);
+}
+
+void test_color_table_rejects_ambiguous_dim_colours() {
+  // halfway between the VERDE and AZUL references: both are close, neither clearly wins
+  const core::RefCor& g = core::kCoresRef[core::VERDE];
+  const core::RefCor& a = core::kCoresRef[core::AZUL];
+  TEST_ASSERT_EQUAL(core::DESCONHECIDA, core::classificarCor((g.r + a.r) / 2, (g.g + a.g) / 2, (g.b + a.b) / 2, (g.c + a.c) / 2));
+}
+
 void test_wrap_delta() {
   TEST_ASSERT_EQUAL_INT(10, core::wrapDelta(4090, 4));
   TEST_ASSERT_EQUAL_INT(-10, core::wrapDelta(4, 4090));
@@ -760,6 +802,11 @@ int main() {
   RUN_TEST(test_line_between_two_sensors);
   RUN_TEST(test_line_lost_and_junction);
   RUN_TEST(test_pid_sign_and_clamp);
+  RUN_TEST(test_pid_no_integral_when_ki_zero);
+  RUN_TEST(test_pid_derivative_filter_tames_a_step);
+  RUN_TEST(test_routes_from_outside_the_map_is_all_unreachable);
+  RUN_TEST(test_first_step_to_unreachable_target_stays_put);
+  RUN_TEST(test_color_table_rejects_ambiguous_dim_colours);
   RUN_TEST(test_wrap_delta);
   RUN_TEST(test_spin_counts);
   RUN_TEST(test_color_classes);

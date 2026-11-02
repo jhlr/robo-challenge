@@ -91,9 +91,11 @@ void Servo::write(float degrees) {
 // ---- buzzer / LED ----
 void beginIndicators() {
   pinMode(pins::kBuzzer, OUTPUT);
-  pinMode(pins::kLed, OUTPUT);
   digitalWrite(pins::kBuzzer, LOW);
-  digitalWrite(pins::kLed, LOW);
+  if (pins::kLed >= 0) {
+    pinMode(pins::kLed, OUTPUT);
+    digitalWrite(pins::kLed, LOW);
+  }
 }
 
 void beep(uint16_t ms) {  // active buzzer
@@ -102,6 +104,8 @@ void beep(uint16_t ms) {  // active buzzer
   digitalWrite(pins::kBuzzer, LOW);
 }
 
-void led(bool on) { digitalWrite(pins::kLed, on ? HIGH : LOW); }
+void led(bool on) {
+  if (pins::kLed >= 0) digitalWrite(pins::kLed, on ? HIGH : LOW);
+}
 
 }  // namespace hal

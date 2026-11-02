@@ -104,6 +104,7 @@ inline float streetCost(const CubeBelief* belief, Node a, Node z, float emptyPen
 inline void routesFrom(Node start, const CubeBelief* belief, const Blocked* blocked, Routes& r, float emptyPenalty = kEmptyStreetPenalty) {
   for (int c = 0; c < kMapCols; ++c)
     for (int rr = 0; rr < kMapRows; ++rr) { r.dist[c][rr] = 1e9f; r.from[c][rr] = Node{-1, -1}; }
+  if (!inMap(start.c, start.r)) return;   // e.g. the gate junction (-1, r): nowhere to route from, everything stays unreachable
   r.dist[start.c][start.r] = 0.0f;
   static const int8_t kStep[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
   for (int pass = 0; pass < kMapNodes; ++pass) {
@@ -125,13 +126,19 @@ inline void routesFrom(Node start, const CubeBelief* belief, const Blocked* bloc
   }
 }
 
-inline bool reachable(const Routes& r, Node n) { return r.dist[n.c][n.r] < 1e8f; }
+inline bool reachable(const Routes& r, Node n) { return inMap(n.c, n.r) && r.dist[n.c][n.r] < 1e8f; }
 
-// The junction right after `start` on the way to `target`.
+// The junction right after `start` on the way to `target`. `target` must be reachable; if it is not (or is `start` itself) the answer is `start`: stay put instead of walking off the arrays.
 inline Node firstStepTo(const Routes& r, Node start, Node target) {
+  if (!reachable(r, target) || target == start) return start;
   Node cur = target;
-  while (!(r.from[cur.c][cur.r] == start)) cur = r.from[cur.c][cur.r];
-  return cur;
+  for (int guard = 0; guard < kMapNodes; ++guard) {
+    const Node prev = r.from[cur.c][cur.r];
+    if (prev == start) return cur;
+    if (!inMap(prev.c, prev.r)) break;
+    cur = prev;
+  }
+  return start;
 }
 
 inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node* next, float minBelief = kMinBelief, const Blocked* blocked = nullptr, Node* goalA = nullptr, Node* goalZ = nullptr) {

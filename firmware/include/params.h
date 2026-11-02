@@ -57,6 +57,10 @@ constexpr float kBaseSpeed = 0.45f;  // fraction of full command
 constexpr float kKp = 0.9f;
 constexpr float kKi = 0.0f;
 constexpr float kKd = 0.08f;
+constexpr float kPidDerivTau = 0.1f;  // s, low-pass on the PID derivative (the line bar is digital: raw D spikes on every sensor step)
 constexpr float kSearchSpeedFrac = 0.4f;
+// In-place turns: spin rate at kBaseSpeed*0.5 is ASSUMED (measure it). It sets the open-loop turn time and the time limit of encoder/gyro turns.
+constexpr float kTurnDegPerSec = 180.0f;
+constexpr float kTurnTimeoutFactor = 3.0f;  // a closed-loop turn gives up after this many times the open-loop duration
 constexpr char kRoute[] = "SLRU";  // per junction: S straight, L left, R right, U u-turn (cycles)
 }  // namespace params
