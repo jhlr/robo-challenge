@@ -124,6 +124,7 @@ struct ParamsFisicos {
 
 Ajustes gAjustes;   // os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
 bool gSo_Placar = false;
+double gGestoGraus = 45.0;   // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado e volta reto, em vez da varredura de 90 graus (0 = desliga e usa a varredura de antes, < 0 = passa direto sem girar)
 ParamsFisicos gFis;   // os cenarios usam este; da para mudar na linha de comando (veja main)
 
 struct Estado { double x, y, th; };   // eixo (mm), rumo (rad, 0 = +x, anti-horario)
@@ -1181,12 +1182,14 @@ struct Firmware {
     // perdido, em duvida, quando o cruzamento nao era esperado, e na calibracao pos-reset.
     bool pularVarredura = false;
     int soLadoMedir = 0;   // +1 = so a esquerda, -1 = so a direita, 0 = os dois
+    bool gesto = false;    // pose segura + odometro conferindo: so uma rodadinha para um lado (a rua do outro lado vem do mapa)
     if ((pularVarreduraComPoseSegura || varrerSoQuandoPrecisa) && nav.ativo && nav.calibrando == 0 && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo) {
       const core::Estimate es = core::estimate(nav.loc);
       const bool segura = core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && core::rowMass(nav.loc, es.pose.at.r) >= core::kMinCoordBelief;
       const double andado = andadoDesdeSaida(c, c.agoraMs());
-      const bool esperado = segura && trechoRestante0 > 0.0 && fabs(andado - trechoRestante0) < 110.0;
-      if (esperado && pularVarreduraComPoseSegura) pularVarredura = true;
+      const bool esperado = segura && trechoRestante0 > 0.0 && fabs(andado - trechoRestante0) < (gFis.encoder ? 40.0 : 110.0);   // com encoder o cruzamento esperado e conferido pelo odometro
+      if (esperado && gFis.encoder && gGestoGraus != 0.0) { pularVarredura = true; gesto = gGestoGraus > 0.0; }   // gesto < 0: passa direto, sem girar
+      else if (esperado && pularVarreduraComPoseSegura) pularVarredura = true;
       else if (esperado) {
         // A rua do lado ja foi MEDIDA se a crenca saiu do prior (vista vazia ou com cubo) ou se nao existe (fora do mapa: o beco do portao). So essas dispensam o giro.
         const core::Node cur{static_cast<int8_t>(es.pose.at.c + es.pose.dc), static_cast<int8_t>(es.pose.at.r + es.pose.dr)};
@@ -1209,6 +1212,7 @@ struct Firmware {
       varr.resultado = Oito::Cruzamento;
       varr.fase = Varredura::Pronta;
       semVarreduras++;
+      if (gesto) { const float r0 = rumo; girarPara(c, r0 + lado * static_cast<float>(gGestoGraus)); girarPara(c, r0); }   // rodadinha para o lado menos explorado e volta reto
     } else {
       // Entregando (carregando, indo para o oeste) ele so precisa CONFIRMAR o cruzamento e se virar para a rua do oeste: gira uma vez, para o lado do oeste (uma rua ali ja e cruzamento).
       // Completa (os dois lados) quando precisa VER as ruas (ultrassom) ou escolher uma.
@@ -1447,31 +1451,49 @@ struct Firmware {
   // o y do eixo = centro - cateto, sem depender de partida, de tempo nem de a ponta ter parado na borda da plataforma (erro de ate ~25 mm que fazia reentrar fora da rua).
   double yPeloGiro(Carro& c, double yPlataforma) {
     constexpr double kRad = M_PI / 180.0;
-    auto alcance = [&](double phi) { girarPara(c, 180.0 - phi); const double e = c.us(); return e > 0.0 ? e + 100.0 : -1.0; };   // phi > 0 = para o norte; distancia do EIXO
-    const double r0 = alcance(0.0);
-    if (r0 < 0.0) { girarPara(c, 180.0); return yPlataforma; }   // sem eco de frente: nao corrige
-    std::vector<bool> tem;   // amostras de -36 a +36 de 4 em 4: o trecho CONTIGUO com eco que passa pelo 0 e a plataforma (as vizinhas ficam a 130 mm e aparecem como outros trechos)
-    for (double g = -36.0; g <= 36.0; g += 4.0) { const double r = g == 0.0 ? r0 : alcance(g); if (getenv("SIM_DEBUG2")) fprintf(stderr, "      g %+.0f r %.0f perp %.0f\n", g, r, r * cos(g * kRad)); tem.push_back(r > 0.0 && fabs(r * cos(g * kRad) - r0) < 30.0); }
-    girarPara(c, 180.0);
-    int i0 = 9, j0 = 9;   // indice 9 = 0 grau
-    if (!tem[9]) return yPlataforma;
-    while (i0 > 0 && tem[i0 - 1]) i0--;
-    while (j0 + 1 < static_cast<int>(tem.size()) && tem[j0 + 1]) j0++;
-    const int n = j0 - i0 + 1;
-    const int total = static_cast<int>(tem.size());
-    const double phiI = -36.0 + 4.0 * i0, phiJ = -36.0 + 4.0 * j0;
+    const float rumo0 = rumo;   // de frente para a plataforma (oeste)
+    const double e0 = c.us();
+    if (e0 < 0.0) return yPlataforma;   // sem eco de frente: nao corrige
+    const double r0 = e0 + 100.0;       // distancia do EIXO a face
+    // varredura CONTINUA (sem parar a cada angulo): vai a phi = -36, gira para +36 lendo o ultrassom a cada ~30 ms (o HC-SR04 nao da mais que isso) e rotula cada leitura pelo giroscopio
+    girarPara(c, rumo0 + 36.0f);
+    const int v = ajustes.velBuscaExterna;
+    c.comandar(v, -v);   // phi cresce = rumo diminui (vira a direita)
+    std::vector<std::pair<double, bool>> amostras;   // (phi, ha eco da face)
+    float omega = 0.0f, rumoAnt = rumo;
+    const unsigned long inicio = c.agoraMs();
+    for (int t = 0; c.agoraMs() - inicio < 4000; t++) {
+      tick(c);
+      omega = (rumo - rumoAnt) / static_cast<float>(gFis.dtMs / 1000.0);
+      rumoAnt = rumo;
+      const double phi = -(rumo - rumo0);
+      if (phi + omega * -1.0 * gFis.tauMs / 1000.0 >= 36.0) break;   // omega < 0 girando para a direita: -omega x tau = quanto ainda gira
+      if (t % 6 == 0) { const double e = c.us(); const double r = e > 0.0 ? e + 100.0 : -1.0; amostras.push_back({phi, r > 0.0 && fabs(r * cos(phi * kRad) - r0) < 30.0}); }
+    }
+    c.parar();
+    for (int i = 0; i < 80 && fabsf(omega) > 2.0f; i++) { tick(c); omega = (rumo - rumoAnt) / static_cast<float>(gFis.dtMs / 1000.0); rumoAnt = rumo; }
+    girarPara(c, rumo0);
+    // o trecho CONTIGUO com eco que passa pelo 0 e a plataforma (as vizinhas ficam a 130 mm e aparecem como outros trechos)
+    int i0 = -1;
+    for (size_t i = 0; i < amostras.size(); i++) if (amostras[i].second && (i0 < 0 || fabs(amostras[i].first) < fabs(amostras[i0].first))) i0 = static_cast<int>(i);
+    if (i0 < 0 || fabs(amostras[i0].first) > 12.0) return yPlataforma;
+    int lo = i0, hi = i0;
+    while (lo > 0 && amostras[lo - 1].second) lo--;
+    while (hi + 1 < static_cast<int>(amostras.size()) && amostras[hi + 1].second) hi++;
+    const bool bordaSul = lo > 0, bordaNorte = hi + 1 < static_cast<int>(amostras.size());
+    const double phiI = amostras[lo].first, phiJ = amostras[hi].first;
     constexpr double kCone = 10.0, kSensorMm = 100.0;   // meio angulo do cone e distancia do sensor ao eixo (o cone sai da ponta, nao do eixo)
     // borda da plataforma (deslocamento lateral em relacao ao eixo) vista quando a ponta do cone, saindo do sensor, a toca
     auto borda = [&](double phi, double cone) { return kSensorMm * sin(phi * kRad) + (r0 - kSensorMm * cos(phi * kRad)) * tan((phi + cone) * kRad); };
     double lateral;   // deslocamento do centro da plataforma em relacao ao eixo (+ = norte)
-    if (n < 2) return yPlataforma;
-    if (i0 > 0 && j0 + 1 < total) lateral = (borda(phiI, kCone) + borda(phiJ, -kCone)) / 2.0;   // as duas bordas a vista: o meio
-    else if (i0 > 0) lateral = borda(phiI, kCone) + kPlatY_Tam / 2.0;                           // so a borda do sul: o centro fica meia plataforma acima
-    else if (j0 + 1 < total) lateral = borda(phiJ, -kCone) - kPlatY_Tam / 2.0;                  // so a borda do norte
-    else return yPlataforma;                                                                    // enche a varredura toda: sem borda para medir
+    if (hi - lo < 1) return yPlataforma;
+    if (bordaSul && bordaNorte) lateral = (borda(phiI, kCone) + borda(phiJ, -kCone)) / 2.0;   // as duas bordas a vista: o meio
+    else if (bordaSul) lateral = borda(phiI, kCone) + kPlatY_Tam / 2.0;                       // so a borda do sul: o centro fica meia plataforma acima
+    else if (bordaNorte) lateral = borda(phiJ, -kCone) - kPlatY_Tam / 2.0;                    // so a borda do norte
+    else return yPlataforma;                                                                  // enche a varredura toda: sem borda para medir
     const double phiMeio = atan2(lateral, r0) / kRad;
-    if (getenv("SIM_DEBUG")) fprintf(stderr, "    GIRO-Y: n=%d phiMeio %.1f r0 %.0f -> y %.0f | y real %.0f (plataforma %.0f)\n", n, phiMeio, r0, yPlataforma - r0 * tan(phiMeio * kRad), c.estado().y, yPlataforma);
-    return yPlataforma - r0 * tan(phiMeio * kRad);
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    GIRO-Y: n=%d phiMeio %.1f r0 %.0f -> y %.0f | y real %.0f (plataforma %.0f)\n", hi - lo + 1, phiMeio, r0, yPlataforma - lateral, c.estado().y, yPlataforma);
+    return yPlataforma - lateral;
   }
 
   // Carregando, a prioridade e GUARDAR O CUBO: nada de medir velocidade nem de olhar todas as marcas antes. Se a plataforma da cor ainda nao foi vista (nos primeiros cruzamentos
@@ -3123,6 +3145,7 @@ int main(int argc, char** argv) {
     else if (k == "derrap") gFis.derrapagem = v;
     else if (k == "encoder") { gFis.encoder = v != 0.0; if (gFis.encoder) { gFis.zonaMortaPwm = 0; gAjustes.zonaMortaPwm = 0; } }   // STS3215: sem zona morta, malha fechada
     else if (k == "escalaodo") gFis.escalaOdo = v;
+    else if (k == "gesto") gGestoGraus = v;
     else if (k == "bitola") gFis.bitolaMm = v;
     else if (k == "zona") { gFis.zonaMortaPwm = v; gAjustes.zonaMortaPwm = static_cast<int>(v); }   // zona CALIBRADA: a decisao sabe
     else if (k == "zonaaj") gAjustes.zonaMortaPwm = static_cast<int>(v);   // so a decisao (calibracao errada)
