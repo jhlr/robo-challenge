@@ -118,6 +118,8 @@ struct ParamsFisicos {
   double dtMs = 5.0;              // um ciclo de leitura+decisao
   double viesGzGrauS = 1.2;       // vies REAL do giroscopio (o firmware mede um estimado parado no inicio)
   double derivaViesGrauS = 0.0;   // quanto o vies anda depois da calibracao inicial (temperatura)
+  bool encoder = false;           // STS3215: encoder de cada roda + velocidade em malha fechada (sem zona morta nem assimetria fixa entre os lados); a distancia vem das rodas, nao de tempo x velocidade
+  double escalaOdo = 1.0;         // erro de escala do odometro (diametro da roda / relacao de engrenagens): 1,01 = le 1% a mais do que anda
 };
 
 Ajustes gAjustes;   // os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
@@ -469,6 +471,7 @@ class Carro {
   }
 
   // Compensacao dos motores (aumenta a forca do lado fraco), como definirCompensacao() da ponte H real: multiplica o PWM e limita em 255.
+  double odoMm() const { return (odoE_ + odoD_) / 2.0; }   // percurso medio das rodas desde o inicio (mm, com sinal; quem mede usa diferencas)
   void compensar(double esq, double dir) { gE_ = esq; gD_ = dir; }
   static int comGanho(int pwm, double g) { const double v = pwm * g; return static_cast<int>(v > 255 ? 255 : v < -255 ? -255 : v); }
   void comandar(int esq, int dir) { alvoE_ = alvo(comGanho(esq, gE_)); alvoD_ = alvo(comGanho(dir, gD_)); }
@@ -480,7 +483,9 @@ class Carro {
     const double dt = f_.dtMs / 1000.0, k = 1.0 - exp(-f_.dtMs / f_.tauMs);
     vE_ += (alvoE_ - vE_) * k;
     vD_ += (alvoD_ - vD_) * k;
-    const double ve = vE_ * fE_ * aE_, vd = vD_ * fD_ * aD_;
+    odoE_ += vE_ * f_.escalaOdo * dt;   // o encoder le o eixo da roda: nao ve a patinagem no chao (fatorRodas_, derrapagem) nem o torque que falta
+    odoD_ += vD_ * f_.escalaOdo * dt;
+    const double ve = f_.encoder ? vE_ : vE_ * fE_ * aE_, vd = f_.encoder ? vD_ : vD_ * fD_ * aD_;   // malha fechada no servo: o lado fraco e compensado
     const double v = (ve + vd) / 2.0 * fatorRodas_, w = (vd - ve) / f_.bitolaMm * f_.derrapagem * fatorRodas_;   // w > 0 = anti-horario (esquerda)
     aMmS2_ = (v - vMmS_) / dt;
     vMmS_ = v;
@@ -527,6 +532,7 @@ class Carro {
   double vE_ = 0, vD_ = 0, alvoE_ = 0, alvoD_ = 0, erroMax_ = 0, soma2_ = 0;
   double vMmS_ = 0, wRadS_ = 0, aMmS2_ = 0, impulsoG_ = 0;
   int impulsoTicks_ = 0;
+  double odoE_ = 0.0, odoD_ = 0.0;   // percurso de cada roda lido pelo encoder (mm, com sinal)
   bool levantado_ = false;
   Mundo* mundo_ = nullptr;
   double fatorRodas_ = 1.0, fE_ = 1.0, fD_ = 1.0, aE_ = 1.0, aD_ = 1.0, extraVies_ = 0.0, usFalsoMm_ = 0.0;
@@ -978,6 +984,11 @@ struct Firmware {
   unsigned long semReacaoAte = 0;
   // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 400 mm.
   unsigned long tSaidaMs = 0;
+  double odoSaida = 0.0, odoAnt = 0.0;   // odometro (mm) ao sair do cruzamento / no ciclo anterior
+  // Quanto o carro andou desde que saiu do cruzamento. Com encoder e a leitura das rodas; sem, tempo x velocidade (que erra com partida, correcao e parada).
+  double andadoDesdeSaida(const Carro& c, unsigned long agora) const {
+    return gFis.encoder ? c.odoMm() - odoSaida : (agora - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
+  }
   float andadoRuaMm = 0.0f;   // quanto ANDOU (velocidade x tempo so enquanto avanca, sem as paradas e giros) desde que saiu do cruzamento para a rua atual
   double trechoRestante0 = -1.0;   // quanto faltava para o proximo cruzamento ao sair (mm); -1 = nao sei (meia-volta no meio da rua)
   bool medindoVel = false;
@@ -989,7 +1000,7 @@ struct Firmware {
   bool usaImu = false, usaAncora = true;
   AjustesInercial ai;
   Assimetria assimMpu;      // ganhos medidos pelo giroscopio em reta no inicio (1,1 = nao mediu)
-  bool compensarMotores = true;
+  bool compensarMotores = !gFis.encoder;   // STS: o servo regula a velocidade de cada roda, nao ha assimetria a compensar
   void aplicarCompensacao(Carro& c) const {
     if (!compensarMotores) { c.compensar(1.0, 1.0); return; }
     c.compensar(assimMpu.ganhoEsq, assimMpu.ganhoDir);
@@ -1139,7 +1150,7 @@ struct Firmware {
     }
     // Chegou a um cruzamento depois de sair do ANTERIOR em linha reta (sem virar): a distancia e de 400 mm (o eixo para sempre no mesmo ponto antes do centro), entao
     // 400 mm / tempo andando = velocidade REAL. Media movel; vira a velocidade usada para tempos de perda de linha, fim de beco e deslocamentos fora da cidade.
-    if (medindoVel && tSaidaMs != 0 && !nav.loc.inGreen) {
+    if (medindoVel && !gFis.encoder && tSaidaMs != 0 && !nav.loc.inGreen) {   // com encoder a velocidade e lida das rodas: nao precisa medir por tempo entre cruzamentos
       const float dtS = static_cast<float>(c.agoraMs() - tSaidaMs) / 1000.0f;
       const float v = static_cast<float>(kPasso) / dtS;
       if (dtS > 0.3f && v > 80.0f && v < 600.0f) {
@@ -1164,7 +1175,7 @@ struct Firmware {
     if ((pularVarreduraComPoseSegura || varrerSoQuandoPrecisa) && nav.ativo && nav.calibrando == 0 && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo) {
       const core::Estimate es = core::estimate(nav.loc);
       const bool segura = core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && core::rowMass(nav.loc, es.pose.at.r) >= core::kMinCoordBelief;
-      const double andado = (c.agoraMs() - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
+      const double andado = andadoDesdeSaida(c, c.agoraMs());
       const bool esperado = segura && trechoRestante0 > 0.0 && fabs(andado - trechoRestante0) < 110.0;
       if (esperado && pularVarreduraComPoseSegura) pularVarredura = true;
       else if (esperado) {
@@ -1225,7 +1236,7 @@ struct Firmware {
     if (getenv("SIM_DEBUG")) fprintf(stderr, "parou em (%.0f, %.0f) rumo %.0f, %s, 1o lado %s: ruas esq %d dir %d -> %s\n", paradaEm.x, paradaEm.y, paradaEm.th * 57.29578, vinhaSeguindo ? "seguindo" : "PERDIDO", lado > 0 ? "esq" : "dir", r.ruaEsquerda, r.ruaDireita,
                                        varr.resultado == Oito::Cruzamento ? "CRUZAMENTO" : (varr.resultado == Oito::Endireitou ? "ENDIREITOU" : "falso alarme"));
     if (varr.resultado == Oito::Cruzamento) { cruzamentos++; registrarCruzamento(expl, rumo); }
-    else if (varr.resultado == Oito::Endireitou) { endireitou++; if (nav.ativo) nav.aposVirar(varr.ladoEndireitou > 0 ? 'L' : 'R'); trechoRestante0 = -1.0; tSaidaMs = c.agoraMs(); andadoRuaMm = 0.0f; }
+    else if (varr.resultado == Oito::Endireitou) { endireitou++; if (nav.ativo) nav.aposVirar(varr.ladoEndireitou > 0 ? 'L' : 'R'); trechoRestante0 = -1.0; tSaidaMs = c.agoraMs(); odoSaida = c.odoMm(); andadoRuaMm = 0.0f; }
     else falsosAlarmes++;
     esquecerUltimoComando(memoria);
     if (varr.resultado == Oito::Endireitou) memoria.perdeuEm = 0;   // estava de lado em cima da linha e agora esta alinhado: volta a seguir
@@ -1251,7 +1262,7 @@ struct Firmware {
       else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
       if ((a == 'L' || a == 'R') && !nav.loc.inGreen) olharAdiante(c, a == 'L' ? 1 : -1);
       usAnt = -1.0f; ecoLembradoMm = -1.0f; ecoRealinhado = false; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
-      tSaidaMs = c.agoraMs();                          // daqui em diante conta o caminho andado na rua nova
+      tSaidaMs = c.agoraMs(); odoSaida = c.odoMm();                          // daqui em diante conta o caminho andado na rua nova
       andadoRuaMm = 0.0f;
       trechoRestante0 = (a == 'L' || a == 'R') ? kPasso - 40.0 : kPasso;   // depois de virar para o lado o eixo ja andou ~40 mm
       if (a == 'S') comecarASair(cruz, c.agoraMs());   // reto: a barra ainda esta em cima da faixa do cruzamento, o debounce evita contar de novo
@@ -1297,20 +1308,30 @@ struct Firmware {
   }
   // Anda `mm` na direcao do rumo atual, segurando o rumo pelo giroscopio; para antes se `parar()` ficar verdadeiro.
   template <class Parar>
-  double andarMm(Carro& c, double mm, Parar parar) {   // devolve quantos mm andou (tempo x velocidade): quem precisa voltar ao ponto de partida anda o mesmo
+  double andarMm(Carro& c, double mm, Parar parar) {   // devolve quantos mm andou (encoder; sem encoder, tempo x velocidade): quem precisa voltar ao ponto de partida anda o mesmo
     const double alvoRumo = rumo;
-    const unsigned long ms = static_cast<unsigned long>(mm / std::max(1.0f, velLivreMmS > 0.0f ? velLivreMmS : ajC.velMmS) * 1000.0);
+    const float vel = std::max(1.0f, velLivreMmS > 0.0f ? velLivreMmS : ajC.velMmS);
+    const unsigned long ms = static_cast<unsigned long>(mm / vel * 1000.0);
     const unsigned long ini = c.agoraMs();
-    while (c.agoraMs() - ini < ms) {
+    const double odo0 = c.odoMm();
+    double vNow = 0.0, antes = odo0;
+    // com encoder: para pela distancia lida, e comeca a frear a tempo (a roda leva ~tauMs para parar: v x tau a mais); o tempo so entra como limite (rodas travadas: 3x o previsto)
+    while (gFis.encoder ? (c.odoMm() - odo0 + vNow * gFis.tauMs / 1000.0 < mm && c.agoraMs() - ini < 3 * ms + 500) : c.agoraMs() - ini < ms) {
       Comando cmd{};
       cmd.esq = cmd.dir = ajustes.velReto;   // a MESMA velocidade em que se mediu a velocidade (distancia entre cruzamentos / tempo): senao o tempo nao vira distancia
       if (usaImu) segurarRumoNaLacuna(cmd, rumo, static_cast<float>(alvoRumo), ajustes, ai);
       c.comandar(cmd.esq, cmd.dir);
       tick(c);
+      vNow = (c.odoMm() - antes) / (gFis.dtMs / 1000.0);
+      antes = c.odoMm();
       if (parar()) break;
     }
     c.parar();
-    return (c.agoraMs() - ini) / 1000.0 * std::max(1.0f, velLivreMmS > 0.0f ? velLivreMmS : ajC.velMmS);
+    if (gFis.encoder) {   // espera as rodas pararem de verdade: o que ainda anda na freada conta no percurso
+      for (int i = 0; i < 80 && fabs(vNow) > 3.0; i++) { tick(c); vNow = (c.odoMm() - antes) / (gFis.dtMs / 1000.0); antes = c.odoMm(); }
+      return c.odoMm() - odo0;
+    }
+    return (c.agoraMs() - ini) / 1000.0 * vel;
   }
 
   // Indo para o OESTE (pelo compasso do MPU) a azul que aparece e a do NOSSO lado (nosso portao: sair para o verde e permitido); indo para o LESTE seria a do adversario.
@@ -1410,6 +1431,28 @@ struct Firmware {
       if (!temPlat) { nav.yOlhados.push_back(y); m->evento(c.agoraMs(), fmt("PLATAFORMAS: y = %.0f mm sem eco (marca vazia)", y)); }
     }
     nav.mapeado = true;
+  }
+
+  // PARADO de frente para uma plataforma (oeste, ponta a ~60 mm da face): gira de -36 a +36 graus lendo o ultrassom. Os angulos COM eco (distancia x cos = distancia da face) sao a plataforma,
+  // o MEIO do trecho e o centro dela (o cone alarga as duas pontas por igual) e o cateto lateral = distancia x tan(angulo do meio). O centro da plataforma vem da grade (conhecido), entao
+  // o y do eixo = centro - cateto, sem depender de partida, de tempo nem de a ponta ter parado na borda da plataforma (erro de ate ~25 mm que fazia reentrar fora da rua).
+  double yPeloGiro(Carro& c, double yPlataforma) {
+    constexpr double kRad = M_PI / 180.0;
+    auto alcance = [&](double phi) { girarPara(c, 180.0 - phi); const double e = c.us(); return e > 0.0 ? e + 100.0 : -1.0; };   // phi > 0 = para o norte; distancia do EIXO
+    const double r0 = alcance(0.0);
+    if (r0 < 0.0) { girarPara(c, 180.0); return yPlataforma; }   // sem eco de frente: nao corrige
+    std::vector<bool> tem;   // amostras de -36 a +36 de 4 em 4: o trecho CONTIGUO com eco que passa pelo 0 e a plataforma (as vizinhas ficam a 130 mm e aparecem como outros trechos)
+    for (double g = -36.0; g <= 36.0; g += 4.0) { const double r = g == 0.0 ? r0 : alcance(g); if (getenv("SIM_DEBUG2")) fprintf(stderr, "      g %+.0f r %.0f perp %.0f\n", g, r, r * cos(g * kRad)); tem.push_back(r > 0.0 && fabs(r * cos(g * kRad) - r0) < 30.0); }
+    girarPara(c, 180.0);
+    int i0 = 9, j0 = 9;   // indice 9 = 0 grau
+    if (!tem[9]) return yPlataforma;
+    while (i0 > 0 && tem[i0 - 1]) i0--;
+    while (j0 + 1 < static_cast<int>(tem.size()) && tem[j0 + 1]) j0++;
+    const int n = j0 - i0 + 1;
+    if (n < 2 || i0 == 0 || j0 + 1 == static_cast<int>(tem.size())) return yPlataforma;   // trecho colado no limite da varredura: o meio nao esta visivel
+    const double phiMeio = (-36.0 + 4.0 * i0 + -36.0 + 4.0 * j0) / 2.0;   // meio do trecho
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    GIRO-Y: n=%d phiMeio %.1f r0 %.0f -> y %.0f | y real %.0f (plataforma %.0f)\n", n, phiMeio, r0, yPlataforma - r0 * tan(phiMeio * kRad), c.estado().y, yPlataforma);
+    return yPlataforma - r0 * tan(phiMeio * kRad);
   }
 
   // Carregando, a prioridade e GUARDAR O CUBO: nada de medir velocidade nem de olhar todas as marcas antes. Se a plataforma da cor ainda nao foi vista (nos primeiros cruzamentos
@@ -1517,7 +1560,7 @@ struct Firmware {
       // da plataforma ja encaixado na grade e a velocidade medida na subida, 40 mm passava do ponto: ele entrava ~40 mm abaixo da rua (fora da barra de 75 mm) e seguia a faixa azul
       // como rua. 29/30 sementes na meta contra 27/30; 60 sementes: 57 contra 54.
       const double dyAbs = fabs(yAlvo - yAtual);
-      if (dyAbs > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, dyAbs + std::max(0.0, 20.0 - dyAbs / 10.0), [] { return false; }); }
+      if (dyAbs > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, dyAbs + (gFis.encoder ? 0.0 : std::max(0.0, 20.0 - dyAbs / 10.0)), [] { return false; }); }   // com encoder nao ha partida a compensar
     }
     girarPara(c, 0.0);
     core::initInGreen(nav.loc);
@@ -1554,7 +1597,7 @@ struct Firmware {
     const bool sabeLinha = core::rowMass(nav.loc, esPortao.pose.at.r) >= core::kMinCoordBelief && core::inMap(esPortao.pose.at.c, esPortao.pose.at.r);
     const double yPortao = yDoCruzamento(esPortao.pose.at.r);
     double yAtual = yPortao;
-    if (!velRetaMedida || !sabeLinha) {
+    if ((!velRetaMedida && !gFis.encoder) || !sabeLinha) {   // com encoder nao precisa subir ate a moldura para medir a velocidade
       girarPara(c, 90.0);
       const unsigned long tSubida0 = c.agoraMs();
       irAteVermelhoAndando(c);
@@ -1613,6 +1656,8 @@ struct Firmware {
         nav.pontos += 100;
         nav.entregues++;
         m->evento(c.agoraMs(), fmt("ENTREGOU cubo na plataforma da cor %d (+100, total %d pontos)", static_cast<int>(cor), nav.pontos));
+        if (gFis.encoder) yAtual = yPeloGiro(c, pl->y);   // reentra pelo y medido, nao pelo y 'vi a plataforma'
+
       } else {
         nav.pontos -= 10;
         nav.perdidos++;
@@ -1676,7 +1721,7 @@ struct Firmware {
     // O eco enquanto anda tambem e informacao (ate ~3 ruas a frente na mesma linha): atualiza a memoria a cada 300 ms.
     if (trechoRestante0 > 0.0 && nav.ruaUsada && agora - ultimaObsRaioMs >= 300 && !movel) {
       ultimaObsRaioMs = agora;
-      const double andadoRaio = (agora - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
+      const double andadoRaio = andadoDesdeSaida(c, agora);
       // Sem eco logo depois de uma curva nao prova nada: o carro ainda esta ~40 mm fora da linha da rua e o cone (+-10 graus) passa ao lado de um cubo no meio dela (e marcava a rua
       // com cubo como vazia de certeza: o eco virava "o outro robo" e ele passava por cima). So vale depois de realinhar na rua (~110 mm andados).
       if (d > 0.0f || andadoRaio >= 110.0)
@@ -1684,7 +1729,7 @@ struct Firmware {
     }
     // O eco esta NESTA rua se a superficie dele fica antes do proximo cruzamento: da ponta (eixo + 100) ate o cruzamento faltam (trecho restante + 38 - 100) e um cubo da rua fica a 112+ mm
     // antes dele. Conta-se o que ja andou pela velocidade MEDIDA; se nao da para contar (meia-volta no meio da rua), a regra fica desligada.
-    const double andado = (agora - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
+    const double andado = andadoDesdeSaida(c, agora);
     const double faltaDaPonta = trechoRestante0 - andado + 38.0 - 100.0 - 87.0;
     if (trechoRestante0 > 0.0 && d > 0.0f && d <= faltaDaPonta && nav.ruaVaziaCerta(nav.ruaDe, nav.ruaPara)) {
       // Rua que ja foi vista vazia: o que o ultrassom ve ali so pode ser o OUTRO ROBO (parado ou nao). Regras 7.1: identificar e voltar para buscar outra rota; nunca empurrar.
@@ -1908,8 +1953,14 @@ struct Firmware {
       if (!getenv("SIM_SEM_TRACAO")) aplicarReforco(cmd, tracao.reforco);
     }
     c.comandar(cmd.parar ? 0 : cmd.esq, cmd.parar ? 0 : cmd.dir);
-    velMmSAtual = (cmd.esq > 0 && cmd.dir > 0 && !cmd.parar) ? ajC.velMmS * static_cast<float>(cmd.esq + cmd.dir) / (2.0f * static_cast<float>(ajustes.velReto)) : 0.0f;
-    andadoRuaMm += velMmSAtual * 0.005f;
+    if (gFis.encoder) {   // velocidade e percurso lidos das rodas
+      velMmSAtual = static_cast<float>((c.odoMm() - odoAnt) / 0.005);
+      andadoRuaMm = static_cast<float>(c.odoMm() - odoSaida);
+    } else {
+      velMmSAtual = (cmd.esq > 0 && cmd.dir > 0 && !cmd.parar) ? ajC.velMmS * static_cast<float>(cmd.esq + cmd.dir) / (2.0f * static_cast<float>(ajustes.velReto)) : 0.0f;
+      andadoRuaMm += velMmSAtual * 0.005f;
+    }
+    odoAnt = c.odoMm();
     tick(c);
   }
 };
@@ -3051,6 +3102,8 @@ int main(int argc, char** argv) {
     const double v = atof(eq + 1);
     if (k == "tau") gFis.tauMs = v;
     else if (k == "derrap") gFis.derrapagem = v;
+    else if (k == "encoder") { gFis.encoder = v != 0.0; if (gFis.encoder) { gFis.zonaMortaPwm = 0; gAjustes.zonaMortaPwm = 0; } }   // STS3215: sem zona morta, malha fechada
+    else if (k == "escalaodo") gFis.escalaOdo = v;
     else if (k == "bitola") gFis.bitolaMm = v;
     else if (k == "zona") { gFis.zonaMortaPwm = v; gAjustes.zonaMortaPwm = static_cast<int>(v); }   // zona CALIBRADA: a decisao sabe
     else if (k == "zonaaj") gAjustes.zonaMortaPwm = static_cast<int>(v);   // so a decisao (calibracao errada)
