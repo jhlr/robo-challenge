@@ -1661,6 +1661,7 @@ struct Firmware {
   void entregarNaPlataforma(Carro& c) {
     nav.entregando = true;
     Mundo* m = c.mundo();
+    const unsigned long tIni = c.agoraMs();
     if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTREGAR t=%.0fs: rumo %.0f, real th %.0f, pos (%.0f,%.0f)\n", c.agoraMs() / 1000.0, rumo, c.estado().th * 57.3, c.estado().x, c.estado().y);
     // 1) entra no verde: continua para o oeste ate x ~ -150
     girarPara(c, 180.0);
@@ -1711,9 +1712,14 @@ struct Firmware {
       if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTREGAR-ALVO cor %d plataforma y %.0f yAtual(estimado) %.0f real y %.0f pose do portao (%d,%d)\n", static_cast<int>(cor), pl->y, yAtual, c.estado().y, esPortao.pose.at.c, esPortao.pose.at.r);
       if (fabs(dy) > minMovMm()) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
       yAtual = pl->y;
+      const unsigned long tChegouY = c.agoraMs();
+      constexpr double kAproximacaoMm = 260.0;
       girarPara(c, 180.0);
+      const unsigned long tGirou = c.agoraMs();
       auto achou = [&] {
-        andarMm(c, 150.0, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma; });
+        const unsigned long tA = c.agoraMs();
+        const double andouA = andarMm(c, kAproximacaoMm, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma; });   // para ao ver a plataforma: o limite so cobre o caso de partir do portao (x ~ -125, ponta a ~340 mm da face)
+        if (getenv("SIM_DEBUG")) fprintf(stderr, "    ACHOU? giro %.1f s, andou %.0f mm em %.1f s | real (%.0f,%.0f) th %.0f | plataforma y %.0f vista %d\n", (tA - tGirou) / 1000.0, andouA, (c.agoraMs() - tA) / 1000.0, c.estado().x, c.estado().y, c.estado().th * 57.3, pl->y, static_cast<int>(c.plataformaNaFrente(70.0)));
         const bool ok = c.plataformaNaFrente(70.0) == cor;
         if (!ok) { girarPara(c, 0.0); andarMm(c, 90.0, [] { return false; }); girarPara(c, 180.0); }   // nao e ela: recua para o verde para varrer sem bater
         return ok;
@@ -1732,7 +1738,9 @@ struct Firmware {
         nav.pontos += 100;
         nav.entregues++;
         m->evento(c.agoraMs(), fmt("ENTREGOU cubo na plataforma da cor %d (+100, total %d pontos)", static_cast<int>(cor), nav.pontos));
+        const unsigned long tAchou = c.agoraMs();
         if (gFis.encoder) yAtual = yPeloGiro(c, pl->y);   // reentra pelo y medido, nao pelo y 'vi a plataforma'
+        if (getenv("SIM_DEBUG")) fprintf(stderr, "    TEMPO-ENTREGA ate o y %.1f s, achar a plataforma %.1f s, yPeloGiro %.1f s (inicio %.0f s)\n", (tChegouY - tIni) / 1000.0, (tAchou - tChegouY) / 1000.0, (c.agoraMs() - tAchou) / 1000.0, tIni / 1000.0);
 
       } else {
         nav.pontos -= 10;
