@@ -11,6 +11,7 @@ namespace seguidor {
 struct AjustesCruzamento {
   int confirma = 2;                      // leituras seguidas com todos no preto
   unsigned long saidaMs = 300;           // depois de um cruzamento, ignora novos por pelo menos esse tempo
+  float saidaMm = 40.0f;                 // e, se o odometro for dado, ate ter andado isso: parado (esperando um eco, por exemplo) o tempo passa mas o carro nao saiu de cima do cruzamento
 
   // Para saber se a linha sumida e fim de beco. CHUTES: meca e corrija.
   float velMmS = 250.0f;                 // velocidade real andando reto com velReto
@@ -22,18 +23,21 @@ struct MemoriaCruzamento {
   int vistas = 0;
   bool saindo = false;
   unsigned long saindoDesde = 0;
+  float saindoOdoMm = 0.0f;   // odometro ao sair (so vale se o chamador da odometro)
 };
 
 // As duas pontas no preto ao mesmo tempo: a assinatura de um cruzamento.
 inline bool pontasJuntas(const bool preto[kSensores]) { return preto[0] && preto[kSensores - 1]; }
 
 // Chame uma vez por leitura. Devolve true UMA vez por cruzamento.
-inline bool cruzamentoConfirmado(const bool preto[kSensores], unsigned long agoraMs, const AjustesCruzamento& aj, MemoriaCruzamento& m) {
+// `odoMm` < 0 = sem odometro (so o tempo conta); com odometro (encoder dos STS3215) a saida exige tambem andar `saidaMm`.
+inline bool cruzamentoConfirmado(const bool preto[kSensores], unsigned long agoraMs, const AjustesCruzamento& aj, MemoriaCruzamento& m, float odoMm = -1.0f) {
   const bool todos = pontasJuntas(preto);
 
   if (m.saindo) {
     m.vistas = 0;
-    if (!todos && agoraMs - m.saindoDesde > aj.saidaMs) m.saindo = false;
+    const bool andouOBastante = odoMm < 0.0f || odoMm - m.saindoOdoMm >= aj.saidaMm;
+    if (!todos && agoraMs - m.saindoDesde > aj.saidaMs && andouOBastante) m.saindo = false;
     return false;
   }
   m.vistas = todos ? m.vistas + 1 : 0;
@@ -41,13 +45,15 @@ inline bool cruzamentoConfirmado(const bool preto[kSensores], unsigned long agor
   m.vistas = 0;
   m.saindo = true;
   m.saindoDesde = agoraMs;
+  m.saindoOdoMm = odoMm;
   return true;
 }
 
 // O robo ficou parado no cruzamento: o relogio de saida comeca quando ele volta a andar, nao quando chegou.
-inline void comecarASair(MemoriaCruzamento& m, unsigned long agoraMs) {
+inline void comecarASair(MemoriaCruzamento& m, unsigned long agoraMs, float odoMm = -1.0f) {
   m.saindo = true;
   m.saindoDesde = agoraMs;
+  m.saindoOdoMm = odoMm;
 }
 
 }  // namespace seguidor

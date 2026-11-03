@@ -985,6 +985,7 @@ struct Firmware {
   unsigned long semReacaoAte = 0;
   // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 400 mm.
   unsigned long tSaidaMs = 0;
+  float odoCruz(const Carro& c) const { return gFis.encoder ? static_cast<float>(c.odoMm()) : -1.0f; }   // odometro para o debounce do cruzamento (sem encoder: so o tempo)
   double minMovMm() const { return gFis.encoder ? 4.0 : 20.0; }   // menor deslocamento que vale a pena andar para corrigir o y (sem encoder a partida come ~20 mm)
   double odoSaida = 0.0, odoAnt = 0.0;   // odometro (mm) ao sair do cruzamento / no ciclo anterior
   // Quanto o carro andou desde que saiu do cruzamento. Com encoder e a leitura das rodas; sem, tempo x velocidade (que erra com partida, correcao e parada).
@@ -1112,7 +1113,7 @@ struct Firmware {
       esquecerCor(memCor);
       esquecerUltimoComando(memoria);
       tUltimoCruzamento = c.agoraMs();
-      comecarASair(cruz, c.agoraMs());
+      comecarASair(cruz, c.agoraMs(), odoCruz(c));
       if (nav.ativo) {
         if (nav.carregando) entregarNaPlataforma(c);   // saiu COM cubo pelo portao: leva ate a plataforma da cor
         else if (indoParaOeste()) { core::initInGreen(nav.loc); nav.naRua = false; portaoPendente = true; precisaAlinhar = true; }   // saiu pelo nosso portao sem querer: esta no verde de novo
@@ -1121,7 +1122,7 @@ struct Firmware {
           // A barra para em cima da faixa azul e a barra/eixo ainda estao dentro dela: seguir a linha dali o fazia SEGUIR A AZUL como se fosse rua (subia ou descia por ela). Atravessa em
           // frente, segurando o rumo pelo giroscopio, ate a barra sair da faixa (20 mm + a barra a ~30 mm do eixo).
           cruz = MemoriaCruzamento{};
-          comecarASair(cruz, c.agoraMs());   // o debounce conta desde ANTES de andar: o 1o cruzamento fica a ~90 mm do portao e nao pode ser engolido
+          comecarASair(cruz, c.agoraMs(), odoCruz(c));   // o debounce conta desde ANTES de andar: o 1o cruzamento fica a ~90 mm do portao e nao pode ser engolido
           // Em frente ate sair da faixa azul E achar a rua (algum sensor preto sem azul sob o TCS), no maximo ~1,3 s: se a entrada errou uns 40 mm de y a rua nao esta sob a barra, e
           // a busca achava a faixa azul ATRAS (a mais perto) e a seguia como rua.
           const unsigned long t0 = c.agoraMs();
@@ -1138,7 +1139,14 @@ struct Firmware {
       }
       return;
     }
-    if (getenv("SIM_DEBUG")) fprintf(stderr, "    PARADA t=%.1fs pos (%.0f,%.0f) cor=%d acao=%d portaoPend=%d inGreen=%d\n", c.agoraMs() / 1000.0, c.estado().x, c.estado().y, static_cast<int>(corAgora), static_cast<int>(acao), portaoPendente, nav.loc.inGreen);
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    PARADA[andado %.0f restante0 %.0f pularProx %d th %.0f] t=%.1fs pos (%.0f,%.0f) cor=%d acao=%d portaoPend=%d inGreen=%d\n", andadoDesdeSaida(c, c.agoraMs()), trechoRestante0, (int)nav.pularProximo, c.estado().th * 57.3, c.agoraMs() / 1000.0, c.estado().x, c.estado().y, static_cast<int>(corAgora), static_cast<int>(acao), portaoPendente, nav.loc.inGreen);
+    // Com o odometro, uma faixa de cruzamento a mais de 150 mm do ponto onde o proximo DEVIA estar nao e a chegada: e o cruzamento de onde saiu (o carro recuou ou balancou por cima
+    // dele, por exemplo ao pegar um cubo logo na saida da curva). Contar como chegada avancava a pose uma rua sem o carro sair do lugar e dai em diante tudo ficava deslocado.
+    if (gFis.encoder && nav.ativo && !nav.loc.inGreen && acao == AcaoCruzamento::Cruzamento && trechoRestante0 > 0.0 && andadoDesdeSaida(c, c.agoraMs()) < trechoRestante0 - 150.0) {
+      if (getenv("SIM_DEBUG")) fprintf(stderr, "    (faixa do cruzamento de onde saiu, andado %.0f de %.0f: nao e chegada)\n", andadoDesdeSaida(c, c.agoraMs()), trechoRestante0);
+      comecarASair(cruz, c.agoraMs(), odoCruz(c));
+      return;
+    }
     if (nav.ativo && acao == AcaoCruzamento::Navegador) acao = AcaoCruzamento::MeiaVolta;   // com o navegador ligado ele mesmo decide a rota: na borda so da meia-volta
     if (acao != AcaoCruzamento::Cruzamento) {   // borda do mapa: nao gira para confirmar
       bordas++;
@@ -1278,10 +1286,10 @@ struct Firmware {
       tSaidaMs = c.agoraMs(); odoSaida = c.odoMm();                          // daqui em diante conta o caminho andado na rua nova
       andadoRuaMm = 0.0f;
       trechoRestante0 = (a == 'L' || a == 'R') ? kPasso - 40.0 : kPasso;   // depois de virar para o lado o eixo ja andou ~40 mm
-      if (a == 'S') comecarASair(cruz, c.agoraMs());   // reto: a barra ainda esta em cima da faixa do cruzamento, o debounce evita contar de novo
+      if (a == 'S') comecarASair(cruz, c.agoraMs(), odoCruz(c));   // reto: a barra ainda esta em cima da faixa do cruzamento, o debounce evita contar de novo
       else cruz = MemoriaCruzamento{};                 // virou (L, R, U): a barra ja nao esta na faixa; o debounce de 300 ms (75 mm) engolia a BORDA a 49 mm do beco (o carro passou da linha vermelha)
     } else {
-      comecarASair(cruz, c.agoraMs());
+      comecarASair(cruz, c.agoraMs(), odoCruz(c));
     }
   }
 
@@ -1700,6 +1708,7 @@ struct Firmware {
       // 3) vai ate a altura ESPERADA da plataforma (os slots sao retangulos fixos na arena; a cor e que muda), 4) vira para o oeste e olha; como a conta de distancia por tempo
       //    erra algumas dezenas de mm e a plataforma tem so 50 mm de altura, 5) varre para cima e para baixo de 60 em 60 mm ate ver a plataforma da cor do cubo.
       const double dy = pl->y - yAtual;
+      if (getenv("SIM_DEBUG")) fprintf(stderr, "    ENTREGAR-ALVO cor %d plataforma y %.0f yAtual(estimado) %.0f real y %.0f pose do portao (%d,%d)\n", static_cast<int>(cor), pl->y, yAtual, c.estado().y, esPortao.pose.at.c, esPortao.pose.at.r);
       if (fabs(dy) > minMovMm()) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
       yAtual = pl->y;
       girarPara(c, 180.0);
@@ -1962,7 +1971,7 @@ struct Firmware {
         if (c.mundo()) c.mundo()->evento(agora, fmt("PORTAO azul atravessado em (%.0f,%.0f) (de frente ou de lado)", c.estado().x, c.estado().y));
         esquecerUltimoComando(memoria);
         cruz = MemoriaCruzamento{};
-        comecarASair(cruz, agora);
+        comecarASair(cruz, agora, odoCruz(c));
       }
       return;
     }
@@ -1987,7 +1996,7 @@ struct Firmware {
       return;
     }
     if (nav.ativo && tratarCubo(c)) return;
-    if (paraNoCruzamento && cruzamentoConfirmado(p, agora, ajC, cruz)) {   // acima de todas as outras regras: vale ate perdido/buscando
+    if (paraNoCruzamento && cruzamentoConfirmado(p, agora, ajC, cruz, odoCruz(c))) {   // acima de todas as outras regras: vale ate perdido/buscando
       pararNoCruzamento(c, p);
       return;
     }
@@ -2206,6 +2215,7 @@ struct Resultado {
 
 static const char* gSvgDir = nullptr;
 static unsigned long long gSemente = 0;   // somada a semente do mundo: --lote varia o sorteio de cubos/ruido
+static int gCapacidade = 1;   // cubos por viagem (param cap=; o firmware escolheu 1, as regras deixam 2)
 static struct { bool fim = false; int entregues = 0, pontos = 0, toques = 0; double tempoS = 0; } gUltimaMissao;   // resultado da ultima cenarioMissao (para --lote)
 
 // Placar de qualidade do seguimento (reta, cantos, arcos): para comparar uma mudanca na decisao antes e depois.
@@ -2595,6 +2605,7 @@ static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool 
   c.usarMundo(&m);
   fw.ligarImu(c);
   fw.nav.iniciar();
+  fw.nav.coleta.capacidade = gCapacidade;
   fw.portaoPendente = true;
 }
 
@@ -2650,6 +2661,7 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
     fw.passo(c);
     while (static_cast<int>(entregas.size()) < fw.nav.entregues) entregas.push_back(c.agoraMs() / 1000.0);
   }
+  if (getenv("SIM_DEBUG")) { for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str()); const Estado e = c.estado(); fprintf(stderr, "    FIM coleta: robo (%.0f,%.0f) th %.0f carregando %d entregues %d coletados %d\n", e.x, e.y, e.th * 57.3, fw.nav.carregando, fw.nav.entregues, fw.nav.coletados); }
   return entregas;
 }
 
@@ -3176,6 +3188,7 @@ int main(int argc, char** argv) {
         const int sementes = i + 2 < argc ? atoi(argv[i + 2]) : 5;
         double soma = 0.0; int completas = 0;
         for (int k = 0; k < sementes; k++) {
+          if (getenv("SIM_SO") && atoi(getenv("SIM_SO")) != k) continue;
           const std::vector<double> e = coletaDeN(n, static_cast<unsigned long>(k));
           const bool ok = static_cast<int>(e.size()) >= n;
           printf("semente %2d: %s | entregou %zu de %d | ultima em %.0f s | metade (%d) em %.0f s\n", k, ok ? "COMPLETA" : "tempo acabou", e.size(), n, e.empty() ? 0.0 : e.back(), n / 2, static_cast<int>(e.size()) >= n / 2 ? e[static_cast<size_t>(n / 2 - 1)] : 0.0);
@@ -3207,6 +3220,7 @@ int main(int argc, char** argv) {
     const double v = atof(eq + 1);
     if (k == "tau") gFis.tauMs = v;
     else if (k == "derrap") gFis.derrapagem = v;
+    else if (k == "cap") gCapacidade = static_cast<int>(v);
     else if (k == "encoder") { gFis.encoder = v != 0.0; if (gFis.encoder) { gFis.zonaMortaPwm = 0; gAjustes.zonaMortaPwm = 0; } }   // STS3215: sem zona morta, malha fechada
     else if (k == "escalaodo") gFis.escalaOdo = v;
     else if (k == "gesto") gGestoGraus = v;
