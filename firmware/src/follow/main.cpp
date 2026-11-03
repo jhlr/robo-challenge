@@ -21,10 +21,7 @@ hal::StsDrive drive(st);
 #endif
 hal::LineArray line8;
 hal::ColorSensor floorColor;
-hal::Imu imu;
 core::Pid pid(params::kKp, params::kKi, params::kKd, 1.0f);
-bool imuOk = false;
-core::GyroBias gyroBias;
 
 State state = State::Follow;
 uint32_t stateSince = 0;
@@ -34,8 +31,8 @@ char action = 'S';
 float lastPos = 0.0f;
 
 // Motion in progress: distance (mm) or angle (deg) to cover, measured by encoders when the drive has them.
-float motionTarget = 0.0f, gyroDeg = 0.0f;
-uint32_t motionStartMs = 0, lastGyroUs = 0;
+float motionTarget = 0.0f;
+uint32_t motionStartMs = 0;
 int turnDir = +1;  // +1 spin right, -1 spin left
 
 void enter(State s) {
@@ -57,24 +54,13 @@ bool advanceDone() {
 void beginTurn(float deg) {
   motionTarget = deg;
   motionStartMs = millis();
-  gyroDeg = 0.0f;
-  lastGyroUs = micros();
   drive.resetTravel();
 }
 
-// Closed loop (encoders, else gyro) with a time limit; without an IMU on the DC car the turn is open loop (timed). core/turn.h owns the rule.
+// Closed loop on the encoders with a time limit; the DC car has none, so its turn is open loop (timed). core/turn.h owns the rule.
 bool turnDone() {
-  const bool closedLoop = drive.hasEncoders() || imuOk;
-  float yaw = 0.0f;
-  if (drive.hasEncoders()) {
-    yaw = drive.spinDeg();
-  } else if (imuOk) {
-    hal::ImuSample m;
-    const uint32_t nowUs = micros();
-    if (imu.read(m)) gyroDeg = core::integrateYaw(gyroDeg, m.gz, gyroBias.bias(), (nowUs - lastGyroUs) * 1e-6f);
-    lastGyroUs = nowUs;
-    yaw = gyroDeg;
-  }
+  const bool closedLoop = drive.hasEncoders();
+  const float yaw = closedLoop ? drive.spinDeg() : 0.0f;
   const core::TurnSpec spec{motionTarget, closedLoop, params::kTurnDegPerSec, params::kTurnTimeoutFactor};
   const uint32_t elapsed = millis() - motionStartMs;
   const bool done = core::turnFinished(spec, elapsed, yaw);
@@ -90,20 +76,11 @@ void setup() {
 #endif
   line8.begin();
   hal::beginBuses();
-  floorColor.begin(params::kMuxFloorRgb);
-  imuOk = imu.begin();
+  floorColor.begin(Wire1);
   hal::beginIndicators();
   drive.begin();
-  if (!imuOk && !drive.hasEncoders()) Serial.println("WARNING: no IMU and no encoders: turns are timed (open loop)");
-  if (imuOk && !drive.hasEncoders()) {  // still for 1 s: average the gyro bias
-    for (int i = 0; i < 100; ++i) {
-      hal::ImuSample m;
-      if (imu.read(m)) core::addStillSample(gyroBias, m.gz);
-      delay(10);
-    }
-  } else {
-    delay(1000);
-  }
+  if (!drive.hasEncoders()) Serial.println("WARNING: no encoders: turns are timed (open loop)");
+  delay(1000);
   pid.dTau = params::kPidDerivTau;
   Serial.println("follow: running");
   enter(State::Follow);

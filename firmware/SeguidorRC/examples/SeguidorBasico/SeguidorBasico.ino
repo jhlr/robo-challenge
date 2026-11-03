@@ -17,22 +17,23 @@ using namespace seguidor;
 
 // --- Cor da linha (TCS34725 do chao): as ruas terminam numa linha VERMELHA (cima/baixo) ou AZUL (laterais). Ela acende S1 e S8 como um cruzamento,
 // mas e a borda do mapa: nao se confirma girando, o robo da meia-volta e volta para dentro do mapa (ou, com cubo na mao, espera o navegador).
-// Desligado ate ligar o sensor: troque para 1 (o I2C e o do multiplexador PCA9548, pins.h/params.h). A tabela de cores e a do firmware principal (core/color_table.h): uma so, nao copie.
+// Desligado ate ligar o sensor: troque para 1 (o TCS do chao fica no 2o barramento I2C, Wire1, pins.h). A tabela de cores e a do firmware principal (core/color_table.h): uma so, nao copie.
 #define USA_COR 1
 #if USA_COR
 #include "../../../src/core/color_table.h"
-hal::ColorSensor corChao;   // TCS34725 do chao: canal params::kMuxFloorRgb do PCA9548 (hal/sensors.*)
+hal::ColorSensor corChao;   // TCS34725 do chao: 2o barramento I2C (Wire1: pins::kI2c2Sda/kI2c2Scl), sem multiplexador (hal/sensors.*)
 core::Cor corAnterior = core::DESCONHECIDA, corAceita = core::DESCONHECIDA, corBruta = core::DESCONHECIDA;
 #endif
 MemoriaCor memCor;
 
-// --- MPU6050 (inercial.h): rumo ancorado na grade, levantado/reposicionado, travado, colisao, lacuna segurando o rumo, calibracao dos motores.
-// O MPU esta atras do multiplexador PCA9548 (I2C em pins::kI2cSda/kI2cScl, canal params::kMuxImu), junto com os dois TCS34725.
+// --- MPU6050 (inercial.h): REMOVIDO DO CARRO (hal::Imu e o multiplexador sairam de hal/sensors). Sem ele o rumo vem dos encoders dos STS e os giros de rua fecham na linha (o simulador
+// ja faz isso: rumoenc=1, ver docs/2026-11-03_encoder-simulador.md); este sketch ainda nao. O bloco USA_IMU abaixo e codigo morto ate ser apagado ou refeito sem o MPU.
 // Bitola/eixos: confira o sinal de kSinalGz (+ = anti-horario com o MPU de cabeca para cima) girando o robo a mao para a esquerda e olhando o rumo no Monitor Serial.
 #ifndef USA_IMU
 #define USA_IMU 0   // 1 quando o MPU estiver instalado (sem ele o setup espera o sensor para sempre)
 #endif
 #if USA_IMU
+#error "USA_IMU=1 nao compila mais: o MPU6050 foi removido do carro (hal::Imu nao existe). Veja o comentario acima."
 #include "../../../src/core/yaw.h"   // dono da integracao do giroscopio (viés + dt)
 hal::Imu mpu;   // MPU6050: canal params::kMuxImu do PCA9548 (hal/sensors.*)
 constexpr float kSinalGz = 1.0f;
@@ -397,6 +398,8 @@ void setup() {
 #endif
   hal::beginStsBus(sts);
   rodas.begin();
+  dbg.printf("STS esquerda (id %u): %s | direita (id %u): %s\n", params::kIdLeft, sts.Ping(params::kIdLeft) >= 0 ? "responde" : "SEM RESPOSTA",
+             params::kIdRight, sts.Ping(params::kIdRight) >= 0 ? "responde" : "SEM RESPOSTA");   // -1 = fiacao, jumper A ou alimentacao dos servos
   core::initInGreen(pose);
   ajustes.zonaMortaPwm = 0;   // STS nao tem zona morta (velocidade em malha fechada): normalizar() nao levanta nada
   ajustes.folgaZonaPwm = 0;
@@ -404,11 +407,9 @@ void setup() {
 #if USA_ULTRASSOM
   sonar.begin();
 #endif
-#if USA_COR || USA_IMU
-  hal::beginBuses();
-#endif
 #if USA_COR
-  if (!corChao.begin(params::kMuxFloorRgb)) dbg.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
+  hal::beginBuses();
+  if (!corChao.begin(Wire1)) dbg.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
 #endif
 
 #if USA_IMU

@@ -1,7 +1,5 @@
 #include "sensors.h"
 
-#include <Adafruit_MPU6050.h>
-#include <TCA9548.h>
 #include <Wire.h>
 
 #include "pins.h"
@@ -28,52 +26,27 @@ uint16_t Ultrasonic::readMm(uint32_t timeoutUs) {
 }
 
 // ---- TCS34725 ----
-bool ColorSensor::begin(uint8_t muxChannel) {
-  channel_ = muxChannel;
-  muxSelect(channel_);
-  ok_ = tcs_.begin(TCS34725_ADDRESS, &Wire);
+bool ColorSensor::begin(TwoWire& bus) {
+  bus_ = &bus;
+  ok_ = tcs_.begin(TCS34725_ADDRESS, bus_);
   return ok_;
 }
 
 bool ColorSensor::read(ColorSample& out) {
   if (!ok_) return false;
-  muxSelect(channel_);
   tcs_.getRawData(&out.r, &out.g, &out.b, &out.c);
   out.floor = core::classify(out.r, out.g, out.b, out.c);
   return true;
 }
 
-// ---- I2C bus + PCA9548 ----
-namespace {
-TCA9548 mux(params::kMuxAddr, &Wire);  // PCA9548 is register-compatible; the library skips the write when the channel is already open
-}  // namespace
-
-void muxSelect(uint8_t channel) { mux.selectChannel(channel); }
-
+// ---- I2C buses ----
 void beginBuses() {
   Wire.begin(pins::kI2cSda, pins::kI2cScl);
-  Wire.setClock(400000);
-  mux.begin();
-}
-
-// ---- MPU6050 (mux channel params::kMuxImu) ----
-namespace {
-Adafruit_MPU6050 mpu;
-}  // namespace
-
-bool Imu::begin() {
-  muxSelect(params::kMuxImu);
-  ok_ = mpu.begin(0x68, &Wire);  // ASSUMPTION: MPU6050 at 0x68
-  return ok_;
-}
-
-bool Imu::read(ImuSample& out) {
-  if (!ok_) return false;
-  muxSelect(params::kMuxImu);
-  sensors_event_t a, g, t;
-  mpu.getEvent(&a, &g, &t);
-  out = {a.acceleration.x, a.acceleration.y, a.acceleration.z, g.gyro.x, g.gyro.y, g.gyro.z};
-  return true;
+  Wire.setClock(100000);   // standard mode: the sensors are read at a few Hz and the bench wiring is jumper wires
+  if (pins::kI2c2Sda >= 0) {
+    Wire1.begin(pins::kI2c2Sda, pins::kI2c2Scl);
+    Wire1.setClock(100000);
+  }
 }
 
 // ---- servo (ESP32Servo) ----

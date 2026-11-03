@@ -14,9 +14,17 @@ constexpr int kStsRx = 16;  // UART2, half-duplex STS3215 bus via adapter board
 constexpr int kStsTx = 17;
 #endif
 
-// One I2C bus, behind a PCA9548 8-channel multiplexer (params::kMux*): front RGB, floor RGB and the IMU. The two TCS34725 share address 0x29, hence the mux.
-constexpr int kI2cSda = 22;
-constexpr int kI2cScl = 23;
+// Two I2C buses, no multiplexer (the MPU6050 is gone): the two TCS34725 share address 0x29, so each one has a bus of its own.
+// Wire  (front RGB): SDA 21, SCL 22.   Wire1 (floor RGB): SDA 23, SCL 15 (GPIO15 is a boot-strapping pin, harmless as an I2C line with its pull-up; the DC car uses it as a motor input).
+constexpr int kI2cSda = 21;
+constexpr int kI2cScl = 22;
+#if defined(CAR_DC)
+constexpr int kI2c2Sda = -1;   // no free pair on the DC car: the floor RGB is unavailable there
+constexpr int kI2c2Scl = -1;
+#else
+constexpr int kI2c2Sda = 23;
+constexpr int kI2c2Scl = 15;
+#endif
 
 constexpr int kTrig = 18;
 constexpr int kEcho = 19;  // HC-SR04 ECHO needs a 5 V -> 3.3 V divider

@@ -17,7 +17,6 @@ hal::StsDrive drive(st);
 hal::LineArray line8;
 hal::Ultrasonic sonar;
 hal::ColorSensor frontColor, floorColor;
-hal::Imu imu;
 hal::Servo claw(hal::kSg90);
 bool streaming = false;
 String line;
@@ -59,9 +58,6 @@ void dumpSensors() {
   if (mm == 0xFFFF) Serial.print(F("none")); else Serial.print(mm);
   printColor("front", frontColor);
   printColor("floor", floorColor);
-  hal::ImuSample m;
-  if (imu.read(m)) Serial.printf(" | imu a %.2f %.2f %.2f g %.2f %.2f %.2f", m.ax, m.ay, m.az, m.gx, m.gy, m.gz);
-  else Serial.print(F(" | imu: n/a"));
   Serial.println();
 }
 
@@ -156,8 +152,7 @@ void setup() {
   sonar.begin();
   hal::beginIndicators();
   hal::beginBuses();
-  Serial.printf("front rgb: %s | floor rgb: %s | imu: %s\n", frontColor.begin(params::kMuxFrontRgb) ? "ok" : "FAIL",
-                floorColor.begin(params::kMuxFloorRgb) ? "ok" : "FAIL", imu.begin() ? "ok" : "FAIL");
+  Serial.printf("front rgb (Wire): %s | floor rgb (Wire1): %s\n", frontColor.begin(Wire) ? "ok" : "FAIL", floorColor.begin(Wire1) ? "ok" : "FAIL");
   claw.begin(pins::kClaw);
 #if !defined(CAR_DC)
   Serial.printf("shoulder STS id %u: %s\n", params::kIdShoulder, shoulderBegin(st) ? "ok" : "no reply");

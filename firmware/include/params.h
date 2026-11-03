@@ -37,12 +37,6 @@ constexpr uint8_t kStsVoltMin = 40;
 constexpr float kDcMinDuty = 0.25f;
 constexpr float kDcFullSpeedMmS = 400.0f;
 
-// PCA9548 I2C multiplexer (A0-A2 to GND = 0x70 ASSUMED) and what sits on each channel.
-constexpr uint8_t kMuxAddr = 0x70;
-constexpr uint8_t kMuxFrontRgb = 0;
-constexpr uint8_t kMuxFloorRgb = 1;
-constexpr uint8_t kMuxImu = 2;
-
 // Geometry (mm). Wheel 66 mm; kTrackMm and kGearRatio (centre gear -> wheel gear, looked 1:1 in the photos) still to measure.
 constexpr float kWheelDiaMm = 66.0f;
 constexpr float kTrackMm = 100.0f;
