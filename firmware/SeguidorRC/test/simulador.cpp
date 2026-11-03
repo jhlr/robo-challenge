@@ -2629,6 +2629,30 @@ static Resultado cenarioMissao(bool ruido, int meta) {
               fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.pontos, fw.nav.coletados, fw.nav.entregues, fw.nav.brancosIdentificados, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, visitadosLeste, fw.ajC.velMmS, fw.amostrasVel, c.velNominalMmS(fw.ajustes.velReto), fw.semVarreduras, fw.nav.ecosLongeVistos, m.pegosPeloOponente, m.colisoesOponente)};
 }
 
+// Coleta de N cubos entregaveis (cores que tem plataforma: azul, vermelho, amarelo, preto), sem ruido e sem oponente, com o teto de 12 min da regra. Devolve o instante de cada
+// entrega (s); entregas.size() < n se o tempo acabou antes.
+static std::vector<double> coletaDeN(int n, unsigned long semente) {
+  using seguidor::CorCubo;
+  Pista p = tabuleiro();
+  Mundo m;
+  Carro c(p, {-140, yDoCruzamento(2), 0.0});
+  Firmware fw;
+  gSemente = semente;
+  configurarMissao(m, fw, c, 0, false, false);
+  fw.nav.verdade = &m;
+  const CorCubo cores[4] = {CorCubo::Azul, CorCubo::Vermelho, CorCubo::Amarelo, CorCubo::Preto};
+  std::vector<CorCubo> lista;
+  for (int i = 0; i < n; i++) lista.push_back(cores[i % 4]);
+  m.semearCubos(n, lista);
+  std::vector<double> entregas;
+  constexpr unsigned long kPartidaMs = 720000;   // 12 min (regras)
+  while (c.agoraMs() < kPartidaMs && fw.nav.entregues < n) {
+    fw.passo(c);
+    while (static_cast<int>(entregas.size()) < fw.nav.entregues) entregas.push_back(c.agoraMs() / 1000.0);
+  }
+  return entregas;
+}
+
 // Dois robos IGUAIS na mesma arena (regras): cada um com o mesmo firmware; colisao leva -10 e volta ao ponto de partida (regras 7.1). Roda ate os dois terem entregue `meta`
 // cubos (ou o teto de seguranca).
 static Resultado cenarioDuasEquipes(bool ruido, int meta) {
@@ -3147,6 +3171,20 @@ int main(int argc, char** argv) {
     if (!eq) {
       if (!strcmp(argv[i], "-q")) gSo_Placar = true;
       else if (!strcmp(argv[i], "--servir")) servirAoVivo = true;
+      else if (!strcmp(argv[i], "--coleta")) {   // --coleta N [sementes]: tempo para entregar N cubos (sem ruido), uma linha por semente
+        const int n = i + 1 < argc ? atoi(argv[i + 1]) : 18;
+        const int sementes = i + 2 < argc ? atoi(argv[i + 2]) : 5;
+        double soma = 0.0; int completas = 0;
+        for (int k = 0; k < sementes; k++) {
+          const std::vector<double> e = coletaDeN(n, static_cast<unsigned long>(k));
+          const bool ok = static_cast<int>(e.size()) >= n;
+          printf("semente %2d: %s | entregou %zu de %d | ultima em %.0f s | metade (%d) em %.0f s\n", k, ok ? "COMPLETA" : "tempo acabou", e.size(), n, e.empty() ? 0.0 : e.back(), n / 2, static_cast<int>(e.size()) >= n / 2 ? e[static_cast<size_t>(n / 2 - 1)] : 0.0);
+          if (ok) { soma += e.back(); completas++; }
+        }
+        if (completas) printf("COLETA %d cubos: %d de %d completas em 12 min | %.0f s em media nas completas\n", n, completas, sementes, soma / completas);
+        else printf("COLETA %d cubos: nenhuma completa em 12 min\n", n);
+        return 0;
+      }
       else if (!strcmp(argv[i], "--lote") || !strcmp(argv[i], "--lote-ruido")) {   // missao so com o nosso robo em N sorteios: mede em vez de olhar uma partida so (e caotica)
         const bool ruido = !strcmp(argv[i], "--lote-ruido");
         const int n = i + 1 < argc ? atoi(argv[i + 1]) : 10;
