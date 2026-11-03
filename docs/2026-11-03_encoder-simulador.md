@@ -43,3 +43,8 @@ Conclusao: o tempo parado nos cruzamentos NAO e o gargalo (o total quase nao mud
 2. Saida pela rua do meio e varredura parada (ideia do usuario): tirar a travessia do verde e a subida a moldura.
 3. Velocidade adaptativa: rapido quando a pose esta segura e o trecho livre, freando pela distancia restante ate o cruzamento.
 4. Giro por angulo: odometria diferencial para estimar o vies do giroscopio em reta.
+
+## Rumo derivado na reentrada (2026-11-03, noite)
+Causa de uma das falhas com ruido (semente 0): o rumo estimado derivou ~22 graus (solavanco + vies do giroscopio), o carro chegou torto na plataforma e `yPeloGiro` (que assume a face perpendicular) errou o y em 54 mm; reentrou fora da rua e ficou ~180 s perdido. O perfil de alcance da varredura (116 a 172 mm) entregava a inclinacao: `r(phi) = d / cos(phi - delta)`.
+`yPeloGiro` agora ajusta `delta` e `d` na propria varredura; se `|delta|` passa de 10 graus (zona morta: o ajuste tem vies de ate ~8 graus com o rumo certo, por causa do cone e dos 3 raios do `us()`), reancora o rumo na face (multiplo de 90), gira para ela e mede o y no referencial da face.
+Resultado: sem ruido `--lote 30` 28/30 -> 29/30 (199 s contra 212 s); com ruido `--lote-ruido 30` ficou em 10/30 (sem ganho: o gargalo com ruido e outro, o carro perdido por outras causas). Um modelo do cone dentro do ajuste foi tentado e piorou (7/30): era sobreajuste aos 3 raios do simulador.

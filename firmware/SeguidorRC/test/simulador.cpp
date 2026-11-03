@@ -1459,7 +1459,7 @@ struct Firmware {
     girarPara(c, rumo0 + 36.0f);
     const int v = ajustes.velBuscaExterna;
     c.comandar(v, -v);   // phi cresce = rumo diminui (vira a direita)
-    std::vector<std::pair<double, bool>> amostras;   // (phi, ha eco da face)
+    std::vector<std::pair<double, double>> bruto;   // (phi, alcance do EIXO; < 0 = sem eco)
     float omega = 0.0f, rumoAnt = rumo;
     const unsigned long inicio = c.agoraMs();
     for (int t = 0; c.agoraMs() - inicio < 4000; t++) {
@@ -1468,11 +1468,37 @@ struct Firmware {
       rumoAnt = rumo;
       const double phi = -(rumo - rumo0);
       if (phi + omega * -1.0 * gFis.tauMs / 1000.0 >= 36.0) break;   // omega < 0 girando para a direita: -omega x tau = quanto ainda gira
-      if (t % 6 == 0) { const double e = c.us(); const double r = e > 0.0 ? e + 100.0 : -1.0; amostras.push_back({phi, r > 0.0 && fabs(r * cos(phi * kRad) - r0) < 30.0}); }
+      if (t % 6 == 0) { const double e = c.us(); bruto.push_back({phi, e > 0.0 ? e + 100.0 : -1.0}); }
     }
     c.parar();
     for (int i = 0; i < 80 && fabsf(omega) > 2.0f; i++) { tick(c); omega = (rumo - rumoAnt) / static_cast<float>(gFis.dtMs / 1000.0); rumoAnt = rumo; }
-    girarPara(c, rumo0);
+    // a face pode estar inclinada (o rumo estimado deriva): r(phi) = d / cos(phi - delta). Ajusta delta (inclinacao) e d (distancia ao longo da normal) com os ecos perto de r0
+    // (o resto e parede de fundo ou plataforma vizinha); com delta o y sai certo e o rumo se reancora na face (que e sempre perpendicular a um dos eixos).
+    auto normal = [&](double phi, double dl) { return cos((phi - dl) * kRad); };
+    double delta = 0.0, d = r0, melhor = 1e18;
+    for (double dl = -40.0; dl <= 40.0; dl += 0.5) {
+      std::vector<double> ds;
+      for (const auto& b : bruto) if (b.second > 0.0 && b.second < r0 * 1.6 && fabs(b.first - dl) < 50.0) ds.push_back(b.second * normal(b.first, dl));
+      if (ds.size() < 5) continue;
+      std::sort(ds.begin(), ds.end());
+      const double dm = ds[ds.size() / 2];
+      double custo = 0.0;   // erro limitado: ecos fora da face (vizinhas, fundo) custam o mesmo, nao dominam
+      for (const auto& b : bruto) if (b.second > 0.0 && fabs(b.first - dl) < 50.0) custo += std::min(fabs(b.second * normal(b.first, dl) - dm), 30.0);
+      if (custo < melhor) { melhor = custo; delta = dl; d = dm; }
+    }
+    std::vector<std::pair<double, bool>> amostras;   // (phi relativo a normal da face, ha eco da face)
+    for (const auto& b : bruto) amostras.push_back({b.first - delta, b.second > 0.0 && fabs(b.second * normal(b.first, delta) - d) < 30.0});
+    // O ajuste tem vies de ate ~8 graus quando o rumo esta certo (o cone e os 3 raios do ultrassom achatam o perfil perto da normal); o rumo que derivou de verdade passa disso
+    // (22 graus numa partida com ruido). Abaixo da zona morta nao mexe: o y e o rumo seguem como antes.
+    constexpr double kZonaMortaInclinacao = 10.0;
+    if (fabs(delta) <= kZonaMortaInclinacao) { delta = 0.0; d = r0; }
+    if (fabs(delta) > kZonaMortaInclinacao) {   // reancora o rumo: a normal da face esta em phi = delta, ou seja, no rumo estimado rumo0 - delta, que deveria ser o eixo mais proximo
+      const float nominal = 90.0f * roundf((rumo0 - static_cast<float>(delta)) / 90.0f);
+      if (getenv("SIM_DEBUG")) fprintf(stderr, "    GIRO-Y: face inclinada %.1f graus (d %.0f, antes r0 %.0f): rumo reancorado %.1f -> %.1f (real th %.1f)\n", delta, d, r0, rumo, rumo + (nominal - (rumo0 - static_cast<float>(delta))), c.estado().th * 57.29578);
+      rumo += nominal - (rumo0 - static_cast<float>(delta));
+      girarPara(c, nominal);
+    } else girarPara(c, rumo0);
+    const double r0f = d;   // distancia do eixo a face pela normal
     // o trecho CONTIGUO com eco que passa pelo 0 e a plataforma (as vizinhas ficam a 130 mm e aparecem como outros trechos)
     int i0 = -1;
     for (size_t i = 0; i < amostras.size(); i++) if (amostras[i].second && (i0 < 0 || fabs(amostras[i].first) < fabs(amostras[i0].first))) i0 = static_cast<int>(i);
@@ -1484,14 +1510,14 @@ struct Firmware {
     const double phiI = amostras[lo].first, phiJ = amostras[hi].first;
     constexpr double kCone = 10.0, kSensorMm = 100.0;   // meio angulo do cone e distancia do sensor ao eixo (o cone sai da ponta, nao do eixo)
     // borda da plataforma (deslocamento lateral em relacao ao eixo) vista quando a ponta do cone, saindo do sensor, a toca
-    auto borda = [&](double phi, double cone) { return kSensorMm * sin(phi * kRad) + (r0 - kSensorMm * cos(phi * kRad)) * tan((phi + cone) * kRad); };
+    auto borda = [&](double phi, double cone) { return kSensorMm * sin(phi * kRad) + (r0f - kSensorMm * cos(phi * kRad)) * tan((phi + cone) * kRad); };
     double lateral;   // deslocamento do centro da plataforma em relacao ao eixo (+ = norte)
     if (hi - lo < 1) return yPlataforma;
     if (bordaSul && bordaNorte) lateral = (borda(phiI, kCone) + borda(phiJ, -kCone)) / 2.0;   // as duas bordas a vista: o meio
     else if (bordaSul) lateral = borda(phiI, kCone) + kPlatY_Tam / 2.0;                       // so a borda do sul: o centro fica meia plataforma acima
     else if (bordaNorte) lateral = borda(phiJ, -kCone) - kPlatY_Tam / 2.0;                    // so a borda do norte
     else return yPlataforma;                                                                  // enche a varredura toda: sem borda para medir
-    const double phiMeio = atan2(lateral, r0) / kRad;
+    const double phiMeio = atan2(lateral, r0f) / kRad;
     if (getenv("SIM_DEBUG")) fprintf(stderr, "    GIRO-Y: n=%d phiMeio %.1f r0 %.0f -> y %.0f | y real %.0f (plataforma %.0f)\n", hi - lo + 1, phiMeio, r0, yPlataforma - lateral, c.estado().y, yPlataforma);
     return yPlataforma - lateral;
   }
