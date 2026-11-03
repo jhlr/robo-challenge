@@ -48,3 +48,19 @@ Conclusao: o tempo parado nos cruzamentos NAO e o gargalo (o total quase nao mud
 Causa de uma das falhas com ruido (semente 0): o rumo estimado derivou ~22 graus (solavanco + vies do giroscopio), o carro chegou torto na plataforma e `yPeloGiro` (que assume a face perpendicular) errou o y em 54 mm; reentrou fora da rua e ficou ~180 s perdido. O perfil de alcance da varredura (116 a 172 mm) entregava a inclinacao: `r(phi) = d / cos(phi - delta)`.
 `yPeloGiro` agora ajusta `delta` e `d` na propria varredura; se `|delta|` passa de 10 graus (zona morta: o ajuste tem vies de ate ~8 graus com o rumo certo, por causa do cone e dos 3 raios do `us()`), reancora o rumo na face (multiplo de 90), gira para ela e mede o y no referencial da face.
 Resultado: sem ruido `--lote 30` 28/30 -> 29/30 (199 s contra 212 s); com ruido `--lote-ruido 30` ficou em 10/30 (sem ganho: o gargalo com ruido e outro, o carro perdido por outras causas). Um modelo do cone dentro do ajuste foi tentado e piorou (7/30): era sobreajuste aos 3 raios do simulador.
+
+## Sem MPU: rumo pelos encoders e giro pela linha (2026-11-03, noite)
+O MPU foi retirado do carro. O simulador ganhou `rumoenc=1` (o rumo vem de `(dD - dE) / bitola`, dos encoders das rodas, e a bitola que o firmware supoe e `bitolaaj=`) e o giro de rua fechado na linha (`girarNaLinha`, so com `rumoenc=1`).
+O giro na linha: o eixo avanca 17,5 mm (pivota no centro do cruzamento; as pontas apagam com o eixo ~17,5 mm antes dele), gira direto pela faixa em que os sensores do centro veem a rua nova (+-24 graus em volta da direcao dela), marca o angulo contado na entrada e na saida, volta ao MEIO e o rumo vira o multiplo de 90 certo. Erro de giro real medido: 1 a 4 graus mesmo com a bitola errada.
+
+| rumo | `--lote 30` sem ruido |
+|---|---|
+| giroscopio | 30/30, 178 s |
+| encoders, giro so por angulo, bitola efetiva exata (187,5) | 28/30, 219 s |
+| encoders + giro na linha, bitola 187,5 | 28/30, 200 s |
+| encoders + giro na linha, bitola 180 ou 195 (+-4%) | 0 e 1 de 30 |
+| encoders + giro na linha, bitola 140 ou 150 | 0/30 |
+
+A bitola efetiva e a real dividida pela derrapagem (150 / 0,8 = 187,5), nao a medida com a trena. Ainda sensivel a +-4%: o que sobra e o resto que usa o angulo contado (giros no verde, varredura de y na plataforma, varredura das ruas), nao os giros de rua.
+`autocal=1` corrige a bitola a cada giro (a razao contado/pedido), mas o meio da faixa tem ~5% de vies e a corrige para cima: com a bitola ja certa cai de 28/30 para 15/30; com ela errada sobe de 0 para 5 a 7 de 30. Fica desligada.
+Proximo passo: tornar o resto do codigo menos dependente do angulo (varredura de ruas por faixa, nao por angulo) e medir a bitola efetiva no carro de verdade (girar 360 graus pelo encoder e ver o quanto o carro girou).

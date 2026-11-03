@@ -125,6 +125,7 @@ struct ParamsFisicos {
 Ajustes gAjustes;   // os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
 bool gSo_Placar = false;
 double gGestoGraus = 45.0;   // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado e volta reto, em vez da varredura de 90 graus (0 = desliga e usa a varredura de antes, < 0 = passa direto sem girar)
+static bool gAutoCalBitola = false;   // param autocal=1: cada giro na linha corrige a bitola efetiva (o meio da faixa tem ~5% de vies: piora o caso ja calibrado)
 static bool gRumoPeloEncoder = false;   // param rumoenc=1: sem MPU, o rumo vem dos encoders das rodas
 ParamsFisicos gFis;   // os cenarios usam este; da para mudar na linha de comando (veja main)
 
@@ -1080,7 +1081,10 @@ struct Firmware {
   }
 
   // Gira no eixo ate o angulo ESTIMADO (por tempo) chegar em alvo (espelho de girarAte do .ino). Guarda tambem o angulo VERDADEIRO de cada amostra.
-  float girarAte(Carro& c, float agora, float alvo, std::vector<AmostraGiro>& est, std::vector<AmostraGiro>& ver, double thRef, float rumoRef = 0.0f) {
+  // pelaLinha (so sem MPU, rumoenc=1): o giro de rua fecha na LINHA, nao no angulo (girarNaLinha).
+  float girarAte(Carro& c, float agora, float alvo, std::vector<AmostraGiro>& est, std::vector<AmostraGiro>& ver, double thRef, float rumoRef = 0.0f, bool pelaLinha = false) {
+    const bool fechaNaLinha = pelaLinha && gRumoPeloEncoder;
+    if (fechaNaLinha) return girarNaLinha(c, agora, alvo, est, ver, thRef, rumoRef);
     const bool esq = alvo > agora;
     const int v = ajustes.velBuscaExterna;
     c.comandar(esq ? -v : v, esq ? v : -v);
@@ -1105,6 +1109,50 @@ struct Firmware {
       for (int i = 0; i < 80 && fabsf(omega) > 2.0f; i++) { tick(c); omega = (rumo - rumoAnt) / static_cast<float>(gFis.dtMs / 1000.0); rumoAnt = rumo; agora = rumo - rumoRef; }
     }
     return agora;
+  }
+
+  // Giro de rua sem MPU. A barra gira em torno do eixo a ~30 mm dele, entao os sensores do centro veem a rua nova numa FAIXA de +-24 graus em volta da direcao dela: parar na primeira vez
+  // que a veem deixa o carro de ate 24 graus de lado. Gira DIRETO pela faixa (marca o angulo contado pelos encoders na entrada e na saida), para, volta ao MEIO dela e so ai o rumo vira
+  // o multiplo de 90 certo da grade (o erro do angulo dos encoders so conta na meia faixa, ~2 graus, e nao se acumula de um giro para o outro).
+  float girarNaLinha(Carro& c, float agora, float alvo, std::vector<AmostraGiro>& est, std::vector<AmostraGiro>& ver, double thRef, float rumoRef) {
+    const bool esq = alvo > agora;
+    const int v = ajustes.velBuscaExterna;
+    c.comandar(esq ? -v : v, esq ? v : -v);
+    const unsigned long inicio = c.agoraMs();
+    float omega = 0.0f, rumoAnt = rumo, aEntrada = 0.0f, aSaida = 0.0f;
+    bool dentro = false, saiu = false;
+    while (c.agoraMs() - inicio < 4000) {
+      tick(c);
+      bool p[kSensores];
+      c.ler(p);
+      omega = (rumo - rumoAnt) / static_cast<float>(gFis.dtMs / 1000.0);
+      rumoAnt = rumo;
+      agora = rumo - rumoRef;
+      est.push_back({agora, p[0], p[7], acesos(p)});
+      ver.push_back({static_cast<float>((c.estado().th - thRef) * 180.0 / M_PI), p[0], p[7], acesos(p)});
+      if (fabsf(agora) < 0.5f * fabsf(alvo)) continue;   // ainda saindo da rua de onde veio
+      const bool centro = p[3] && p[4];
+      if (!dentro && centro) { dentro = true; aEntrada = agora; }
+      else if (dentro && !centro) { aSaida = agora; saiu = true; break; }
+      if (fabsf(agora) > fabsf(alvo) + 60.0f) break;     // passou do giro e nao viu rua: desiste
+    }
+    c.parar();
+    for (int i = 0; i < 80 && fabsf(omega) > 2.0f; i++) { tick(c); omega = (rumo - rumoAnt) / static_cast<float>(gFis.dtMs / 1000.0); rumoAnt = rumo; agora = rumo - rumoRef; }
+    if (!saiu) return agora;   // sem rua vista: fica com o angulo dos encoders
+    const float meio = (aEntrada + aSaida) / 2.0f;
+    std::vector<AmostraGiro> e2, v2;
+    if (fabsf(meio - agora) >= 2.0f) girarAte(c, 0.0f, meio - agora, e2, v2, c.estado().th, rumo);   // volta ao meio da faixa (sem fechar na linha de novo)
+    // Cada giro de rua e uma medida da bitola efetiva: a rua esta a |alvo| graus de verdade e os encoders contaram |meio|. A derrapagem (e a bitola real) mudam com o piso, entao a bitola
+    // que converte diferenca de rodas em graus se corrige sozinha, giro a giro (media movel: o meio da faixa tem ~3 graus de ruido).
+    if (gAutoCalBitola && fabsf(alvo) >= 80.0f) {
+      const float razao = std::min(1.4f, std::max(0.7f, fabsf(meio) / fabsf(alvo)));
+      ajustes.bitolaMm *= 1.0f + 0.5f * (razao - 1.0f);
+      if (getenv("SIM_DEBUG")) fprintf(stderr, "    BITOLA-EFETIVA: contou %.1f para %.0f -> %.1f mm\n", meio, alvo, ajustes.bitolaMm);
+    }
+    const float depois = 90.0f * roundf(rumoRef / 90.0f) + 90.0f * roundf(alvo / 90.0f);
+    if (getenv("SIM_DEBUG")) fprintf(stderr, "    GIRO-LINHA: faixa %.1f..%.1f (meio %.1f) pedido %.0f, real %.1f: rumo %.1f -> %.0f\n", aEntrada, aSaida, meio, alvo, (c.estado().th - thRef) * 180.0 / M_PI, rumo, depois);
+    rumo = depois;
+    return rumo - rumoRef;
   }
 
   void pararNoCruzamento(Carro& c, bool preto[kSensores]) {
@@ -1291,7 +1339,7 @@ struct Firmware {
       }
       medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a 400 mm
       if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
-      else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
+      else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo, true); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
       if ((a == 'L' || a == 'R') && !nav.loc.inGreen) olharAdiante(c, a == 'L' ? 1 : -1);
       usAnt = -1.0f; ecoLembradoMm = -1.0f; ecoRealinhado = false; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
       tSaidaMs = c.agoraMs(); odoSaida = c.odoMm();                          // daqui em diante conta o caminho andado na rua nova
@@ -1325,8 +1373,11 @@ struct Firmware {
       if (!p[0] && !p[7]) break;
     }
     c.parar();
+    // Sem MPU o giro fecha na linha (girarNaLinha) e isso so da certo se o eixo gira no CENTRO do cruzamento: as pontas apagam com a barra (30 mm a frente) ~12,5 mm alem do centro, ou seja,
+    // com o eixo ~17,5 mm antes dele. Anda esses mm (odometro) para a rua nova ficar centrada no eixo e a faixa dela ser simetrica.
+    if (gRumoPeloEncoder) andarMm(c, 17.5, [] { return false; });
     std::vector<AmostraGiro> est, ver;
-    girarAte(c, 0.0f, esquerda ? 90.0f : -90.0f, est, ver, c.estado().th, rumo);
+    girarAte(c, 0.0f, esquerda ? 90.0f : -90.0f, est, ver, c.estado().th, rumo, true);
     esquecerUltimoComando(memoria);
     memoria.perdeuEm = 0;
   }
@@ -3241,6 +3292,7 @@ int main(int argc, char** argv) {
     else if (k == "derrap") gFis.derrapagem = v;
     else if (k == "cap") gCapacidade = static_cast<int>(v);
     else if (k == "rumoenc") gRumoPeloEncoder = v != 0.0;
+    else if (k == "autocal") gAutoCalBitola = v != 0.0;
     else if (k == "encoder") { gFis.encoder = v != 0.0; if (gFis.encoder) { gFis.zonaMortaPwm = 0; gAjustes.zonaMortaPwm = 0; } }   // STS3215: sem zona morta, malha fechada
     else if (k == "escalaodo") gFis.escalaOdo = v;
     else if (k == "gesto") gGestoGraus = v;
