@@ -2710,6 +2710,31 @@ static Resultado cenarioMissao(bool ruido, int meta) {
               fim ? "entregou a meta" : "NAO entregou a meta", c.agoraMs() / 1000.0, fw.nav.pontos, fw.nav.coletados, fw.nav.entregues, fw.nav.brancosIdentificados, fw.nav.bloqueios, fw.cruzamentos, fw.falsosAlarmes, fw.nav.reposicoes, visitados, visitadosLeste, fw.ajC.velMmS, fw.amostrasVel, c.velNominalMmS(fw.ajustes.velReto), fw.semVarreduras, fw.nav.ecosLongeVistos, m.pegosPeloOponente, m.colisoesOponente)};
 }
 
+// Mede a bitola EFETIVA (a que converte diferenca de rodas em graus, ja com a derrapagem): com o eixo sobre o centro de um cruzamento, gira mais de uma volta e anota a diferenca de
+// percurso das rodas (encoder) a cada vez que os sensores do centro veem uma rua (4 por volta). O MESMO braco visto duas vezes (5 ruas depois) e exatamente 360 graus, e o erro de o eixo
+// nao estar no centro (cada braco desloca o meio da faixa) se cancela. bitola efetiva = diferenca / 2 pi. Devolve < 0 se nao viu 5 ruas.
+static double medirBitolaEfetiva(Carro& c, int velPwm, double* graus360Mm = nullptr) {
+  c.comandar(-velPwm, velPwm);   // anti-horario
+  std::vector<double> meios;
+  bool dentro = false;
+  double entrada = 0.0;
+  const unsigned long inicio = c.agoraMs();
+  while (c.agoraMs() - inicio < 30000 && meios.size() < 6) {
+    c.avancar();
+    bool p[kSensores];
+    c.ler(p);
+    const double dif = c.odoDMm() - c.odoEMm();   // mm de giro acumulados (o encoder le o eixo da roda)
+    const bool centro = p[3] && p[4];
+    if (!dentro && centro) { dentro = true; entrada = dif; }
+    else if (dentro && !centro) { dentro = false; meios.push_back((entrada + dif) / 2.0); }
+  }
+  c.parar();
+  if (meios.size() < 5) return -1.0;
+  const double volta = meios[4] - meios[0];   // mesmo braco, uma volta depois
+  if (graus360Mm) *graus360Mm = volta;
+  return volta / (2.0 * M_PI);
+}
+
 // Coleta de N cubos entregaveis (cores que tem plataforma: azul, vermelho, amarelo, preto), sem ruido e sem oponente, com o teto de 12 min da regra. Devolve o instante de cada
 // entrega (s); entregas.size() < n se o tempo acabou antes.
 static std::vector<double> coletaDeN(int n, unsigned long semente) {
@@ -3253,6 +3278,15 @@ int main(int argc, char** argv) {
     if (!eq) {
       if (!strcmp(argv[i], "-q")) gSo_Placar = true;
       else if (!strcmp(argv[i], "--servir")) servirAoVivo = true;
+      else if (!strcmp(argv[i], "--bitola")) {   // mede a bitola efetiva no centro de um cruzamento, com o eixo deslocado de 0 a 8 mm (erro de posicionar o carro)
+        for (const double off : {0.0, 3.0, 6.0, 8.0}) {
+          Pista pista = tabuleiro();
+          Carro c(pista, {xDoCruzamento(1) + off, yDoCruzamento(1) - off * 0.5, 0.3}, gFis);
+          const double b = medirBitolaEfetiva(c, gAjustes.velBuscaExterna);
+          printf("eixo %.0f mm fora do centro: bitola efetiva medida %.1f mm (verdadeira %.1f = %.0f / %.2f)\n", off, b, gFis.bitolaMm / gFis.derrapagem, gFis.bitolaMm, gFis.derrapagem);
+        }
+        return 0;
+      }
       else if (!strcmp(argv[i], "--coleta")) {   // --coleta N [sementes]: tempo para entregar N cubos (sem ruido), uma linha por semente
         const int n = i + 1 < argc ? atoi(argv[i + 1]) : 18;
         const int sementes = i + 2 < argc ? atoi(argv[i + 2]) : 5;
