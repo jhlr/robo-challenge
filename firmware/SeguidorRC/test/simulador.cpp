@@ -125,6 +125,7 @@ struct ParamsFisicos {
 Ajustes gAjustes;   // os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
 bool gSo_Placar = false;
 double gGestoGraus = 45.0;   // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado e volta reto, em vez da varredura de 90 graus (0 = desliga e usa a varredura de antes, < 0 = passa direto sem girar)
+static bool gRumoPeloEncoder = false;   // param rumoenc=1: sem MPU, o rumo vem dos encoders das rodas
 ParamsFisicos gFis;   // os cenarios usam este; da para mudar na linha de comando (veja main)
 
 struct Estado { double x, y, th; };   // eixo (mm), rumo (rad, 0 = +x, anti-horario)
@@ -472,6 +473,8 @@ class Carro {
   }
 
   // Compensacao dos motores (aumenta a forca do lado fraco), como definirCompensacao() da ponte H real: multiplica o PWM e limita em 255.
+  double odoEMm() const { return odoE_; }
+  double odoDMm() const { return odoD_; }
   double odoMm() const { return (odoE_ + odoD_) / 2.0; }   // percurso medio das rodas desde o inicio (mm, com sinal; quem mede usa diferencas)
   void compensar(double esq, double dir) { gE_ = esq; gD_ = dir; }
   static int comGanho(int pwm, double g) { const double v = pwm * g; return static_cast<int>(v > 255 ? 255 : v < -255 ? -255 : v); }
@@ -1026,6 +1029,7 @@ struct Firmware {
     aplicarCompensacao(c);
     if (c.mundo()) c.mundo()->evento(c.agoraMs(), fmt("ASSIMETRIA dos motores (giroscopio em reta): esquerda x%.3f, direita x%.3f", assimMpu.ganhoEsq, assimMpu.ganhoDir));
   }
+  double odoEAnt = 0.0, odoDAnt = 0.0;   // odometros das rodas no ciclo anterior (rumo pelo encoder)
   float rumo = 0.0f, vies = 0.0f;   // rumo em graus (+ esquerda, 0 = de frente); vies em rad/s (estimado parado no inicio)
   Imu ultimoImu = {0, 0, 0, 1};
   unsigned long ultimoMsImu = 0;
@@ -1044,6 +1048,7 @@ struct Firmware {
     for (int i = 0; i < 200; i++) { c.avancar(); soma += c.imu().gzRadS; }
     vies = soma / 200.0f;
     ultimoMsImu = c.agoraMs();
+    odoEAnt = c.odoEMm(); odoDAnt = c.odoDMm();
     ajustes.lacunaMs = 450;
   }
 
@@ -1055,7 +1060,13 @@ struct Firmware {
     if (!usaImu) { if (ceder) ceder(); return; }
     ultimoImu = c.imu();
     const unsigned long agora = c.agoraMs();
-    rumo += (ultimoImu.gzRadS - vies) * kRadParaGrau * static_cast<float>(agora - ultimoMsImu) / 1000.0f;
+    if (gRumoPeloEncoder) {   // sem MPU: o giro vem da diferenca dos percursos das duas rodas (encoder do eixo, nao ve patinagem), + = esquerda
+      const double dE = c.odoEMm() - odoEAnt, dD = c.odoDMm() - odoDAnt;
+      odoEAnt = c.odoEMm(); odoDAnt = c.odoDMm();
+      rumo += static_cast<float>((dD - dE) / ajustes.bitolaMm * 180.0 / M_PI);   // a bitola que o FIRMWARE supoe (a real pode diferir)
+    } else {
+      rumo += (ultimoImu.gzRadS - vies) * kRadParaGrau * static_cast<float>(agora - ultimoMsImu) / 1000.0f;
+    }
     ultimoMsImu = agora;
     if (ceder) ceder();
   }
@@ -3229,10 +3240,12 @@ int main(int argc, char** argv) {
     if (k == "tau") gFis.tauMs = v;
     else if (k == "derrap") gFis.derrapagem = v;
     else if (k == "cap") gCapacidade = static_cast<int>(v);
+    else if (k == "rumoenc") gRumoPeloEncoder = v != 0.0;
     else if (k == "encoder") { gFis.encoder = v != 0.0; if (gFis.encoder) { gFis.zonaMortaPwm = 0; gAjustes.zonaMortaPwm = 0; } }   // STS3215: sem zona morta, malha fechada
     else if (k == "escalaodo") gFis.escalaOdo = v;
     else if (k == "gesto") gGestoGraus = v;
     else if (k == "bitola") gFis.bitolaMm = v;
+    else if (k == "bitolaaj") gAjustes.bitolaMm = v;   // a bitola que o FIRMWARE supoe (padrao 140; a real do simulador e 150)
     else if (k == "zona") { gFis.zonaMortaPwm = v; gAjustes.zonaMortaPwm = static_cast<int>(v); }   // zona CALIBRADA: a decisao sabe
     else if (k == "zonaaj") gAjustes.zonaMortaPwm = static_cast<int>(v);   // so a decisao (calibracao errada)
     else if (k == "ganho") gFis.mmSPorPwm = v;
