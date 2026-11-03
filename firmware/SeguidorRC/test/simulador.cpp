@@ -984,6 +984,7 @@ struct Firmware {
   unsigned long semReacaoAte = 0;
   // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 400 mm.
   unsigned long tSaidaMs = 0;
+  double minMovMm() const { return gFis.encoder ? 4.0 : 20.0; }   // menor deslocamento que vale a pena andar para corrigir o y (sem encoder a partida come ~20 mm)
   double odoSaida = 0.0, odoAnt = 0.0;   // odometro (mm) ao sair do cruzamento / no ciclo anterior
   // Quanto o carro andou desde que saiu do cruzamento. Com encoder e a leitura das rodas; sem, tempo x velocidade (que erra com partida, correcao e parada).
   double andadoDesdeSaida(const Carro& c, unsigned long agora) const {
@@ -1071,10 +1072,15 @@ struct Firmware {
     const int v = ajustes.velBuscaExterna;
     c.comandar(esq ? -v : v, esq ? v : -v);
     const unsigned long inicio = c.agoraMs();
-    while ((esq ? agora < alvo : agora > alvo) && c.agoraMs() - inicio < 3000) {
+    float omega = 0.0f, rumoAnt = rumo;   // graus/s pelo giroscopio
+    // com encoder (servo em malha fechada, sem zona morta) a roda leva ~tauMs para parar: o giro que ainda sobra na freada (omega x tau, ~4 graus) fazia o rumo real errar o alvo
+    auto previsto = [&] { return gFis.encoder ? agora + omega * static_cast<float>(gFis.tauMs) / 1000.0f : agora; };
+    while ((esq ? previsto() < alvo : previsto() > alvo) && c.agoraMs() - inicio < 3000) {
       tick(c);
       bool p[kSensores];
       c.ler(p);
+      omega = (rumo - rumoAnt) / static_cast<float>(gFis.dtMs / 1000.0);
+      rumoAnt = rumo;
       if (usaImu) agora = rumo - rumoRef;   // angulo pelo giroscopio
       else agora += (esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;   // angulo estimado por tempo
       const float verdade = static_cast<float>((c.estado().th - thRef) * 180.0 / M_PI);
@@ -1082,6 +1088,9 @@ struct Firmware {
       ver.push_back({verdade, p[0], p[7], acesos(p)});
     }
     c.parar();
+    if (gFis.encoder && usaImu) {   // espera parar de girar: o que sobra entra na estimativa
+      for (int i = 0; i < 80 && fabsf(omega) > 2.0f; i++) { tick(c); omega = (rumo - rumoAnt) / static_cast<float>(gFis.dtMs / 1000.0); rumoAnt = rumo; agora = rumo - rumoRef; }
+    }
     return agora;
   }
 
@@ -1449,8 +1458,18 @@ struct Firmware {
     while (i0 > 0 && tem[i0 - 1]) i0--;
     while (j0 + 1 < static_cast<int>(tem.size()) && tem[j0 + 1]) j0++;
     const int n = j0 - i0 + 1;
-    if (n < 2 || i0 == 0 || j0 + 1 == static_cast<int>(tem.size())) return yPlataforma;   // trecho colado no limite da varredura: o meio nao esta visivel
-    const double phiMeio = (-36.0 + 4.0 * i0 + -36.0 + 4.0 * j0) / 2.0;   // meio do trecho
+    const int total = static_cast<int>(tem.size());
+    const double phiI = -36.0 + 4.0 * i0, phiJ = -36.0 + 4.0 * j0;
+    constexpr double kCone = 10.0, kSensorMm = 100.0;   // meio angulo do cone e distancia do sensor ao eixo (o cone sai da ponta, nao do eixo)
+    // borda da plataforma (deslocamento lateral em relacao ao eixo) vista quando a ponta do cone, saindo do sensor, a toca
+    auto borda = [&](double phi, double cone) { return kSensorMm * sin(phi * kRad) + (r0 - kSensorMm * cos(phi * kRad)) * tan((phi + cone) * kRad); };
+    double lateral;   // deslocamento do centro da plataforma em relacao ao eixo (+ = norte)
+    if (n < 2) return yPlataforma;
+    if (i0 > 0 && j0 + 1 < total) lateral = (borda(phiI, kCone) + borda(phiJ, -kCone)) / 2.0;   // as duas bordas a vista: o meio
+    else if (i0 > 0) lateral = borda(phiI, kCone) + kPlatY_Tam / 2.0;                           // so a borda do sul: o centro fica meia plataforma acima
+    else if (j0 + 1 < total) lateral = borda(phiJ, -kCone) - kPlatY_Tam / 2.0;                  // so a borda do norte
+    else return yPlataforma;                                                                    // enche a varredura toda: sem borda para medir
+    const double phiMeio = atan2(lateral, r0) / kRad;
     if (getenv("SIM_DEBUG")) fprintf(stderr, "    GIRO-Y: n=%d phiMeio %.1f r0 %.0f -> y %.0f | y real %.0f (plataforma %.0f)\n", n, phiMeio, r0, yPlataforma - r0 * tan(phiMeio * kRad), c.estado().y, yPlataforma);
     return yPlataforma - r0 * tan(phiMeio * kRad);
   }
@@ -1511,7 +1530,7 @@ struct Firmware {
         vista = c.plataformaNaFrente(70.0);
         deFrente = vista != seguidor::CorCubo::Nenhuma;
       } else {
-        if (fabs(dy) > 20.0) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
+        if (fabs(dy) > minMovMm()) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
         yAtual = yt;
         nav.yOlhados.push_back(yt);
         vista = olharSlotOeste(c, true);
@@ -1560,7 +1579,7 @@ struct Firmware {
       // da plataforma ja encaixado na grade e a velocidade medida na subida, 40 mm passava do ponto: ele entrava ~40 mm abaixo da rua (fora da barra de 75 mm) e seguia a faixa azul
       // como rua. 29/30 sementes na meta contra 27/30; 60 sementes: 57 contra 54.
       const double dyAbs = fabs(yAlvo - yAtual);
-      if (dyAbs > 20.0) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, dyAbs + (gFis.encoder ? 0.0 : std::max(0.0, 20.0 - dyAbs / 10.0)), [] { return false; }); }   // com encoder nao ha partida a compensar
+      if (dyAbs > minMovMm()) { girarPara(c, yAlvo > yAtual ? 90.0 : -90.0); andarMm(c, dyAbs + (gFis.encoder ? 0.0 : std::max(0.0, 20.0 - dyAbs / 10.0)), [] { return false; }); }   // com encoder nao ha partida a compensar
     }
     girarPara(c, 0.0);
     core::initInGreen(nav.loc);
@@ -1614,7 +1633,7 @@ struct Firmware {
       }
       yAtual = kAlt - 40.0;   // com a barra na borda da faixa vermelha, o eixo esta ~40 mm abaixo dela
     }
-    if (fabs(kAlt / 2.0 - yAtual) > 20.0) {
+    if (fabs(kAlt / 2.0 - yAtual) > minMovMm()) {
       girarPara(c, kAlt / 2.0 > yAtual ? 90.0 : -90.0);
       andarMm(c, fabs(kAlt / 2.0 - yAtual), [] { return false; });
       yAtual = kAlt / 2.0;
@@ -1633,7 +1652,7 @@ struct Firmware {
       // 3) vai ate a altura ESPERADA da plataforma (os slots sao retangulos fixos na arena; a cor e que muda), 4) vira para o oeste e olha; como a conta de distancia por tempo
       //    erra algumas dezenas de mm e a plataforma tem so 50 mm de altura, 5) varre para cima e para baixo de 60 em 60 mm ate ver a plataforma da cor do cubo.
       const double dy = pl->y - yAtual;
-      if (fabs(dy) > 20.0) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
+      if (fabs(dy) > minMovMm()) { girarPara(c, dy > 0 ? 90.0 : -90.0); andarMm(c, fabs(dy), [] { return false; }); }
       yAtual = pl->y;
       girarPara(c, 180.0);
       auto achou = [&] {
