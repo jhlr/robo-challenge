@@ -15,7 +15,7 @@ constexpr int kStsTx = 17;
 #endif
 
 // One I2C bus, behind a PCA9548 8-channel multiplexer (params::kMux*): front RGB, floor RGB and the IMU. The two TCS34725 share address 0x29, hence the mux.
-constexpr int kI2cSda = 21;
+constexpr int kI2cSda = 22;
 constexpr int kI2cScl = 23;
 
 constexpr int kTrig = 18;
