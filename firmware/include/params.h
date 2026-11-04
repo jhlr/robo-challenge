@@ -41,7 +41,7 @@ constexpr float kDcFullSpeedMmS = 400.0f;
 constexpr float kSoundMmPerUs = 0.343f;
 
 // Geometry (mm). Wheel 66 mm; kTrackMm and kGearRatio (centre gear -> wheel gear, looked 1:1 in the photos) still to measure.
-constexpr float kWheelDiaMm = 66.0f;
+constexpr float kWheelDiaMm = 210.0f / 3.14159265f;  // 66,85 mm: circunferencia medida de 21 cm
 constexpr float kTrackMm = 100.0f;
 constexpr float kGearRatio = 1.0f;  // servo revs per wheel rev
 constexpr float kAxleToSensorMm = 60.0f;  // QRE8D ahead of the wheel axle
