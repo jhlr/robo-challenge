@@ -1,4 +1,4 @@
-// Bench test: HC-SR04, front RGB (Wire) and floor RGB (Wire1) streamed at 5 Hz. A sensor that failed to start is retried every line, so a loose wire can be fixed while watching.
+// Bench test: HC-SR04, floor RGB (Wire) and front RGB (Wire1) streamed at 5 Hz. A sensor that failed to start is retried every line, so a loose wire can be fixed while watching.
 // Boot also scans each I2C bus raw to show what is really answering (each TCS34725 should show 0x29 on its own bus). Send any key to rescan.
 #include <Arduino.h>
 #include <Wire.h>
@@ -25,8 +25,8 @@ void scanBus(TwoWire& bus, const char* name, int sda, int scl) {
 
 void scanAll() {
   Serial.println(F("--- scan I2C ---"));
-  scanBus(Wire, "Wire  (frente)", pins::kI2cSda, pins::kI2cScl);
-  if (pins::kI2c2Sda >= 0) scanBus(Wire1, "Wire1 (chao)  ", pins::kI2c2Sda, pins::kI2c2Scl);
+  scanBus(Wire, "Wire  (chao)  ", pins::kI2cSda, pins::kI2cScl);
+  if (pins::kI2c2Sda >= 0) scanBus(Wire1, "Wire1 (frente)", pins::kI2c2Sda, pins::kI2c2Scl);
   Serial.println(F("----------------"));
 }
 
@@ -70,8 +70,8 @@ void loop() {
   }
   const uint16_t mm = sonar.readMm();
   if (mm == 0xFFFF) Serial.print(F("sonar: sem eco")); else Serial.printf("sonar: %u mm", mm);
-  printColor("frente", frontColor, frontOk, Wire);
-  if (pins::kI2c2Sda >= 0) printColor("chao", floorColor, floorOk, Wire1);
+  printColor("chao", floorColor, floorOk, Wire);
+  if (pins::kI2c2Sda >= 0) printColor("frente", frontColor, frontOk, Wire1);
   Serial.println();
   delay(200);
 }

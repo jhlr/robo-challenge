@@ -2,7 +2,6 @@
 #include <Arduino.h>
 #include <Adafruit_TCS34725.h>
 #include <ESP32Servo.h>
-#include <NewPing.h>
 #include <Wire.h>
 
 #include "core/color.h"
@@ -16,12 +15,11 @@ class LineArray {  // QRE8D: 8 digital outputs
   void read(float* out);  // 1.0 = sees the line, 0.0 = floor
 };
 
-class Ultrasonic {  // HC-SR04 through the NewPing library
+// HC-SR04: a 10 us pulse on TRIG, then ECHO stays HIGH for the sound's round trip. distance = echo time x speed of sound / 2 (params::kSoundMmPerUs).
+class Ultrasonic {
  public:
-  void begin() {}
-  uint16_t readMm(uint32_t timeoutUs = 25000);  // 0xFFFF = no echo. Blocks up to timeoutUs.
- private:
-  NewPing sonar_{pins::kTrig, pins::kEcho, 400};
+  void begin();                                 // TRIG as an output idling LOW, ECHO as an input
+  uint16_t readMm(uint32_t timeoutUs = 25000);  // 0xFFFF = no echo. Blocks up to timeoutUs (25 ms is ~4.3 m one way).
 };
 
 struct ColorSample { uint16_t r, g, b, c; core::Floor floor; };
@@ -54,7 +52,7 @@ class Servo {
   ServoSpec spec_;
   ::Servo servo_;  // ESP32Servo
 };
-void beginBuses();  // Wire on pins::kI2cSda/kI2cScl (front RGB) and Wire1 on pins::kI2c2Sda/kI2c2Scl (floor RGB)
+void beginBuses();  // Wire on pins::kI2cSda/kI2cScl (floor RGB) and Wire1 on pins::kI2c2Sda/kI2c2Scl (front RGB)
 void beginIndicators();
 void beep(uint16_t ms);
 void led(bool on);

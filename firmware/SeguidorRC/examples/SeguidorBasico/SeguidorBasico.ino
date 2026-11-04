@@ -17,11 +17,11 @@ using namespace seguidor;
 
 // --- Cor da linha (TCS34725 do chao): as ruas terminam numa linha VERMELHA (cima/baixo) ou AZUL (laterais). Ela acende S1 e S8 como um cruzamento,
 // mas e a borda do mapa: nao se confirma girando, o robo da meia-volta e volta para dentro do mapa (ou, com cubo na mao, espera o navegador).
-// Desligado ate ligar o sensor: troque para 1 (o TCS do chao fica no 2o barramento I2C, Wire1, pins.h). A tabela de cores e a do firmware principal (core/color_table.h): uma so, nao copie.
+// Desligado ate ligar o sensor: troque para 1 (o TCS do chao fica no barramento Wire, pins.h). A tabela de cores e a do firmware principal (core/color_table.h): uma so, nao copie.
 #define USA_COR 1
 #if USA_COR
 #include "../../../src/core/color_table.h"
-hal::ColorSensor corChao;   // TCS34725 do chao: 2o barramento I2C (Wire1: pins::kI2c2Sda/kI2c2Scl), sem multiplexador (hal/sensors.*)
+hal::ColorSensor corChao;   // TCS34725 do chao: barramento I2C Wire (pins::kI2cSda/kI2cScl), sem multiplexador (hal/sensors.*)
 core::Cor corAnterior = core::DESCONHECIDA, corAceita = core::DESCONHECIDA, corBruta = core::DESCONHECIDA;
 #endif
 MemoriaCor memCor;
@@ -409,7 +409,7 @@ void setup() {
 #endif
 #if USA_COR
   hal::beginBuses();
-  if (!corChao.begin(Wire1)) dbg.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
+  if (!corChao.begin(Wire)) dbg.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
 #endif
 
 #if USA_IMU

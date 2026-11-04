@@ -20,9 +20,21 @@ void LineArray::read(float* out) {
 }
 
 // ---- HC-SR04 ----
+void Ultrasonic::begin() {
+  pinMode(pins::kTrig, OUTPUT);
+  digitalWrite(pins::kTrig, LOW);
+  pinMode(pins::kEcho, INPUT);
+}
+
 uint16_t Ultrasonic::readMm(uint32_t timeoutUs) {
-  const unsigned int us = sonar_.ping(timeoutUs / US_ROUNDTRIP_CM);   // max distance (cm) from the caller's timeout
-  return us == 0 ? 0xFFFF : static_cast<uint16_t>(us * 10 / US_ROUNDTRIP_CM);
+  digitalWrite(pins::kTrig, LOW);
+  delayMicroseconds(2);
+  digitalWrite(pins::kTrig, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(pins::kTrig, LOW);
+  const unsigned long echoUs = pulseIn(pins::kEcho, HIGH, timeoutUs);   // waits for ECHO to rise, then times how long it stays HIGH; 0 = no echo within timeoutUs
+  if (echoUs == 0) return 0xFFFF;
+  return static_cast<uint16_t>(echoUs * params::kSoundMmPerUs / 2.0f + 0.5f);   // out and back: half the path
 }
 
 // ---- TCS34725 ----

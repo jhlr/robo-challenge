@@ -152,7 +152,7 @@ void setup() {
   sonar.begin();
   hal::beginIndicators();
   hal::beginBuses();
-  Serial.printf("front rgb (Wire): %s | floor rgb (Wire1): %s\n", frontColor.begin(Wire) ? "ok" : "FAIL", floorColor.begin(Wire1) ? "ok" : "FAIL");
+  Serial.printf("front rgb (Wire1): %s | floor rgb (Wire): %s\n", frontColor.begin(Wire1) ? "ok" : "FAIL", floorColor.begin(Wire) ? "ok" : "FAIL");
   claw.begin(pins::kClaw);
 #if !defined(CAR_DC)
   Serial.printf("shoulder STS id %u: %s\n", params::kIdShoulder, shoulderBegin(st) ? "ok" : "no reply");

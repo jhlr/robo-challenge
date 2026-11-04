@@ -76,7 +76,7 @@ void setup() {
 #endif
   line8.begin();
   hal::beginBuses();
-  floorColor.begin(Wire1);
+  floorColor.begin(Wire);
   hal::beginIndicators();
   drive.begin();
   if (!drive.hasEncoders()) Serial.println("WARNING: no encoders: turns are timed (open loop)");

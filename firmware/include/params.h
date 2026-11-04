@@ -37,6 +37,9 @@ constexpr uint8_t kStsVoltMin = 40;
 constexpr float kDcMinDuty = 0.25f;
 constexpr float kDcFullSpeedMmS = 400.0f;
 
+// Speed of sound in air at ~20 C (343 m/s) in mm per microsecond. It moves ~0.17% per degree C, so +-10 C is a 1.7% distance error: fine for a 5 cm..2 m sonar.
+constexpr float kSoundMmPerUs = 0.343f;
+
 // Geometry (mm). Wheel 66 mm; kTrackMm and kGearRatio (centre gear -> wheel gear, looked 1:1 in the photos) still to measure.
 constexpr float kWheelDiaMm = 66.0f;
 constexpr float kTrackMm = 100.0f;

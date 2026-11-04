@@ -5,7 +5,7 @@ Regra: nada de reinventar a roda. Cada periférico usa a biblioteca do fabricant
 | Componente | Biblioteca | Antes |
 |---|---|---|
 | QRE-8D (RC) | pololu/QTRSensors 4.0.0 | leitura por registrador de GPIO feita à mão |
-| HC-SR04 | teckel12/NewPing 1.9.7 | `pulseIn` direto |
+| HC-SR04 | (sem biblioteca, 2026-11-03) | `pulseIn` direto: tempo do ECHO x velocidade do som / 2 (`params::kSoundMmPerUs`). A NewPing foi retirada |
 | PCA9548 | robtillaart/TCA9548 0.3.2 | `Wire.write(1<<canal)` + cache próprio |
 | Servo de garra | madhephaestus/ESP32Servo | LEDC à mão |
 | STS3215 | SCServo oficial (Waveshare), já vendored | — |
