@@ -33,6 +33,8 @@ class StsDrive : public Drive {
   void resetTravel() override;
   float forwardMm() override;
   float spinDeg() override;
+  float leftMm() { poll(); return mmL_; }    // per-wheel travel since resetTravel(), forward positive (the heading-by-encoders code needs each side)
+  float rightMm() { poll(); return mmR_; }
 
  private:
   void poll();

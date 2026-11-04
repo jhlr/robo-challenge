@@ -5,7 +5,7 @@
 //   sensores:     ler(bool[8]) (true = linha), odoMm()/odoEMm()/odoDMm() (mm das rodas), us() (mm ou -1), tcsChao(), tcsFrente(), piso(),
 //                 plataformaNaFrente(alcanceMm), cuboNaFrente(alcanceMm), imu() (neutro sem MPU)
 //   missao:       missao(), usAtivo(), tcsPeriodoMs(), consumirToques(), mostrarCarga(slot, cor), limparCarga(), evento(texto)
-//   so simulador: estado() (a verdade; o carro real devolve zeros, so alimenta depuracao)
+//   so depuracao: estado() (a verdade do simulador; o carro real devolve zeros), ecoTipo() (o que deu o ultimo eco; vazio no carro real)
 #pragma once
 #include <math.h>
 #include <stdarg.h>
@@ -20,11 +20,11 @@
 #include <string>
 #include <vector>
 
-#include "../../../src/core/belief.h"
-#include "../../../src/core/explore.h"
-#include "../../../src/core/localizer.h"
-#include "../../../src/core/map.h"
-#include "../../../src/core/navigator.h"
+#include <core/belief.h>
+#include <core/explore.h>
+#include <core/localizer.h>
+#include <core/map.h>
+#include <core/navigator.h>
 #include "alvo.h"
 #include "assimetria.h"
 #include "borda.h"
@@ -45,7 +45,7 @@
 #define ROBO_DEPURANDO() false
 #define ROBO_TRACE(agora) false
 #define ROBO_SEM(nome) false
-#define ROBO_DBG(...) ((void)0)
+#define ROBO_DBG(...) do { if (false) fprintf(stderr, __VA_ARGS__); } while (0)   // nunca roda no carro, mas as variaveis so de depuracao contam como usadas
 #endif
 
 namespace seguidor {
@@ -1241,7 +1241,7 @@ struct Robo {
     if (trechoRestante0 > 0.0 && d > 0.0f && d <= faltaDaPonta && nav.ruaVaziaCerta(nav.ruaDe, nav.ruaPara)) {
       // Rua que ja foi vista vazia: o que o ultrassom ve ali so pode ser o OUTRO ROBO (parado ou nao). Regras 7.1: identificar e voltar para buscar outra rota; nunca empurrar.
       nav.oponenteVisto++;
-      if (++nav.esperasSeguidas <= 3) { esperaAte = agora + 800; velMmSAtual = 0.0f; c.evento(fmt("eco a %.0f mm numa rua VAZIA de certeza (%d,%d)->(%d,%d) crenca %.2f, andado %.0f falta %.0f: so pode ser o outro robo, espera [%s]", d, nav.ruaDe.c, nav.ruaDe.r, nav.ruaPara.c, nav.ruaPara.r, [&] { core::CubeBelief cp = nav.cubos; return core::streetSlot(cp, nav.ruaDe, nav.ruaPara); }(), andado, faltaDaPonta, c.ecoTipo_.c_str())); return true; }
+      if (++nav.esperasSeguidas <= 3) { esperaAte = agora + 800; velMmSAtual = 0.0f; c.evento(fmt("eco a %.0f mm numa rua VAZIA de certeza (%d,%d)->(%d,%d) crenca %.2f, andado %.0f falta %.0f: so pode ser o outro robo, espera [%s]", d, nav.ruaDe.c, nav.ruaDe.r, nav.ruaPara.c, nav.ruaPara.r, [&] { core::CubeBelief cp = nav.cubos; return core::streetSlot(cp, nav.ruaDe, nav.ruaPara); }(), andado, faltaDaPonta, c.ecoTipo().c_str())); return true; }
       nav.esperasSeguidas = 0;
       c.evento("o outro robo continua na rua: volta e busca outra rota");
       nav.aoBloquear();   // trata como rua bloqueada por enquanto (o mapa de cubos nao muda: p ja e 0)

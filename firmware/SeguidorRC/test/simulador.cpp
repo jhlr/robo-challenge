@@ -431,6 +431,7 @@ class Carro {
   void evento(const std::string& texto) { if (mundo_) mundo_->evento(t_, texto); }
   size_t quadro() const { return rastro_.size(); }
   std::string ecoTipo_;   // so depuracao: o que deu o ultimo eco
+  const std::string& ecoTipo() const { return ecoTipo_; }
 
   // Cor do chao no TCS: suposto no centro da barra (a posicao real e pergunta aberta nos docs).
   int corChao() const {
