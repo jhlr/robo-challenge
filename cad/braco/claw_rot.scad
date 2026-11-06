@@ -3,6 +3,7 @@
 // acoplam as duas, e o SG90 (de cabeca para baixo, acima da ponte) aciona uma delas por um acoplador impresso a parte (cr_coupler_local). Um anteparo segura a face de tras do cubo.
 // Frame local: origem no meio da linha dos pivos (x=0, y=0); z = 0 no fundo das mandibulas (o cubo vai de z = -20 a 30).
 
+include <params_gen.scad>
 cr_rc = cr_gm * cr_gz / 2;                     // pivo -> centro (raio primitivo)
 
 // MONTAGEM DAS MANDIBULAS (conferida na foto do usuario): como saem da impressao, com a engrenagem EMBAIXO, apoiada na prateleira (z = 0 a 4); a barra e o arco
