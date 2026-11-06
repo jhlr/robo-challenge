@@ -3,18 +3,20 @@
 // Uso 2D:  openscad -o peca.svg -D 'scene="2d_tower"' braco_mdf.scad   (nomes em PARTS_2D; mdf_nest.py gera as chapas)
 // Todas as pecas 2D usam coordenadas naturais do plano em que ficam (XY, XZ ou YZ do braco); mdf_nest.py reposiciona ao cortar.
 include <braco.scad>
-include <sts3215.scad>
 
 mt = 2.3;             // espessura do MDF (cupom: rasgo nominal de 2,4 mm ficou levemente solto; material ~2,3 mm)
 fit = 0;              // folga nominal dos rasgos: 0, porque o kerf do laser ja abre ~0,1-0,2 mm (acertado pelo cupom)
 
 // ---------- derivados ----------
 mz_b = z_deck; mz_p = mz_b + mt; mz_t = z_s + h_v + 8;               // prato do suporte: embaixo, em cima; topo das torres
-m_sp = [sr_ear_x + sr_ear_t, sr_ear_x + sr_ear_t + mt];       // x da chapa do servo (YZ): logo atras das orelhas; o corpo passa pela janela, o horn e o pinhao ficam do lado do braco
-m_spy = [sr_sv_y0 - (sr_ear_len - sr_sv_L) / 2 - 3, sr_sv_y1 + (sr_ear_len - sr_sv_L) / 2 + 3];   // y da chapa: orelhas + 3 mm de cada lado
-m_spz = sr_sv_z0 + sr_sv_W + 8;                              // topo da chapa do servo
-m_plt = [[sr_py - 21, sr_py - 9], [sr_py + 3, sr_py + 15]];       // y das 2 abas da chapa atraves do prato (janelas fechadas): MESMAS abas da chapa que o usuario ja cortou (12 mm, centros a 24 mm, relativas ao eixo do servo)
-m_bext = m_spy[0] - 3;                                       // fim da extensao do prato para tras (a chapa apoia no prato ao longo de todo o comprimento; teia de 3 mm)
+mf_clr = 0.3;                                                // folga da janela do corpo do servo, cada lado
+mf_web = 3;                                                  // alma de MDF entre a janela do corpo e o rasgo do tampo
+mf_pad = 8;                                                  // margem do quadro alem do corpo, em y
+m_fx = [sts_top - mt, sts_x0];                               // x dos 2 quadros do servo: um rente a face do disco, outro rente a face de tras (o corpo passa pelas duas janelas)
+m_shz = sts_z1 + mf_clr + mf_web;                            // z de baixo do tampo que une os quadros (acima do corpo)
+m_ftop = m_shz + mt + mf_web;                                // topo dos quadros
+m_ft = [[sts_y0 - 4, sts_y0 + 8], [sts_y1 - 8, sts_y1 + 4]];   // y dos 2 pes de cada quadro atraves do prato (janelas fechadas), o mais afastados possivel
+m_bext = -60;                                                // fim da extensao do prato para tras (os furos do conves em y = -56 ficam dentro)
 m_backz = [[mz_p + 5, mz_p + 15], [mz_p + 30, mz_p + 40]];       // abas do fundo atraves das torres
 m_ct = [[-30, -18], [-6, 6], [18, 30], [38, 50]];              // abas das placas laterais do carrier atraves da frontal
 mz_br = cr_bz0;                                              // base da ponte = a da moldura impressa (acima das engrenagens das mandibulas impressas)
@@ -28,11 +30,10 @@ module hole(x, y, d = 3.2) { translate([x, y]) circle(d = d, $fn = 24); }
 
 // ---------- pecas 2D ----------
 module d_base() difference() {                               // prato (XY), com a extensao para tras que leva o berco do servo do ombro
-    union() { R(-53, 20, -22, 22); R(-25, 20, m_bext, -22 + 0.01); }
+    union() { R(-53, 20, -22, 22); R(-53, 20, m_bext, -22 + 0.01); }
     for (s = [-1, 1]) Rs(s * col_x - mt / 2, s * col_x + mt / 2, -9, 9);                // abas das torres
     for (x0 = [-8, 3]) Rs(x0, x0 + 5, -9, -9 + mt);                                // abas do fundo
-    for (t = m_plt) Rs(m_sp[0], m_sp[1], t[0], t[1]);                              // abas da chapa do MG996R (janelas fechadas)
-    Rs(sr_x0 - 0.75, sr_x0 + sr_t + 0.75, -23, -18);                              // janela de passagem do canto do setor a alpha = +25,5 (sem ela o setor entra 0,7 mm no prato: sr_th = 180 para reaproveitar a chapa ja cortada)
+    for (fx = m_fx, f = m_ft) Rs(fx, fx + mt, f[0], f[1]);                            // pes dos 2 quadros do servo (janelas fechadas)
     for (x = [-50.5, 16.5], y = [-19, 19]) hole(x, y, 3.4);                        // M3 no conves
     for (x = [-16.5, 16.5]) hole(x, -56, 3.4);                                   // M3 no conves, extensao (furar o convés de cima ai)
 }
@@ -46,10 +47,13 @@ module d_back() union() {                                    // fundo entre as t
     for (x0 = [-8, 3]) R(x0, x0 + 5, mz_b, mz_p + 0.01);
     for (zr = m_backz) { R(m_tw - 0.1, col_x + mt / 2, zr[0], zr[1]); R(-(col_x + mt / 2), -(m_tw - 0.1), zr[0], zr[1]); }
 }
-module d_servoplate() difference() {                         // chapa do MG996R (YZ): coordenadas (y, z); abas embaixo no prato, janela fechada para o corpo, 4 furos M4 das orelhas
-    union() { R(m_spy[0], m_spy[1], mz_p, m_spz); for (t = m_plt) R(t[0], t[1], mz_b, mz_p + 0.01); }
-    R(sr_sv_y0 - 0.3, sr_sv_y1 + 0.3, sr_sv_z0 - 0.3, sr_sv_z0 + sr_sv_W + 0.3);
-    for (sy = [-1, 1], sz = [-1, 1]) hole((sr_sv_y0 + sr_sv_y1) / 2 + sy * sr_ear_hole[0] / 2, sr_sv_z0 + sr_sv_W / 2 + sz * sr_ear_hole[1] / 2, sr_ear_hole_d);
+module d_stsframe() difference() {                           // quadro do STS3215 (YZ): janela fechada no corpo, rasgo fechado para o tampo, pes no prato. Sao 2 iguais
+    union() { R(sts_y0 - mf_pad, sts_y1 + mf_pad, mz_p, m_ftop); for (f = m_ft) R(f[0], f[1], mz_b, mz_p + 0.01); }
+    R(sts_y0 - mf_clr, sts_y1 + mf_clr, sts_z0 - mf_clr, sts_z1 + mf_clr);
+    Rs(sts_y0, sts_y1, m_shz, m_shz + mt);
+}
+module d_stsshelf() difference() {                           // tampo (XY): une os 2 quadros por cima, as pontas passam pelos rasgos
+    R(sts_x0, sts_top, sts_y0, sts_y1);
 }
 module d_side() difference() {                               // placa lateral do carrier (YZ), origem no pivo de baixo
     union() { R(-12, m_cf0, -(carrier_below + 3), h_v + 8); for (zr = m_ct) R(m_cf0 - 0.1, 14, zr[0], zr[1]); }
@@ -97,9 +101,8 @@ module d_bar(sts = false) difference() {                     // barra do paralel
         hull() for (y = [0, L1]) translate([0, y]) circle(d = bar_w, $fn = 40);
         if (sts) circle(d = sts_disc_d + 2, $fn = 64);       // pivo alargado: o circulo de furos (14) nao cabe nos 12 da barra
     }
-    for (y = [0, L1]) hole(0, y);
+    for (y = [0, L1]) hole(0, y, sts && y == 0 ? sts_center_d : 3.2);
     if (sts) for (a = [0 : 90 : 270]) rotate(a) hole(sts_hole_r, 0, sts_screw_d);   // 4 x M3 direto no disco do servo
-    else for (y = sr_peg_y) hole(0, y);                      // pinos do setor do ombro (iguais nas 4 barras)
 }
 module d_coupon() difference() {                             // cupom de espessura: 7 rasgos de 2.0 a 2.6 mm (passo 0.1); o rasgo n tem n furinhos em cima
     R(0, 100, 0, 30);
@@ -110,12 +113,13 @@ module d_coupon() difference() {                             // cupom de espessu
 }
 
 // lista das pecas e quantidades (usada pelo nesting)
-PARTS_2D = [["base", 1], ["tower", 2], ["back", 1], ["servoplate", 1], ["side", 2], ["front", 1], ["cshelf", 1], ["rear", 1],
-            ["stop", 1], ["bridge", 1], ["bar", 4]];
+PARTS_2D = [["base", 1], ["tower", 2], ["back", 1], ["stsframe", 2], ["stsshelf", 1], ["side", 2], ["front", 1], ["cshelf", 1], ["rear", 1],
+            ["stop", 1], ["bridge", 1], ["bar", 3], ["bar_sts", 1]];
 if (scene == "2d_base") d_base();
 if (scene == "2d_tower") d_tower();
 if (scene == "2d_back") d_back();
-if (scene == "2d_servoplate") d_servoplate();
+if (scene == "2d_stsframe") d_stsframe();
+if (scene == "2d_stsshelf") d_stsshelf();
 if (scene == "2d_side") d_side();
 if (scene == "2d_front") d_front();
 if (scene == "2d_cshelf") d_cshelf();
@@ -137,7 +141,8 @@ module mdf_mount() {
         XY(mz_b) d_base();
         for (s = [-1, 1]) YZ(s * col_x - mt / 2) d_tower();
         XZ(-9) d_back();
-        YZ(m_sp[0]) d_servoplate();
+        for (fx = m_fx) YZ(fx) d_stsframe();
+        XY(m_shz) d_stsshelf();
     }
 }
 module mdf_claw(psi) {                                       // origem: linha dos pivos, z = 0 no fundo das mandibulas
@@ -170,16 +175,10 @@ if (scene == "chk_claw_jaws") intersection() {
     cr_jaws(psi_chk);
 }
 
-// ---------- checagens do ombro com MG996R + reducao 4:1 (resultado vazio = sem colisao) ----------
-sr_alpha = 0;
-if (scene == "chk_sr_mesh") intersection() {                  // 2D, plano y-z: dentes do setor x dentes do pinhao
-    rotate(sr_alpha) union() { cr_sector_2d(sr_zs, sr_m, sr_bl, sr_arc[0], sr_arc[1]); }
-    translate([sr_py, sr_pz]) rotate(-sr_ratio * sr_alpha + sr_phase) sr_gear2d(sr_zp);
-}
-module sr_moving() { sr_sector(alpha); sr_pinion(alpha); }
-if (scene == "chk_sr_mount") translate([0, pivot_y, 0]) intersection() { union() { sr_moving(); sr_servo_dummy(); } mdf_mount(); }
-if (scene == "chk_sr_chassis") intersection() { translate([0, pivot_y, 0]) { sr_moving(); sr_servo_dummy(); } robot_base(true); }
-if (scene == "chk_sr_arm") translate([0, pivot_y, 0]) intersection() { sr_moving(); union() { mdf_carrier_claw(); } }
+// ---------- checagens do ombro com STS3215 direto (resultado vazio = sem colisao) ----------
+module sts_whole() translate([0, pivot_y, 0]) { mdf_mount(); sts_servo_dummy(); }
+if (scene == "chk_sts_chassis") intersection() { translate([0, pivot_y, 0]) { sts_servo_dummy(); for (fx = m_fx) YZ(fx) d_stsframe(); XY(m_shz) d_stsshelf(); } robot_base(true); }
+if (scene == "chk_sts_bars") translate([0, pivot_y, 0]) intersection() { bars_only(); union() { for (fx = m_fx) YZ(fx) d_stsframe(); XY(m_shz) d_stsshelf(); sts_servo_dummy(); } }
 
 // ---------- checagem do acoplador do SG90 na mandibula esquerda (vazio ou so contato plano = ok) ----------
 module cr_coupler_world(psi) mirror([1, 0, 0]) translate([cr_rc, 0, 0]) rotate([0, 0, -psi]) translate([0, 0, cr_gz0 + cr_gt]) cr_coupler_local();
@@ -190,7 +189,3 @@ if (scene == "chk_cp_frame") intersection() {
 }
 if (scene == "chk_cp_jaws") intersection() { cr_coupler_world(psi_chk); union() { cr_left_jaw_plain(psi_chk); cr_jaw_right(psi_chk, 0); } }
 if (scene == "claw_cp") { mdf_claw(psi_chk); }
-
-// ---------- checagem do conjunto do ombro (MDF do berco + servo + engrenagens) contra o chassi inteiro (resultado vazio = sem colisao) ----------
-module sr_whole() translate([0, pivot_y, 0]) { mdf_mount(); sr_sector(alpha); sr_pinion(alpha); sr_servo_dummy(); }
-if (scene == "chk_sr_whole") intersection() { sr_whole(); robot_base(true); }

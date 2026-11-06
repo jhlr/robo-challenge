@@ -1,6 +1,8 @@
-translate([11.000, 11.000]) import("parts/bar.dxf");
-translate([26.000, 11.000]) import("parts/bar.dxf");
-translate([41.000, 11.000]) import("parts/bar.dxf");
-translate([56.000, 11.000]) import("parts/bar.dxf");
-translate([118.000, 85.750]) import("parts/base.dxf");
-translate([218.750, -63.000]) import("parts/servoplate.dxf");
+translate([16.000, 16.000]) import("parts/bar_sts.dxf");
+translate([36.000, 11.000]) import("parts/bar.dxf");
+translate([51.000, 11.000]) import("parts/bar.dxf");
+translate([66.000, 11.000]) import("parts/bar.dxf");
+translate([128.000, 65.000]) import("parts/base.dxf");
+translate([194.110, -63.000]) import("parts/stsframe.dxf");
+translate([258.330, -63.000]) import("parts/stsframe.dxf");
+translate([57.275, 160.110]) import("parts/stsshelf.dxf");

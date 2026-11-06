@@ -1,4 +1,4 @@
-// Opcao 2: braco paralelogramo no topo do carrinho. 2 servos: ombro na base (SG90/MG90S com reducao 4:1, sem giro), pinca rotativa (SG90) na ponta.
+// Opcao 2: braco paralelogramo no topo do carrinho. 2 servos: ombro na base (STS3215 direto, sem reducao nem giro), pinca rotativa (SG90) na ponta.
 // Parametros em params_gen.scad (gerado por cad/braco/cinematica.py a partir de params.json).
 // Uso: openscad -o braco.png --camera=330,330,260,0,110,70 -D 'pose="pick"' braco.scad
 include <../modelo_robo/robot_completo.scad>
@@ -12,8 +12,10 @@ pose = "pick";                // "pick" (cubo no chao), "mid" (levantado) ou "pl
 alpha_mid = -16;                                         // braco levantado o bastante para girar sem tocar nos sensores do chassi
 alpha = pose == "pick" ? alpha_pick : pose == "mid" ? alpha_mid : alpha_place;
 
-bar_w = 12; bar_t = 3; bar_x = 15; col_x = 12;
-include <ombro_reducao.scad>                 // usa bar_x e z_s
+bar_w = 12; bar_t = 2.3;   // bar_t = espessura do MDF das barras (antes 3, das barras impressas)
+ bar_x = 15; col_x = 12;
+include <sts3215.scad>
+include <ombro_sts.scad>                     // usa bar_x e z_s
 u_arm = L1 * cos(alpha);                      // alcance horizontal do carrier a partir do eixo do giro
 zl_arm = z_s + L1 * sin(alpha);               // altura do pivo de baixo do carrier
 
@@ -43,14 +45,18 @@ module mount() {
     color("#9ca3af") mount_geom();
 }
 
-module bars() {
+module bars_only() {
     color("#374151") for (x = [-bar_x, bar_x]) {
         bar([0, z_s], [u_arm, zl_arm], x);                                             // barras de baixo
         bar([0, z_s + h_v], [u_arm, zl_arm + h_v], x);                                 // barras de cima (paralelas)
     }
-    color("silver") for (z = [0, h_v]) translate([-bar_x - 6, 0, z_s + z]) rotate([0, 90, 0]) cylinder(d = 3, h = 2 * bar_x + 12);   // parafusos dos pivos da base
-    sr_drive(alpha);                                                                      // reducao 4:1 do ombro (setor na barra, pinhao e SG90 atras das torres)
+    color("silver") {                                                                     // parafusos dos pivos da base
+        translate([-bar_x - 6, 0, z_s + h_v]) rotate([0, 90, 0]) cylinder(d = 3, h = 2 * bar_x + 12);
+        translate([-bar_x + bar_t / 2, 0, z_s]) rotate([0, 90, 0]) cylinder(d = 3, h = 2 * bar_x + 6 - bar_t / 2);   // embaixo: do lado -x o eixo e o do servo, so ha parafuso a partir da barra
+    }
+    color("#374151") translate([-bar_x - bar_t / 2, 0, z_s]) rotate([alpha, 0, 0]) rotate([0, 90, 0]) cylinder(d = sts_boss_d, h = bar_t, $fn = 48);   // pivo alargado da barra de baixo do lado -x
 }
+module bars() { bars_only(); sts_drive(); }          // STS3215 direto no pivo da barra -x
 
 module carrier_geom() {                       // carrier (peca impressa): origem no eixo do pivo de baixo (y = u_arm, z = zl_arm)
     zb = -(carrier_below + 3);
@@ -127,10 +133,6 @@ module bar_flat() difference() {                // barra do paralelogramo, deita
 }
 module jaw_print(right) { if (right) cr_jaw_right(0, 0); else cr_jaw_left(0); }   // ja saem na orientacao da montagem: engrenagem na mesa (com os dentes do lado do cubo cortados)
 if (scene == "part_coupler") translate([0, 0, cr_cp_dz]) cr_coupler_local();   // como no modelo: dentes do grampo para baixo (imprimir com suporte so sob o disco); mandibula esquerda = espelho
-if (scene == "part_sr_sector") sr_sector_local();    // dentes na mesa, pinos para cima
-if (scene == "part_sr_pinion") translate([0, 0, sr_t]) rotate([180, 0, 0]) sr_pinion_local();    // dentes na mesa, flange e pinos para cima
-if (scene == "part_sr_pinion_spline") sr_pinion_spline_local();    // disco de base na mesa, cubo estriado para cima
-if (scene == "part_sr_spline_test") sr_spline_test();    // 5 bolsos com folgas de -0,10 a 0,10 mm: o numero de marcas na borda = posicao na lista sp_test_clr
 if (scene == "part_frame") cr_frame();
 if (scene == "part_jaw_r") jaw_print(true);
 if (scene == "part_jaw_l") jaw_print(false);
