@@ -5,7 +5,6 @@ translate([66.000, 11.000]) import("parts/bar.dxf");
 translate([128.000, 65.000]) import("parts/base.dxf");
 translate([171.000, -63.000]) import("parts/tower.dxf");
 translate([237.110, -63.000]) import("parts/towerframe.dxf");
-translate([277.795, -63.000]) import("parts/back.dxf");
 translate([48.110, 57.000]) import("parts/stsframe.dxf");
 translate([121.495, 160.110]) import("parts/stsshelf.dxf");
 translate([126.795, 134.000]) import("parts/towertop.dxf");

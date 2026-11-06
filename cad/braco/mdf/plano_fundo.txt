@@ -1,0 +1,1 @@
+chapa 1 (300 x 200 mm, ~3% ocupada pelas caixas): {'back': 1}
