@@ -3,7 +3,7 @@ translate([36.000, 11.000]) import("parts/bar.dxf");
 translate([51.000, 11.000]) import("parts/bar.dxf");
 translate([66.000, 11.000]) import("parts/bar.dxf");
 translate([128.000, 65.000]) import("parts/base.dxf");
-translate([194.110, -63.000]) import("parts/stsframe.dxf");
+translate([194.110, -63.000]) import("parts/towerframe.dxf");
 translate([258.330, -63.000]) import("parts/stsframe.dxf");
 translate([57.275, 160.110]) import("parts/stsshelf.dxf");
 translate([95.275, 52.700]) import("parts/stsbrace.dxf");
