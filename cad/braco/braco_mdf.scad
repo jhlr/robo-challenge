@@ -218,6 +218,18 @@ if (scene == "view_ombro") translate([0, pivot_y, 0]) { mdf_mount(); sts_servo_d
 if (scene == "view_ligacao") translate([0, pivot_y, 0]) {   // so o que liga servo e torre: quadros, escora, torre -x, prato (sem tampo nem servo)
     color("#c8a165") { XY(mz_b) d_base(); YZ(m_fx[0]) d_towerframe(); YZ(m_fx[1]) d_stsframe(); XZ(m_br[0]) d_stsbrace(); }
 }
+
+// ---------- encaixe do servo na barra (so visualizacao): a barra real (2D com furos) ligada ao disco, 4 M3 fresados + furo do eixo; explode = afastamento em x ----------
+expl = 0;                                                    // afastamento da barra na vista explodida
+sts_screw_l = 5;                                             // M3 x 5 fresado: 2,3 de MDF + ~2,7 no disco (profundidade da rosca: MEDIR)
+module sts_bar_real(alpha, ex = 0) translate([-(bar_x + mt / 2) + ex, 0, z_s]) rotate([alpha, 0, 0]) rotate([0, 90, 0]) linear_extrude(mt) d_bar(true);
+module sts_screws(alpha, ex = 0) color("silver") translate([0, 0, z_s]) rotate([alpha, 0, 0]) for (a = [0 : 90 : 270])
+    translate([-(bar_x - mt / 2) + ex, sts_hole_r * cos(a), sts_hole_r * sin(a)]) rotate([0, -90, 0]) { cylinder(d1 = 5.5, d2 = 3, h = 1.65, $fn = 24); cylinder(d = 3, h = sts_screw_l, $fn = 16); }
+module view_encaixe(alpha, ex = 0) translate([0, pivot_y, 0]) intersection() {   // recorta x > 3 (torre +x e fundo) para ver o encaixe pelo lado de dentro
+    union() { mdf_mount(); sts_servo_dummy(); color("#374151") sts_bar_real(alpha, ex); sts_screws(alpha, ex); }
+    translate([-100, -100, 0]) cube([103, 200, 300]);
+}
+if (scene == "view_encaixe") view_encaixe(alpha, expl);
 module sts_whole() translate([0, pivot_y, 0]) { mdf_mount(); sts_servo_dummy(); }
 if (scene == "chk_sts_chassis") intersection() { translate([0, pivot_y, 0]) { sts_servo_dummy(); mdf_mount(); } robot_base(true); }   // so contato plano em z = mz_b (pes no prato) e ok
 if (scene == "chk_sts_bars") translate([0, pivot_y, 0]) intersection() { bars_only(); union() { mdf_mount(); sts_servo_dummy(); } }
