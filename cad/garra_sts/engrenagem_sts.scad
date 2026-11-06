@@ -3,13 +3,14 @@
 // Encaixe: 4 pinos nos furos do disco + flange que cobre o disco; furo central largo deixa o parafuso do eixo acessivel.
 // Frame: origem no eixo do servo; z = 0 face do disco (lado do servo), dentes de z = 0 a g_t. Gira com o servo; os pinos saem para -z.
 use <../braco/claw_rot.scad>
+include <../braco/sts3215.scad>
 
 g_m = 1.5; g_z = 35;               // modulo e dentes (iguais ao setor da pinca: raio primitivo 26,25)
 g_a0 = -60; g_a1 = 60;             // setor, graus (multiplos de 5)
 g_t = 4;                           // espessura dos dentes
 g_bl = 0.1;                        // folga lateral do dente (como na pinca; ajustar na impressora)
-g_fl_d = 22; g_fl_t = 1.5;         // flange atras dos dentes (cobre o disco de 20)
-g_pin_r = 7; g_pin_d = 2.8; g_pin_l = 2.5;   // pinos: raio do circulo 7, folga 0,2 no furo de 3, comprimento (profundidade do furo: MEDIR)
+g_fl_d = sts_disc_d + 2; g_fl_t = 1.5;         // flange atras dos dentes (cobre o disco de 20)
+g_pin_r = sts_hole_r; g_pin_d = sts_hole_d - 0.2; g_pin_l = 2.5;   // pinos: folga 0,2 no furo, comprimento (profundidade do furo: MEDIR)
 g_scr_d = 7;                       // furo central: passa a cabeca do parafuso M3 do eixo
 
 module g_gear() difference() {

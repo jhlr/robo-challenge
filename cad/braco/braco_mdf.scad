@@ -3,6 +3,7 @@
 // Uso 2D:  openscad -o peca.svg -D 'scene="2d_tower"' braco_mdf.scad   (nomes em PARTS_2D; mdf_nest.py gera as chapas)
 // Todas as pecas 2D usam coordenadas naturais do plano em que ficam (XY, XZ ou YZ do braco); mdf_nest.py reposiciona ao cortar.
 include <braco.scad>
+include <sts3215.scad>
 
 mt = 2.3;             // espessura do MDF (cupom: rasgo nominal de 2,4 mm ficou levemente solto; material ~2,3 mm)
 fit = 0;              // folga nominal dos rasgos: 0, porque o kerf do laser ja abre ~0,1-0,2 mm (acertado pelo cupom)
@@ -91,10 +92,14 @@ module d_bridge() difference() {                             // ponte da pinca (
     for (s = [-1, 1]) hole(s * cr_rc, 0, 3.4);                                      // pinos M3 dos pivos
     hole(-cr_rc, 0, 8);                                                              // eixo do SG90
 }
-module d_bar() difference() {                                // barra do paralelogramo
-    hull() for (y = [0, L1]) translate([0, y]) circle(d = bar_w, $fn = 40);
+module d_bar(sts = false) difference() {                     // barra do paralelogramo; sts = barra do ombro presa direto no disco do STS3215 (sem reducao)
+    union() {
+        hull() for (y = [0, L1]) translate([0, y]) circle(d = bar_w, $fn = 40);
+        if (sts) circle(d = sts_disc_d + 2, $fn = 64);       // pivo alargado: o circulo de furos (14) nao cabe nos 12 da barra
+    }
     for (y = [0, L1]) hole(0, y);
-    for (y = sr_peg_y) hole(0, y);                           // pinos do setor do ombro (iguais nas 4 barras)
+    if (sts) for (a = [0 : 90 : 270]) rotate(a) hole(sts_hole_r, 0, sts_screw_d);   // 4 x M3 direto no disco do servo
+    else for (y = sr_peg_y) hole(0, y);                      // pinos do setor do ombro (iguais nas 4 barras)
 }
 module d_coupon() difference() {                             // cupom de espessura: 7 rasgos de 2.0 a 2.6 mm (passo 0.1); o rasgo n tem n furinhos em cima
     R(0, 100, 0, 30);
@@ -118,6 +123,7 @@ if (scene == "2d_rear") d_rear();
 if (scene == "2d_stop") d_stop();
 if (scene == "2d_bridge") d_bridge();
 if (scene == "2d_bar") d_bar();
+if (scene == "2d_bar_sts") d_bar(true);
 if (scene == "2d_coupon") d_coupon();
 
 // ---------- montagem 3D ----------
