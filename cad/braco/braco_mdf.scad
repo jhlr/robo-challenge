@@ -23,6 +23,7 @@ m_ttz = z_s + h_v - 12.5;                                    // z de baixo do ta
 m_br = [-15.5, -15.5 + mt];                                  // y da escora (atras do pivo alargado da barra, que chega a y = -11; dentro do trapezio da torre)
 m_brz = [mz_p + 2, mz_p + 8];                                // z da escora: abaixo do corpo do servo (a janela comeca em z0 - 0,3)
 m_bext = -60;                                                // fim da extensao do prato para tras (os furos do conves em y = -56 ficam dentro)
+m_bnx = -6;                                                  // recorte do fundo para o eixo do servo: vai ate x = -6 (cabeca do parafuso do eixo, disco e barra passam folgados)
 m_backz = [[mz_p + 2, mz_p + 9], [mz_p + 44, mz_p + 53]];         // abas do fundo atraves das torres: uma abaixo e outra acima da janela do servo na torre -x
 m_ct = [[-30, -18], [-6, 6], [18, 30], [38, 50]];              // abas das placas laterais do carrier atraves da frontal
 mz_br = cr_bz0;                                              // base da ponte = a da moldura impressa (acima das engrenagens das mandibulas impressas)
@@ -56,7 +57,7 @@ module d_tower() difference() {                              // torre (YZ): coor
     Rs(m_br[0], m_br[1], m_brz[0], m_brz[1]);                                       // rasgo da escora do servo
 }
 module d_back() union() {                                    // fundo entre as torres (XZ): (x, z); do lado -x chega ate o quadro da frente, mas com um recorte onde passa o pivo alargado da barra (so fica o que esta abaixo e acima)
-    difference() { R(sts_top, m_tw, mz_p, mz_p + 53); R(sts_top - 1, -13.5, z_s - 12, z_s + 13); }
+    difference() { R(sts_top, m_tw, mz_p, mz_p + 53); R(sts_top - 1, m_bnx, z_s - 13.5, z_s + 14); }
     for (x0 = [-8, 3]) R(x0, x0 + 5, mz_b, mz_p + 0.01);
     for (zr = m_backz) { R(m_tw - 0.1, col_x + mt / 2, zr[0], zr[1]); R(m_fx[0], sts_top + 0.1, zr[0], zr[1]); }
 }
