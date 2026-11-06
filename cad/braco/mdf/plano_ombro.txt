@@ -1,1 +1,1 @@
-chapa 1 (300 x 200 mm, ~37% ocupada pelas caixas): {'bar_sts': 1, 'bar': 3, 'base': 1, 'towerframe': 1, 'stsframe': 1, 'stsshelf': 1, 'stsbrace': 1}
+chapa 1 (300 x 200 mm, ~46% ocupada pelas caixas): {'bar_sts': 1, 'bar': 3, 'base': 1, 'tower': 1, 'towerframe': 1, 'back': 1, 'stsframe': 1, 'stsshelf': 1, 'towertop': 1, 'stsbrace': 1}
