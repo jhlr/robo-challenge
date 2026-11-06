@@ -14,8 +14,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "mdf"
 SHEET_W, SHEET_H, MARGIN, GAP = 300.0, 200.0, 5.0, 3.0
-GROUPS = {"moldura": ["cshelf", "rear", "stop", "bridge"], "ombro": ["base", "stsframe", "stsshelf", "bar", "bar_sts"], "torres": ["tower", "back", "side", "front"]}   # ombro: STS3215 direto
-PARTS = {"base": 1, "tower": 2, "back": 1, "stsframe": 2, "stsshelf": 1, "side": 2, "front": 1, "cshelf": 1, "rear": 1,
+GROUPS = {"moldura": ["cshelf", "rear", "stop", "bridge"], "ombro": ["base", "stsframe", "stsshelf", "stsbrace", "bar", "bar_sts"], "torres": ["tower", "towertop", "back", "side", "front"]}   # ombro: STS3215 direto
+PARTS = {"base": 1, "tower": 2, "back": 1, "stsframe": 2, "stsshelf": 1, "towertop": 1, "stsbrace": 1, "side": 2, "front": 1, "cshelf": 1, "rear": 1,
          "stop": 1, "bridge": 1, "bar": 3, "bar_sts": 1, "coupon": 1}      # as mandibulas sao impressas (stl/claw_jaw_*.stl)
 
 

@@ -16,6 +16,11 @@ m_fx = [sts_top - mt, sts_x0];                               // x dos 2 quadros 
 m_shz = sts_z1 + mf_clr + mf_web;                            // z de baixo do tampo que une os quadros (acima do corpo)
 m_ftop = m_shz + mt + mf_web;                                // topo dos quadros
 m_ft = [[sts_y0 - 4, sts_y0 + 8], [sts_y1 - 8, sts_y1 + 4]];   // y dos 2 pes de cada quadro atraves do prato (janelas fechadas), o mais afastados possivel
+m_tfeet = [[-20, -12], [-4, 4], [12, 20]];                  // y dos 3 pes de cada torre atraves do prato (janelas fechadas)
+m_tfl = [20, 30];                                            // base alargada da torre: meia largura no prato e altura em que volta a +-12
+m_ttz = mz_t - mt - 1.5;                                     // z de baixo do tampo das torres (1,5 mm abaixo do topo, acima do parafuso do pivo de cima)
+m_br = [-15.5, -15.5 + mt];                                  // y da escora (atras do pivo alargado da barra, que chega a y = -11; dentro do trapezio da torre)
+m_brz = [mz_p + 2, mz_p + 8];                                // z da escora: abaixo do corpo do servo (a janela comeca em z0 - 0,3)
 m_bext = -60;                                                // fim da extensao do prato para tras (os furos do conves em y = -56 ficam dentro)
 m_backz = [[mz_p + 5, mz_p + 15], [mz_p + 30, mz_p + 40]];       // abas do fundo atraves das torres
 m_ct = [[-30, -18], [-6, 6], [18, 30], [38, 50]];              // abas das placas laterais do carrier atraves da frontal
@@ -31,16 +36,22 @@ module hole(x, y, d = 3.2) { translate([x, y]) circle(d = d, $fn = 24); }
 // ---------- pecas 2D ----------
 module d_base() difference() {                               // prato (XY), com a extensao para tras que leva o berco do servo do ombro
     union() { R(-53, 20, -22, 22); R(-53, 20, m_bext, -22 + 0.01); }
-    for (s = [-1, 1]) Rs(s * col_x - mt / 2, s * col_x + mt / 2, -9, 9);                // abas das torres
+    for (s = [-1, 1], f = m_tfeet) Rs(s * col_x - mt / 2, s * col_x + mt / 2, f[0], f[1]);   // pes das torres
     for (x0 = [-8, 3]) Rs(x0, x0 + 5, -9, -9 + mt);                                // abas do fundo
     for (fx = m_fx, f = m_ft) Rs(fx, fx + mt, f[0], f[1]);                            // pes dos 2 quadros do servo (janelas fechadas)
-    for (x = [-50.5, 16.5], y = [-19, 19]) hole(x, y, 3.4);                        // M3 no conves
-    for (x = [-16.5, 16.5]) hole(x, -56, 3.4);                                   // M3 no conves, extensao (furar o convés de cima ai)
+    for (x = [-50.5, -16.5, 16.5], y = [-19, 19]) hole(x, y, 3.4);                 // M3 no conves: cantos + um ao lado de cada torre (x = -16,5 e 16,5)
+    for (x = [-50.5, -16.5, 16.5]) hole(x, -56, 3.4);                              // M3 no conves, extensao (furar o convés de cima ai): 3 na fileira de tras
 }
-module d_tower() difference() {                              // torre (YZ): coordenadas (y, z)
-    union() { R(-12, 12, mz_p, mz_t); R(-9, 9, mz_b, mz_p + 0.01); }
+module d_tower() difference() {                              // torre (YZ): coordenadas (y, z); base alargada (trapezio) com 3 pes
+    union() {
+        R(-12, 12, mz_p, mz_t);
+        polygon([[-m_tfl[0], mz_p], [m_tfl[0], mz_p], [12, mz_p + m_tfl[1]], [-12, mz_p + m_tfl[1]]]);
+        for (f = m_tfeet) R(f[0], f[1], mz_b, mz_p + 0.01);
+    }
     for (z = [z_s, z_s + h_v]) hole(0, z);                                          // pivos das barras
     for (zr = m_backz) Rs(-9, -9 + mt, zr[0], zr[1]);                       // rasgos do fundo
+    Rs(-9, 9, m_ttz, m_ttz + mt);                                                   // rasgo do tampo
+    Rs(m_br[0], m_br[1], m_brz[0], m_brz[1]);                                       // rasgo da escora do servo
 }
 module d_back() union() {                                    // fundo entre as torres (XZ): (x, z)
     R(-m_tw, m_tw, mz_p, mz_p + 45);
@@ -51,10 +62,14 @@ module d_stsframe() difference() {                           // quadro do STS321
     union() { R(sts_y0 - mf_pad, sts_y1 + mf_pad, mz_p, m_ftop); for (f = m_ft) R(f[0], f[1], mz_b, mz_p + 0.01); }
     R(sts_y0 - mf_clr, sts_y1 + mf_clr, sts_z0 - mf_clr, sts_z1 + mf_clr);
     Rs(sts_y0, sts_y1, m_shz, m_shz + mt);
+    Rs(m_br[0], m_br[1], m_brz[0], m_brz[1]);                              // rasgo da escora
+    for (y = [sts_y0 - mf_pad / 2, sts_y1 + mf_pad / 2]) hole(y, z_s, 3.4);   // 2 M3 de ligacao entre os quadros: espacador M3 femea-femea de 30 mm entre eles (corpo 35 - 2 x 2,3 de MDF = 30,4)
 }
 module d_stsshelf() difference() {                           // tampo (XY): une os 2 quadros por cima, as pontas passam pelos rasgos
     R(sts_x0, sts_top, sts_y0, sts_y1);
 }
+module d_towertop() R(-(col_x + mt / 2), col_x + mt / 2, -9, 9);   // tampo das torres (XY): liga as duas no topo, pontas nos rasgos das torres
+module d_stsbrace() R(sts_x0, -(col_x - mt / 2), m_brz[0], m_brz[1]);   // escora (XZ): do quadro de tras do servo, pelo da frente, ate a torre -x; passa por rasgos fechados nos 3
 module d_side() difference() {                               // placa lateral do carrier (YZ), origem no pivo de baixo
     union() { R(-12, m_cf0, -(carrier_below + 3), h_v + 8); for (zr = m_ct) R(m_cf0 - 0.1, 14, zr[0], zr[1]); }
     for (z = [0, h_v]) hole(0, z);
@@ -113,13 +128,15 @@ module d_coupon() difference() {                             // cupom de espessu
 }
 
 // lista das pecas e quantidades (usada pelo nesting)
-PARTS_2D = [["base", 1], ["tower", 2], ["back", 1], ["stsframe", 2], ["stsshelf", 1], ["side", 2], ["front", 1], ["cshelf", 1], ["rear", 1],
+PARTS_2D = [["base", 1], ["tower", 2], ["back", 1], ["stsframe", 2], ["stsshelf", 1], ["towertop", 1], ["stsbrace", 1], ["side", 2], ["front", 1], ["cshelf", 1], ["rear", 1],
             ["stop", 1], ["bridge", 1], ["bar", 3], ["bar_sts", 1]];
 if (scene == "2d_base") d_base();
 if (scene == "2d_tower") d_tower();
 if (scene == "2d_back") d_back();
 if (scene == "2d_stsframe") d_stsframe();
 if (scene == "2d_stsshelf") d_stsshelf();
+if (scene == "2d_towertop") d_towertop();
+if (scene == "2d_stsbrace") d_stsbrace();
 if (scene == "2d_side") d_side();
 if (scene == "2d_front") d_front();
 if (scene == "2d_cshelf") d_cshelf();
@@ -143,6 +160,8 @@ module mdf_mount() {
         XZ(-9) d_back();
         for (fx = m_fx) YZ(fx) d_stsframe();
         XY(m_shz) d_stsshelf();
+        XY(m_ttz) d_towertop();
+        XZ(m_br[0]) d_stsbrace();
     }
 }
 module mdf_claw(psi) {                                       // origem: linha dos pivos, z = 0 no fundo das mandibulas
@@ -177,8 +196,8 @@ if (scene == "chk_claw_jaws") intersection() {
 
 // ---------- checagens do ombro com STS3215 direto (resultado vazio = sem colisao) ----------
 module sts_whole() translate([0, pivot_y, 0]) { mdf_mount(); sts_servo_dummy(); }
-if (scene == "chk_sts_chassis") intersection() { translate([0, pivot_y, 0]) { sts_servo_dummy(); for (fx = m_fx) YZ(fx) d_stsframe(); XY(m_shz) d_stsshelf(); } robot_base(true); }
-if (scene == "chk_sts_bars") translate([0, pivot_y, 0]) intersection() { bars_only(); union() { for (fx = m_fx) YZ(fx) d_stsframe(); XY(m_shz) d_stsshelf(); sts_servo_dummy(); } }
+if (scene == "chk_sts_chassis") intersection() { translate([0, pivot_y, 0]) { sts_servo_dummy(); mdf_mount(); } robot_base(true); }   // so contato plano em z = mz_b (pes no prato) e ok
+if (scene == "chk_sts_bars") translate([0, pivot_y, 0]) intersection() { bars_only(); union() { mdf_mount(); sts_servo_dummy(); } }
 
 // ---------- checagem do acoplador do SG90 na mandibula esquerda (vazio ou so contato plano = ok) ----------
 module cr_coupler_world(psi) mirror([1, 0, 0]) translate([cr_rc, 0, 0]) rotate([0, 0, -psi]) translate([0, 0, cr_gz0 + cr_gt]) cr_coupler_local();
