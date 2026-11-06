@@ -1,4 +1,4 @@
-// Bench: pings every STS id 0..20 (20 tries each) and prints how many answered, then repeats. Finds wrong/duplicate ids and a flaky bus. Moves nothing.
+// Bench: pings every STS id 0..253 (3 tries each) and prints how many answered, then repeats. Finds wrong/duplicate ids and a flaky bus. Moves nothing.
 #include <Arduino.h>
 
 #include <SCServo.h>
@@ -15,14 +15,14 @@ void setup() {
 }
 
 void loop() {
-  Serial.println("--- scan ids 0..20, 20 pings each ---");
-  for (int id = 0; id <= 20; id++) {
+  Serial.println("--- scan ids 0..253, 3 pings each ---");
+  for (int id = 0; id <= 253; id++) {
     int ok = 0;
-    for (int k = 0; k < 20; k++) {
+    for (int k = 0; k < 3; k++) {
       if (sms_sts.Ping(id) == id) ok++;
       delay(5);
     }
-    if (ok > 0) Serial.printf("id %d: %d/20\n", id, ok);
+    if (ok > 0) Serial.printf("id %d: %d/3\n", id, ok);
   }
   Serial.println("--- done ---");
   delay(500);
