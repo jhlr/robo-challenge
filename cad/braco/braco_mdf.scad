@@ -195,6 +195,10 @@ if (scene == "chk_claw_jaws") intersection() {
 }
 
 // ---------- checagens do ombro com STS3215 direto (resultado vazio = sem colisao) ----------
+if (scene == "view_ombro") translate([0, pivot_y, 0]) { mdf_mount(); sts_servo_dummy(); }   // so a estrutura e o servo, sem barras (para ver as ligacoes)
+if (scene == "view_ligacao") translate([0, pivot_y, 0]) {   // so o que liga servo e torre: quadros, escora, torre -x, prato (sem tampo nem servo)
+    color("#c8a165") { XY(mz_b) d_base(); YZ(-col_x - mt / 2) d_tower(); for (fx = m_fx) YZ(fx) d_stsframe(); XZ(m_br[0]) d_stsbrace(); }
+}
 module sts_whole() translate([0, pivot_y, 0]) { mdf_mount(); sts_servo_dummy(); }
 if (scene == "chk_sts_chassis") intersection() { translate([0, pivot_y, 0]) { sts_servo_dummy(); mdf_mount(); } robot_base(true); }   // so contato plano em z = mz_b (pes no prato) e ok
 if (scene == "chk_sts_bars") translate([0, pivot_y, 0]) intersection() { bars_only(); union() { mdf_mount(); sts_servo_dummy(); } }
