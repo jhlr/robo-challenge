@@ -31,7 +31,8 @@ void help() {
       "v <l> <r>    drive both sides, -1..1 (x stops, e prints encoder odometry on the STS car)\n"
       "x            stop wheels\n"
       "g <deg>      claw SG90 angle 0-180\n"
-      "d <deg>      turn the shoulder STS by REAL degrees from its current position: + arm up, - arm down (|deg| <= kShoulderMaxMoveDeg)\n"
+      "d <deg>      turn the shoulder STS from its current position, in small checked steps: + arm up, - arm down (|deg| <= kShoulderMaxMoveDeg)\n"
+      "l u|m|p      shoulder to the calibrated height: u = up, m = platform (place), p = pick (small checked steps from the current position)\n"
       "s            dump every sensor once\n"
       "S            toggle 10 Hz sensor stream\n"
       "b            beep + LED blink"));
@@ -130,7 +131,19 @@ void handle(const String& cmd) {
 #else
       const float deg = cmd.substring(1).toFloat();
       if (shoulderRotate(deg)) Serial.printf("turned %+.1f deg (%s)\n", deg, deg > 0 ? "up" : "down");
-      else Serial.printf("NOT DONE: %.1f deg is 0, beyond +-%.0f, out of the 0-4095 range, the servo did not answer, or it did not arrive in 3 s\n", deg, params::kShoulderMaxMoveDeg);
+      else Serial.printf("NOT DONE: %.1f deg is 0, beyond +-%.0f, out of the 0-4095 range, or the servo stopped following (it was told to hold at %d)\n", deg, params::kShoulderMaxMoveDeg, shoulderTicks());
+      break;
+#endif
+    }
+    case 'l': {
+#if defined(CAR_DC)
+      Serial.println("no STS bus on the DC car");
+      break;
+#else
+      const char c = cmd.length() > 1 ? cmd[1] : ' ';
+      const ShoulderLevel level = c == 'u' ? ShoulderLevel::Up : c == 'm' ? ShoulderLevel::Place : ShoulderLevel::Pick;
+      if (c != 'u' && c != 'm' && c != 'p') { Serial.println("? l u|m|p"); break; }
+      Serial.printf("%s, now at %d ticks\n", shoulderGoTo(level) ? "arrived" : "NOT arrived (holding)", shoulderTicks());
       break;
 #endif
     }

@@ -116,25 +116,6 @@ void test_color_classes() {
   TEST_ASSERT_EQUAL(core::Floor::Yellow, core::classify(3000, 2600, 400, 6000));
 }
 
-void test_shoulder_mapping() {
-  using namespace params;
-  // arm angles from cad/braco/params.json: pick -9.788, mid -16, place +25.468 -> servo 148 / 173 / 7 deg
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, 148.0f, core::shoulderServoDeg(-9.788f, kShoulderCenterDeg, kShoulderSign, kShoulderRatio));
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, 173.0f, core::shoulderServoDeg(-16.0f, kShoulderCenterDeg, kShoulderSign, kShoulderRatio));
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, 7.0f, core::shoulderServoDeg(25.468f, kShoulderCenterDeg, kShoulderSign, kShoulderRatio));
-  TEST_ASSERT_FLOAT_WITHIN(1e-4f, kShoulderCenterDeg, core::shoulderServoDeg(0.0f, kShoulderCenterDeg, kShoulderSign, kShoulderRatio));
-}
-
-void test_shoulder_clamps_to_servo_travel() {
-  bool cut = false;
-  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, core::shoulderServoDeg(40.0f, params::kShoulderCenterDeg, params::kShoulderSign, params::kShoulderRatio, &cut));
-  TEST_ASSERT_TRUE(cut);
-  TEST_ASSERT_FLOAT_WITHIN(1e-4f, 180.0f, core::shoulderServoDeg(-40.0f, params::kShoulderCenterDeg, params::kShoulderSign, params::kShoulderRatio, &cut));
-  TEST_ASSERT_TRUE(cut);
-  core::shoulderServoDeg(-10.0f, params::kShoulderCenterDeg, params::kShoulderSign, params::kShoulderRatio, &cut);
-  TEST_ASSERT_FALSE(cut);
-}
-
 void test_shoulder_target() {
   uint16_t t = 0;
   TEST_ASSERT_TRUE(core::shoulderTarget(2000, 45.0f, +1, 90.0f, &t));
@@ -145,6 +126,18 @@ void test_shoulder_target() {
   TEST_ASSERT_EQUAL_UINT16(1488, t);
   TEST_ASSERT_TRUE(core::shoulderTarget(2000, 90.0f, +1, 90.0f, &t));  // exactly the limit
   TEST_ASSERT_EQUAL_UINT16(3024, t);
+}
+
+void test_shoulder_next_target() {
+  TEST_ASSERT_EQUAL_UINT16(2064, core::shoulderNextTarget(2000, 3000, 64));   // small step toward the goal
+  TEST_ASSERT_EQUAL_UINT16(1936, core::shoulderNextTarget(2000, 1000, 64));
+  TEST_ASSERT_EQUAL_UINT16(2030, core::shoulderNextTarget(2000, 2030, 64));   // never past the goal
+  TEST_ASSERT_EQUAL_UINT16(2000, core::shoulderNextTarget(2000, 2000, 64));
+}
+
+void test_shoulder_reach() {
+  TEST_ASSERT_TRUE(core::shoulderWithinReach(1981, 2927, 90.0f));    // up -> pick is 83 deg
+  TEST_ASSERT_FALSE(core::shoulderWithinReach(1000, 2927, 90.0f));   // 169 deg in one go: refused
 }
 
 void test_shoulder_target_refused() {
@@ -810,9 +803,9 @@ int main() {
   RUN_TEST(test_wrap_delta);
   RUN_TEST(test_spin_counts);
   RUN_TEST(test_color_classes);
-  RUN_TEST(test_shoulder_mapping);
-  RUN_TEST(test_shoulder_clamps_to_servo_travel);
   RUN_TEST(test_shoulder_target);
+  RUN_TEST(test_shoulder_next_target);
+  RUN_TEST(test_shoulder_reach);
   RUN_TEST(test_shoulder_target_refused);
   return UNITY_END();
 }

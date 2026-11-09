@@ -15,11 +15,7 @@ constexpr int kLeftSign = +1;
 constexpr int kRightSign = -1;
 #endif
 
-// Shoulder: servo angle = center + sign * ratio * arm_angle. Assemble with the servo at kShoulderCenterDeg and the bars horizontal (alpha = 0): that is the tooth mesh phase.
-// Arm angles: pick -9.8, mid -16, place +25.5 deg (cad/braco/params.json) -> servo 148, 173, 7 deg.
-constexpr float kShoulderRatio = 4.0f;
-constexpr int kShoulderSign = -1;
-constexpr float kShoulderCenterDeg = 109.0f;
+// Shoulder: STS3215 driven directly on the bars (no gear reduction), so 1 servo degree = 1 arm degree.
 // The shoulder is an STS3215 in position mode (id kIdShoulder): the 12-bit position is the feedback, so moves are deltas from the CURRENT position (user rule), never absolute.
 // Bench 2026-11-09: position increasing LOWERS the claw, so increasing is down and up is -1.
 constexpr int kShoulderUpSign = -1;
@@ -27,7 +23,11 @@ constexpr int kShoulderUpSign = -1;
 constexpr int kShoulderTicksUp = 1981;
 constexpr int kShoulderTicksPick = 2927;
 constexpr int kShoulderTicksPlace = 2567;
-constexpr uint16_t kShoulderSpeed = 400;  // steps/s, gentle for the first tests
+constexpr uint16_t kShoulderSpeed = 300;  // steps/s, gentle (bench 2026-11-09)
+constexpr uint16_t kShoulderChunkTicks = 64;      // ~5.6 deg per commanded step: moves are small steps, each checked
+constexpr uint16_t kShoulderFollowTicks = 40;     // abort when the servo is farther than this from the step target after kShoulderStepMs
+constexpr uint16_t kShoulderMaxCurrent = 400;     // raw current units: abort above this
+constexpr uint16_t kShoulderStepMs = 400;
 constexpr uint8_t kShoulderAcc = 20;
 // HARD LIMIT (user rule: never more than 90 deg at the shoulder): the largest single rotation accepted.
 constexpr float kShoulderMaxMoveDeg = 90.0f;

@@ -1,12 +1,30 @@
 #include "hal/shoulder.h"
 
+#include <Arduino.h>
+
 #include "core/arm.h"
 #include "params.h"
 
 namespace {
 SMS_STS* st = nullptr;
-constexpr uint16_t kArrivedSteps = 12;  // ~1 deg
-constexpr uint32_t kTimeoutMs = 3000;
+constexpr uint16_t kArrivedTicks = 12;  // ~1 deg
+
+bool moveTo(uint16_t goal) {
+  int pos = st ? st->ReadPos(params::kIdShoulder) : -1;
+  if (pos < 0 || !core::shoulderWithinReach(pos, goal, params::kShoulderMaxMoveDeg)) return false;
+  while (abs(pos - static_cast<int>(goal)) > kArrivedTicks) {
+    const uint16_t step = core::shoulderNextTarget(pos, goal, params::kShoulderChunkTicks);
+    if (st->WritePosEx(params::kIdShoulder, step, params::kShoulderSpeed, params::kShoulderAcc) == 0) return false;
+    delay(params::kShoulderStepMs);
+    pos = st->ReadPos(params::kIdShoulder);
+    const int cur = st->ReadCurrent(params::kIdShoulder);
+    if (pos < 0 || abs(pos - static_cast<int>(step)) > params::kShoulderFollowTicks || abs(cur) > params::kShoulderMaxCurrent) {
+      if (pos >= 0) st->WritePosEx(params::kIdShoulder, pos, params::kShoulderSpeed, params::kShoulderAcc);  // hold where it stopped
+      return false;
+    }
+  }
+  return true;
+}
 }  // namespace
 
 bool shoulderBegin(SMS_STS& s) {
@@ -24,16 +42,20 @@ bool shoulderBegin(SMS_STS& s) {
   return st->EnableTorque(params::kIdShoulder, 1) != 0;
 }
 
-bool shoulderRotate(float servoDeg) {
-  uint16_t target = 0;
-  const int now = st ? st->ReadPos(params::kIdShoulder) : -1;
-  if (now < 0 || !core::shoulderTarget(now, servoDeg, params::kShoulderUpSign, params::kShoulderMaxMoveDeg, &target)) return false;
-  if (st->WritePosEx(params::kIdShoulder, target, params::kShoulderSpeed, params::kShoulderAcc) == 0) return false;
-  const uint32_t t0 = millis();
-  while (millis() - t0 < kTimeoutMs) {
-    delay(30);
-    const int p = st->ReadPos(params::kIdShoulder);
-    if (p >= 0 && abs(p - static_cast<int>(target)) <= kArrivedSteps) return true;
+int shoulderTicks() { return st ? st->ReadPos(params::kIdShoulder) : -1; }
+
+bool shoulderGoTo(ShoulderLevel level) {
+  switch (level) {
+    case ShoulderLevel::Up: return moveTo(params::kShoulderTicksUp);
+    case ShoulderLevel::Place: return moveTo(params::kShoulderTicksPlace);
+    case ShoulderLevel::Pick: return moveTo(params::kShoulderTicksPick);
   }
-  return false;   // commanded but never arrived (stalled, blocked or lost the bus)
+  return false;
+}
+
+bool shoulderRotate(float deg) {
+  uint16_t target = 0;
+  const int now = shoulderTicks();
+  if (now < 0 || !core::shoulderTarget(now, deg, params::kShoulderUpSign, params::kShoulderMaxMoveDeg, &target)) return false;
+  return moveTo(target);
 }
