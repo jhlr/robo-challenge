@@ -172,7 +172,7 @@ class CarroReal {
 
   // PWM do firmware (-255..255) -> fracao do comando das rodas. O simulador converte PWM em mm/s (2,31 mm/s por PWM: velReto 110 = 254 mm/s), mas o STS3215 so entrega ~kStsMaxSteps
   // passos/s (~150 mm/s com roda de 66 mm): a escala linear abaixo mantem a ordem das velocidades (giro < reta) em vez de saturar tudo acima de ~65 PWM. Ajuste kPwmPlenoSts na pista.
-  static constexpr float kPwmPlenoSts = 160.0f;   // PWM do firmware que vira 100% do comando (NAO medido)
+  static constexpr float kPwmPlenoSts = 80.0f;   // PWM do firmware que vira 100% do comando (era 160, 2026-11-09: carro lento, dobra todos os comandos; a reta de 110 satura em 100%, so ~1,45x)
   static float fracao(int pwm) { return constrain(pwm / kPwmPlenoSts, -1.0f, 1.0f); }
   core::Cor corDoChao(bool forcar = false) {
     if (forcar || millis() - ultimaChaoMs_ >= kPeriodoTcsMs / 2) {
