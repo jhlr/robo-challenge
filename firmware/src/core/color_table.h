@@ -25,6 +25,9 @@ constexpr RefCor kCoresRef[NUM_CORES] = {
     {58, 30, 19, 102},   // VERMELHO
 };
 constexpr float kDistanciaMaxima = 0.15f;  // acima disso a cor fica DESCONHECIDA (nada se parece com a leitura)
+// VERDE starts the match and is masked on the bar, so it is held to a much tighter distance. Measured 2026-11-09: the real start zone reads 0.027-0.046 from the VERDE reference; the car held
+// over a table or a hand reads 0.066-0.09 (same tone, twice as bright) and used to start the match by itself.
+constexpr float kDistanciaMaximaVerde = 0.055f;
 // Classification is by PROXIMITY and fully RELATIVE: the table holds raw readings, but only ratios are compared (r, g, b as fractions of their sum, clear as a fraction of the
 // BRANCO reference), so the same table survives a change of overall light. The nearest reference wins; a repeat of two readings in a row (filtrarCor) is what guards against noise.
 
@@ -54,7 +57,8 @@ inline Cor classificarCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const 
       melhor = static_cast<Cor>(i);
     }
   }
-  return menor <= distanciaMaxima ? melhor : DESCONHECIDA;
+  const float limite = melhor == VERDE ? fminf(distanciaMaxima, kDistanciaMaximaVerde) : distanciaMaxima;
+  return menor <= limite ? melhor : DESCONHECIDA;
 }
 
 inline const char* nomeCor(Cor cor) { return cor < NUM_CORES ? kNomesCores[cor] : "DESCONHECIDA"; }

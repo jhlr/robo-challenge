@@ -558,6 +558,17 @@ void test_color_table_each_reference_is_itself() {
   }
 }
 
+// The match starts on GREEN, so green is accepted only when it is close to the reference. Readings from the real start zone (robo log, 2026-11-09) are green;
+// readings taken with the car held over a table/hand (same tone, twice as bright) are not.
+void test_color_table_green_is_strict() {
+  TEST_ASSERT_EQUAL(core::VERDE, core::classificarCor(32, 32, 24, 88));
+  TEST_ASSERT_EQUAL(core::VERDE, core::classificarCor(24, 25, 19, 70));
+  TEST_ASSERT_EQUAL(core::VERDE, core::classificarCor(23, 25, 19, 69));
+  TEST_ASSERT_NOT_EQUAL(core::VERDE, core::classificarCor(45, 49, 39, 135));
+  TEST_ASSERT_NOT_EQUAL(core::VERDE, core::classificarCor(52, 51, 39, 137));
+  TEST_ASSERT_NOT_EQUAL(core::VERDE, core::classificarCor(45, 43, 34, 115));
+}
+
 void test_color_table_unknown_and_empty() {
   TEST_ASSERT_EQUAL(core::DESCONHECIDA, core::classificarCor(0, 0, 0, 0));
   TEST_ASSERT_EQUAL(core::DESCONHECIDA, core::classificarCor(20, 120, 20, 200));   // a pure green nobody measured
@@ -891,6 +902,7 @@ int main() {
   RUN_TEST(test_street_cube_is_walked_from_its_near_end);
   RUN_TEST(test_cube_on_the_next_street_steps_over_it);
   RUN_TEST(test_color_table_each_reference_is_itself);
+  RUN_TEST(test_color_table_green_is_strict);
   RUN_TEST(test_color_table_unknown_and_empty);
   RUN_TEST(test_color_table_names_keep_the_order);
   RUN_TEST(test_color_filter_needs_two_equal_readings);
