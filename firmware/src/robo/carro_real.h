@@ -23,7 +23,7 @@ namespace robo {
 // frente enxerga um cubo ou uma plataforma sim.
 constexpr float kAlcanceCorFrenteMm = 110.0f;   // o TCS da frente so vale quando o sonar ve algo mais perto que isto (senao ele leria o chao ou a parede ao fundo)
 constexpr uint32_t kSonarTimeoutUs = 8000;      // ~1,4 m: a varredura de plataformas olha ate ~900 mm; sem eco nao trava o ciclo por 25 ms
-constexpr unsigned long kPeriodoTcsMs = 60;     // a leitura do TCS leva 24 ms: nao ler a cada ciclo
+constexpr unsigned long kPeriodoTcsMs = 30;     // o TCS integra em 24 ms: uma leitura nova a cada 30 ms (a leitura em si e rapida). Eram 60 ms: com o carro a ~230 mm/s a faixa azul do portao (~120 ms sob o sensor) dava uma so leitura e o portao nao era registrado
 constexpr unsigned long kPeriodoMaoMs = 60;     // de quanto em quanto tempo a guarda da mao le o sonar (core/handguard.h)
 constexpr float kRecuoVel = 0.3f;               // fracao do comando das rodas no recuo
 

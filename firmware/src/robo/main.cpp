@@ -56,7 +56,8 @@ void registrar(const String& texto) { boot += texto + "\n"; dbg.println(texto); 
 void reiniciarDesarmado() { paradoPorComando = kMagicParado; delay(200); ESP.restart(); }
 
 void iniciar(int segundos, const char* motivo) {
-  if (carro.piso() == seguidor::kPisoVerde) seguidor::calibrarPeloVerde(barra, dbg);   // o carro comeca sobre o verde: o limiar da barra segue a luz e a altura de hoje
+  carro.tcsChao(); carro.tcsChao();   // duas leituras frescas: a cor so e aceita quando repete, e logo depois do boot ainda nao ha cor aceita
+  if (carro.tcsChao() == seguidor::CorLinha::Verde) seguidor::calibrarPeloVerde(barra, dbg);   // o carro comeca sobre o verde: o limiar da barra segue a luz e a altura de hoje
   else dbg.println("Limiar da barra: o chao nao e verde, fica o ultimo (fixo ou do ultimo verde)");
   fimMs = millis() + 1000UL * segundos;
   andando = true;
