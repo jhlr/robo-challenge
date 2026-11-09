@@ -1,6 +1,7 @@
 #pragma once
 // Pure logic (no Arduino.h): floor/cube colour from TCS34725 raw r, g, b, clear, by distance to a table of reference readings.
 // Rafael reads this: keep the colour ORDER and the comments next to the table.
+#include <math.h>
 #include <stdint.h>
 
 namespace core {
@@ -27,15 +28,17 @@ constexpr float kDistanciaMaxima = 0.15f;  // acima disso a cor fica DESCONHECID
 // Classification is by PROXIMITY and fully RELATIVE: the table holds raw readings, but only ratios are compared (r, g, b as fractions of their sum, clear as a fraction of the
 // BRANCO reference), so the same table survives a change of overall light. The nearest reference wins; a repeat of two readings in a row (filtrarCor) is what guards against noise.
 
-// Squared distance between a reading and one reference: chroma (r, g, b as fractions of their sum) weighs 4x, brightness relative to BRANCO 0.5x.
-inline float distanciaCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const RefCor& ref, const RefCor& branco) {
+// Squared distance between a reading and one reference: chroma (r, g, b as fractions of their sum) weighs 4x, brightness is the LOG RATIO of the clear channels (a ratio, so a white
+// that reads 20% dimmer in a shadow is as far from its reference as one that reads 20% brighter) weighing 0.05x. Chroma alone cannot tell BRANCO from PRETO (same tone), so brightness
+// stays, but it must not outvote the tone: with a heavier weight a shaded white became AMARELO or VERMELHO (measured on the car, 2026-11-09).
+inline float distanciaCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const RefCor& ref) {
   const float soma = static_cast<float>(r) + g + b;
   const float somaRef = static_cast<float>(ref.r) + ref.g + ref.b;
   const float dr = r / soma - ref.r / somaRef;
   const float dg = g / soma - ref.g / somaRef;
   const float db = b / soma - ref.b / somaRef;
-  const float dl = static_cast<float>(c) / branco.c - static_cast<float>(ref.c) / branco.c;
-  return 4.0f * (dr * dr + dg * dg + db * db) + 0.5f * dl * dl;
+  const float dl = logf((c < 1 ? 1.0f : static_cast<float>(c)) / static_cast<float>(ref.c));
+  return 4.0f * (dr * dr + dg * dg + db * db) + 0.05f * dl * dl;
 }
 
 // Nearest reference colour by relative distance, or DESCONHECIDA when nothing is within kDistanciaMaxima or the reading is empty.
@@ -45,7 +48,7 @@ inline Cor classificarCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const 
   Cor melhor = DESCONHECIDA;
   float menor = 1e9f;
   for (int i = 0; i < NUM_CORES; ++i) {
-    const float d = distanciaCor(r, g, b, c, refs[i], refs[BRANCO]);
+    const float d = distanciaCor(r, g, b, c, refs[i]);
     if (d < menor) {
       menor = d;
       melhor = static_cast<Cor>(i);

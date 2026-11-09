@@ -294,6 +294,11 @@ void test_floor_table_classifies_measured_readings() {
   TEST_ASSERT_EQUAL(AMARELO, classificarCor(98, 57, 29, 177));
   TEST_ASSERT_EQUAL(VERDE, classificarCor(25, 21, 13, 57));
   TEST_ASSERT_EQUAL(VERDE, classificarCor(24, 20, 12, 54));
+  // white read dimmer (shadow, car tilting, line edge) must stay BRANCO, not AMARELO or VERMELHO: readings that flickered on the car
+  TEST_ASSERT_EQUAL(BRANCO, classificarCor(90, 57, 39, 180));
+  TEST_ASSERT_EQUAL(BRANCO, classificarCor(94, 59, 41, 189));
+  TEST_ASSERT_EQUAL(BRANCO, classificarCor(66, 42, 29, 134));
+  TEST_ASSERT_EQUAL(BRANCO, classificarCor(73, 46, 32, 147));
 }
 
 core::CubeBelief emptyCubes() {
