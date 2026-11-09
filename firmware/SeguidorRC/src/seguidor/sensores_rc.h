@@ -34,6 +34,11 @@ void iniciar(BarraRC& barra, const uint8_t pinos[kSensores]);
 // false = poucos sensores vivos: nao deve andar assim.
 bool aplicarLimiar(BarraRC& barra, Print& saida);
 
+// Limiar por sensor a partir do VERDE do inicio da partida (o carro comeca sobre ele): o verde e escuro no infravermelho, entao o limiar de cada sensor vira `fracao` do tempo que ele
+// leu sobre o verde (media de `amostras` leituras), nunca abaixo de limiarUs. Segue o nivel de iluminacao e a altura da barra daquele dia. So chame com o TCS do chao lendo VERDE.
+// false = leitura implausivel (nenhum sensor vivo acima de limiarUs): mantem o limiar fixo.
+bool calibrarPeloVerde(BarraRC& barra, Print& saida, float fracao = 0.8f, int amostras = 20);
+
 // Le os 8 de uma vez e atualiza barra.preto[].
 void ler(BarraRC& barra);
 

@@ -59,4 +59,35 @@ bool aplicarLimiar(BarraRC& b, Print& saida) {
   return validos >= b.sensoresMinimos;
 }
 
+bool calibrarPeloVerde(BarraRC& b, Print& saida, float fracao, int amostras) {
+  b.qtr.setTimeout(b.tempoMaxUs);   // mede o tempo cheio, nao cortado no limiar
+  unsigned long soma[kSensores] = {};
+  for (int n = 0; n < amostras; n++) {
+    uint16_t crus[kSensores];
+    b.qtr.read(crus, QTRReadMode::Off);
+    copiarLeituras(b, crus);
+    for (int i = 0; i < kSensores; i++) soma[i] += b.leituras[i];
+    delay(2);
+  }
+  int escuros = 0;
+  unsigned int maior = b.limiarUs;
+  unsigned int novo[kSensores];
+  for (int i = 0; i < kSensores; i++) {
+    novo[i] = b.limiarUs;
+    if (!b.ok[i]) continue;
+    const unsigned int media = static_cast<unsigned int>(soma[i] / amostras);
+    if (media > b.limiarUs) escuros++;
+    novo[i] = constrain(static_cast<unsigned int>(fracao * media), b.limiarUs, b.tempoMaxUs - 100);
+    if (novo[i] > maior) maior = novo[i];
+  }
+  const bool plausivel = escuros > 0;
+  if (plausivel) for (int i = 0; i < kSensores; i++) b.limiar[i] = novo[i];
+  b.tempoLeituraUs = min(b.tempoMaxUs, maior + 100);   // o tempo de espera cobre o maior limiar
+  b.qtr.setTimeout(b.tempoLeituraUs);
+  saida.printf("Limiar pelo verde (%s):", plausivel ? "calibrado" : "leitura implausivel, mantem o fixo");
+  for (int i = 0; i < kSensores; i++) saida.printf(" S%d=%u%s", i + 1, b.limiar[i], b.ok[i] ? "" : "(morto)");
+  saida.println();
+  return plausivel;
+}
+
 }  // namespace seguidor

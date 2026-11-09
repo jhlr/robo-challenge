@@ -56,6 +56,8 @@ void registrar(const String& texto) { boot += texto + "\n"; dbg.println(texto); 
 void reiniciarDesarmado() { paradoPorComando = kMagicParado; delay(200); ESP.restart(); }
 
 void iniciar(int segundos, const char* motivo) {
+  if (carro.piso() == seguidor::kPisoVerde) seguidor::calibrarPeloVerde(barra, dbg);   // o carro comeca sobre o verde: o limiar da barra segue a luz e a altura de hoje
+  else dbg.println("Limiar da barra: o chao nao e verde, fica o ultimo (fixo ou do ultimo verde)");
   fimMs = millis() + 1000UL * segundos;
   andando = true;
   dbg.printf("ANDANDO por %d s (%s; x para parar)\n", segundos, motivo);
