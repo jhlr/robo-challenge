@@ -184,7 +184,11 @@ class CarroReal {
   }
   core::Cor corDaFrente() {
     hal::ColorSample a;
-    return frente_.read(a) ? core::classificarCor(a.r, a.g, a.b, a.c) : core::DESCONHECIDA;
+    for (int tentativa = 0; tentativa < 3; tentativa++) {   // o TCS da frente tem um leve mau contato: so e lido quando o sonar pede, e tenta ate 3 vezes
+      if (frente_.read(a)) return core::classificarCor(a.r, a.g, a.b, a.c);
+      delay(5);
+    }
+    return core::DESCONHECIDA;
   }
   bool algoPerto(float alcanceMm) {
     const double d = us();

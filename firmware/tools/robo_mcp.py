@@ -11,7 +11,7 @@ import urllib.request
 
 BASE = "http://127.0.0.1:8765"
 FERRAMENTAS = [
-    {"name": "robo_enviar", "description": "Manda um comando ao carro pela ponte BLE: 'g [segundos]' inicia a partida (padrao 60 s), 'x' para e reinicia desarmado, 's' estado e leitura do chao, 'h' ajuda. O carro se move com g.",
+    {"name": "robo_enviar", "description": "Manda um comando ao carro pela ponte BLE: 'g [segundos]' inicia a partida (padrao 60 s), 'x' para e reinicia desarmado, 's' estado e leitura do chao, 't' teste de reta de 1,5 s (mostra o quanto cada roda andou), 'b' tempo cru dos 8 sensores da barra, 'h' ajuda. O carro se move com g.",
      "inputSchema": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}},
     {"name": "robo_ler", "description": "Le o que o carro escreveu pelo BLE. 'desde' e o 'proximo' devolvido na leitura anterior (0 = tudo que a ponte guarda); 'espera_s' espera ate esse tempo por texto novo.",
      "inputSchema": {"type": "object", "properties": {"desde": {"type": "integer"}, "espera_s": {"type": "number"}}}},

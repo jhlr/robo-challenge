@@ -45,8 +45,10 @@ bool ColorSensor::begin(TwoWire& bus) {
 }
 
 bool ColorSensor::read(ColorSample& out) {
+  if (!ok_ && bus_) ok_ = tcs_.begin(TCS34725_ADDRESS, bus_);   // a loose wire at boot (or later) heals itself the next time the sensor is asked
   if (!ok_) return false;
   tcs_.getRawData(&out.r, &out.g, &out.b, &out.c);
+  if (out.r == 0 && out.g == 0 && out.b == 0 && out.c == 0) { ok_ = false; return false; }   // all zeros = the bus did not answer: report a failed read and re-init on the next one
   out.floor = core::classify(out.r, out.g, out.b, out.c);
   return true;
 }

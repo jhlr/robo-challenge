@@ -3,7 +3,7 @@
 //
 // Inicio: o carro NAO anda ao ligar. A partida comeca quando o chao le VERDE (zona de largada) por ~0,5 s seguidos, ou pelo comando g. Depois de x ou do fim do tempo
 // ele fica DESARMADO (nao reinicia sozinho sobre o verde): so g, ou desligar e ligar de novo, arma o gatilho do verde. Console por USB (115200) E por Bluetooth LE ("RoboChallenge", Nordic UART: tools/console_ble.py ou nRF Connect):
-//   g [segundos]  anda (padrao 60 s, para sozinho)   x  para e reinicia   s  estado e o que o boot achou   h  ajuda
+//   g [segundos]  anda (padrao 60 s, para sozinho)   x  para e reinicia   s  estado e o que o boot achou   t  teste de reta (1,5 s a 30%, mostra o quanto cada roda andou)   b  tempo cru dos 8 sensores da barra (us)   h  ajuda
 // Atualizacao de firmware por BLE (carro parado e sem console conectado):
 //   python3 SeguidorRC/tools/ota_ble.py firmware/.pio/build/robo/firmware.bin --nome RoboChallenge --segredo robo-challenge-2026
 #include <Arduino.h>
@@ -103,6 +103,31 @@ void guardaDaMao() {
   dbg.println("solto: segue");
 }
 
+// Isola o hardware da logica: as duas rodas para frente, iguais, por 1,5 s. Se uma andar diferente da outra, ou para tras, o problema esta no sinal ou na asa da roda, nao na missao.
+void testeReto() {
+  parouTudo();
+  const float e0 = drive.leftMm(), d0 = drive.rightMm();
+  drive.setSpeeds(0.3f, 0.3f);
+  const unsigned long t0 = millis();
+  while (millis() - t0 < 1500) { delay(20); atender(); }
+  drive.setSpeeds(0.0f, 0.0f);
+  delay(300);
+  dbg.printf("TESTE RETO 1,5 s a 30%%: esquerda %.0f mm, direita %.0f mm (esperado: iguais e positivos)\n", drive.leftMm() - e0, drive.rightMm() - d0);
+}
+
+// Tempo cru (us) de cada sensor da barra, com o tempo maximo cheio (nao cortado no limiar): serve para ver o branco e a linha e escolher o limiar. Coloque a barra sobre o branco e depois sobre a linha.
+void lerBarraCrua() {
+  barra.qtr.setTimeout(barra.tempoMaxUs);
+  for (int k = 0; k < 3; k++) {
+    seguidor::ler(barra);
+    String linha = "barra us (limiar " + String(barra.limiarUs) + "):";
+    for (int i = 0; i < seguidor::kSensores; i++) linha += " S" + String(i + 1) + "=" + String(barra.leituras[i]) + (barra.ok[i] ? "" : "(morto)");
+    dbg.println(linha);
+    delay(100);
+  }
+  barra.qtr.setTimeout(barra.tempoLeituraUs);
+}
+
 void tratar(String linha) {
   linha.trim();
   linha.toLowerCase();
@@ -115,13 +140,19 @@ void tratar(String linha) {
                garraLevantada() ? "ligada" : "desligada (garra abaixada)");
     dbg.printf("%s\n", carro.chaoTexto().c_str());
     if (fw) dbg.printf("entregues %d, coletados %d, pontos %d, cruzamentos %d, rumo %.1f\n", fw->nav.entregues, fw->nav.coletados, fw->nav.pontos, fw->cruzamentos, fw->rumo);
+  } else if (cmd == 'b') {
+    if (andando) { dbg.println("ja esta andando (x para parar)"); return; }
+    lerBarraCrua();
+  } else if (cmd == 't') {
+    if (andando) { dbg.println("ja esta andando (x para parar)"); return; }
+    testeReto();
   } else if (cmd == 'g') {
     if (andando) { dbg.println("ja esta andando (x para parar)"); return; }
     const int s = linha.length() > 1 ? linha.substring(1).toInt() : 60;
     paradoPorComando = 0;
     iniciar(s > 0 ? s : 60, "comando g");
   } else {
-    dbg.println("g [s] anda | x para e reinicia | s estado");
+    dbg.println("g [s] anda | x para e reinicia | s estado | t teste de reta | b barra crua");
   }
 }
 
@@ -134,6 +165,20 @@ void atender() {
     else linhaSerial += ch;
   }
   if (linhaBle.length()) { const String l = linhaBle; linhaBle = ""; tratar(l); }
+}
+
+// Uma linha a cada 500 ms enquanto anda: a barra (# = linha), o quanto cada roda andou, o rumo e o que foi mandado a cada roda.
+void telemetria() {
+  static unsigned long ultima = 0;
+  if (millis() - ultima < 500) return;
+  ultima = millis();
+  bool preto[seguidor::kSensores];
+  carro.ler(preto);
+  char barraTxt[seguidor::kSensores + 1];
+  for (int i = 0; i < seguidor::kSensores; i++) barraTxt[i] = preto[i] ? '#' : '.';
+  barraTxt[seguidor::kSensores] = 0;
+  dbg.printf("[%lu] barra %s | odo E %.0f D %.0f mm | rumo %.1f | alvo E %.0f D %.0f | cruz %d perdido %d busca %d | %s\n", millis(), barraTxt, carro.odoEMm(), carro.odoDMm(),
+             fw ? fw->rumo : 0.0f, carro.roda(true), carro.roda(false), fw ? fw->cruzamentos : 0, fw ? fw->ticksPerdido : 0, fw ? fw->ticksBuscando : 0, fw ? fw->nav.ultimoPlano.c_str() : "");
 }
 
 // Chamado a cada ciclo (tambem dentro dos giros e avancos que bloqueiam): manda o BLE, atende comandos, guarda da mao e limite de tempo.
@@ -150,6 +195,7 @@ void vigiar() {
   if (ota.ativo()) { parouTudo(); return; }   // atualizando o firmware: carro parado
   atender();
   if (andando) guardaDaMao();
+  if (andando) telemetria();
   if (andando && millis() > fimMs) { parouTudo(); dbg.println("TEMPO ACABOU: reiniciando desarmado"); reiniciarDesarmado(); }
 }
 
