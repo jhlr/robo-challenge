@@ -21,6 +21,9 @@ Medem ou testam o hardware, nao fazem parte da missao.
 | `bitola` | mede a bitola efetiva das rodas |
 | `sensores` | sonar + 2 TCS + MPU em tempo real |
 
+## Observar e comandar o carro pelo BLE (agente ou curl)
+`tools/robo_bridge.py` fica conectada ao carro (`RoboChallenge`), guarda o log em `~/.cache/robo/ble.log` e aceita `g [s]`, `x`, `s`, `h` por HTTP em `localhost:8765` (`/status`, `/log?desde=N&espera=S`, `POST /send`). Rode no terminal do app (a permissao de Bluetooth e dele): `~/.venvs/seguidor/bin/python firmware/tools/robo_bridge.py`. `tools/robo_mcp.py` e um servidor MCP sem dependencias sobre essa ponte (`robo_enviar`, `robo_ler`); registrado com `claude mcp add robo -- ~/.venvs/seguidor/bin/python <caminho>/firmware/tools/robo_mcp.py` (aparece na proxima sessao). A ponte segura a unica conexao BLE do carro: pare-a antes do OTA ou do `console_ble.py`.
+
 ## Testes
 `pio test -e native` roda os testes de `src/core` no PC (`test/test_core`).
 
