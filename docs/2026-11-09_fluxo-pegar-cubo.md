@@ -34,11 +34,14 @@ Constantes em `firmware/include/params.h` (`kShoulderTicksUp/Pick/Place`). Movim
 20. Repete tudo; priorizar cubos de localizacao ja conhecida.
 
 ## Implementacao
-- `firmware/src/core/pickplace.h`: maquina de estados pura (`PickPlace::step(IO&)`), testada com um IO falso (7 testes em `test_core`). Retenta o fechamento da garra ate 3 vezes; qualquer falha para, sobe o ombro (exceto se o proprio ombro travou: ai nao manda segundo comando) e registra `PpFail`. Cubo na garra (`carrying`) fica registrado para a missao decidir.
+- `firmware/src/core/pickplace.h`: maquina de estados pura (`PickPlace::step(IO&)`), testada com um IO falso (7 testes em `test_core`). Sem pegada: levanta o ombro, confere de novo (o cubo pode so aparecer como seguro ao levantar), reposiciona (sonar), desce e fecha outra vez, ate 3 fechamentos; qualquer falha para, sobe o ombro (exceto se o proprio ombro travou: ai nao manda segundo comando) e registra `PpFail`. Cubo na garra (`carrying`) fica registrado para a missao decidir.
 - `firmware/src/hal/shoulder.*`: ombro direto em ticks, sempre em passos de 64 ticks (~5,6 graus) a partir da posicao atual, checando posicao e corrente; `shoulderGoTo(Up|Place|Pick)`. Bringup: `l u|m|p` e `d <graus>`.
 
+## Cubo na garra: guardar ja
+Carregando, a prioridade e entregar: a maquina nao tem desvios para coletar. A navegacao ja simulada (`robo.h`) segue direto para o oeste/portao e, se acha outro cubo no caminho, nao pega: marca a rua como bloqueada temporariamente, lembra dele para depois da entrega e volta por outra rua (`tratarCubo`, `aoBloquearTemporario`).
+
 ## Pendente
-- Falta o IO real da maquina: garra SG90 (angulos aberta/fechada nao medidos, e como saber se esta segurando algo), `backUp(mm)` pelos encoders, cor/sonar ja existem em `robo/carro_real.h`. `CarroReal::coletar` continua stub.
+- Falta o IO real da maquina (inclui `reposition()`: reapontar para o cubo pelo sonar e ajustar a distancia): garra SG90 (angulos aberta/fechada nao medidos, e como saber se esta segurando algo), `backUp(mm)` pelos encoders, cor/sonar ja existem em `robo/carro_real.h`. `CarroReal::coletar` continua stub.
 - Ligar a maquina a `Robo` (SeguidorRC/seguidor/robo.h): `goToPlatform` e `turn180` vem da navegacao ja simulada; `coletar(i)` e `entregarNaPlataforma` devem chamar a maquina.
 - CAD: `cad/braco/params.json` ainda tem `shoulder_ratio = 4`.
 - A altura de pegar derivou 150 ticks uma vez; era o usuario forcando a descida (torque segura bem).

@@ -164,11 +164,13 @@ struct FakePp {
   bool clawOpen() { log += "open "; return true; }
   bool clawClose() { log += "close "; return true; }
   bool shoulderTo(core::Level l) { log += l == core::Level::Up ? "up " : l == core::Level::Pick ? "pick " : "place "; return shoulderOk; }
-  bool holding() { ++checks; log += "grip? "; return grip && checks >= gripAfter; }
+  bool gripOnLift = false;  // the cube only shows as held after the lift
+  bool holding() { ++checks; log += "grip? "; return gripOnLift ? log.find("up ") != std::string::npos : grip && checks >= gripAfter; }
   bool frontClear() { log += "clear? "; return clear; }
   bool goToPlatform() { log += "go "; return platform; }
   bool platformPositionOk() { log += "pos? "; return platPos; }
   bool platformColorOk() { log += "pcolor? "; return platColor; }
+  bool reposition() { log += "repo "; return true; }
   bool turn180() { log += "turn "; return true; }
 };
 
@@ -180,9 +182,15 @@ void test_pickplace_full_sequence() {
 }
 
 void test_pickplace_grip_retry_then_ok() {
-  FakePp io; io.gripAfter = 3; core::PickPlace pp; pp.run(io);   // fails twice, third closing holds
+  FakePp io; io.gripAfter = 5; core::PickPlace pp; pp.run(io);   // checks: 1 pick(no) 2 raised(no) -> reposition -> 3 pick(no) 4 raised(no) -> reposition -> 5 pick(yes)
   TEST_ASSERT_EQUAL(core::PpState::Done, pp.state);
-  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? open pick close grip? open pick close grip? up clear? go pos? pcolor? b13 place open up turn ", io.log.c_str());
+  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up grip? repo open pick close grip? up grip? repo open pick close grip? up clear? go pos? pcolor? b13 place open up turn ", io.log.c_str());
+}
+
+void test_pickplace_grip_shows_after_lift() {
+  FakePp io; io.gripOnLift = true; core::PickPlace pp; pp.run(io);   // not held at the pick height, held once lifted: no reposition, straight on
+  TEST_ASSERT_EQUAL(core::PpState::Done, pp.state);
+  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up grip? clear? go pos? pcolor? b13 place open up turn ", io.log.c_str());
 }
 
 void test_pickplace_no_grip_aborts_with_shoulder_up() {
@@ -876,6 +884,7 @@ int main() {
   RUN_TEST(test_shoulder_reach);
   RUN_TEST(test_pickplace_full_sequence);
   RUN_TEST(test_pickplace_grip_retry_then_ok);
+  RUN_TEST(test_pickplace_grip_shows_after_lift);
   RUN_TEST(test_pickplace_no_grip_aborts_with_shoulder_up);
   RUN_TEST(test_pickplace_wrong_color_never_moves);
   RUN_TEST(test_pickplace_front_blocked_keeps_cube);

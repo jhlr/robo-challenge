@@ -3,6 +3,7 @@
 //
 // Flow (user, 2026-11-09), starting when the sonar has already seen a cube and the shoulder is at the top:
 //   cube color -> back up 9 cm -> open claw -> shoulder to pick -> close claw -> check grip -> shoulder to top -> check nothing in front ->
+//   (no grip: shoulder to top, check again, reposition, open, lower, close, check again; up to kGripTries closings) ->
 //   drive to the platform -> check platform position (sonar) -> check platform color -> back up 13 cm -> shoulder to platform height -> open claw -> shoulder to top -> turn 180.
 // Walking the map and finding the cube/platform are the navigation's job (GoToPlatform is a hook into it); this machine owns the arm and claw order and every check between them.
 //
@@ -13,7 +14,9 @@
 //   shoulderTo(Level)        small checked steps to a calibrated height; false = blocked, the shoulder holds where it stopped
 //   holding()                the claw is gripping something
 //   frontClear()             sonar sees no cube in front
-//   goToPlatform()           navigation brings the car in front of the platform
+//   reposition()             after a failed grip, with the shoulder up: re-aim at the cube (sonar) and adjust the distance
+//   goToPlatform()           navigation brings the car in front of the platform. Carrying a cube means STORING IT NOW: no detours to collect; cubes seen on the way are only remembered (robo.h: a cube in the way is
+//                            blocked temporarily, remembered for after the delivery, and the car goes around it)
 //   platformPositionOk()     sonar confirms the platform is where it should be
 //   platformColorOk()        floor/front color matches the carried cube
 //   turn180()                spin half a turn
@@ -22,12 +25,12 @@ namespace core {
 enum class Level : uint8_t { Up, Place, Pick };
 
 enum class PpState : uint8_t {
-  CheckColor, BackUpPick, OpenForPick, LowerPick, ClosePick, CheckGrip, RaiseCarry, CheckClear,
+  CheckColor, BackUpPick, OpenForPick, LowerPick, ClosePick, CheckGrip, RaiseRetry, CheckGripRaised, Reposition, RaiseCarry, CheckClear,
   GoToPlatform, CheckPlatformPos, CheckPlatformColor, BackUpPlace, LowerPlace, Release, RaiseAfter, Turn180,
   Done, Aborted
 };
 
-enum class PpFail : uint8_t { None, WrongColor, BackUp, Claw, Shoulder, NoGrip, FrontBlocked, Platform, PlatformPos, PlatformColor, Turn };
+enum class PpFail : uint8_t { None, WrongColor, BackUp, Reposition, Claw, Shoulder, NoGrip, FrontBlocked, Platform, PlatformPos, PlatformColor, Turn };
 
 constexpr float kBackUpPickMm = 90.0f;     // user: ~9 cm
 constexpr float kBackUpPlaceMm = 130.0f;   // user: 13 cm
@@ -52,9 +55,15 @@ struct PickPlace {
       case PpState::ClosePick: next(io.clawClose(), PpState::CheckGrip, PpFail::Claw); break;
       case PpState::CheckGrip:
         if (io.holding()) { carrying = true; state = PpState::RaiseCarry; }
-        else if (++gripTries < kGripTries) state = PpState::OpenForPick;   // already at the pick height: open and close again
+        else state = PpState::RaiseRetry;
+        break;
+      case PpState::RaiseRetry: shoulder(io, Level::Up, PpState::CheckGripRaised); break;
+      case PpState::CheckGripRaised:   // the cube may only show it is held once lifted
+        if (io.holding()) { carrying = true; state = PpState::CheckClear; }
+        else if (++gripTries < kGripTries) state = PpState::Reposition;
         else abort(io, PpFail::NoGrip);
         break;
+      case PpState::Reposition: next(io.reposition(), PpState::OpenForPick, PpFail::Reposition); break;
       case PpState::RaiseCarry: shoulder(io, Level::Up, PpState::CheckClear); break;
       case PpState::CheckClear: next(io.frontClear(), PpState::GoToPlatform, PpFail::FrontBlocked); break;
       case PpState::GoToPlatform: next(io.goToPlatform(), PpState::CheckPlatformPos, PpFail::Platform); break;
