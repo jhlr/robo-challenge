@@ -104,8 +104,11 @@ class CarroReal {
   }
 
   // ---- sensores
-  void ler(bool preto[seguidor::kSensores]) const {
-    for (int i = 0; i < seguidor::kSensores; i++) preto[i] = barra_.preto[i];
+  // O verde da arena e ESCURO no infravermelho da barra (medido: os 8 sensores leem "preto" sobre ele), mas no modelo da logica o verde e chao claro sem linha.
+  // Aqui, onde o hardware vira o modelo, sobre o verde a barra diz "sem linha"; a logica reconhece a zona verde pelo TCS do chao, nao pela barra.
+  void ler(bool preto[seguidor::kSensores]) {
+    const bool sobreVerde = corDoChao() == core::VERDE;
+    for (int i = 0; i < seguidor::kSensores; i++) preto[i] = sobreVerde ? false : barra_.preto[i];
   }
   double odoEMm() const { return odoE_; }
   double odoDMm() const { return odoD_; }
@@ -177,7 +180,9 @@ class CarroReal {
       hal::ColorSample a;
       if (chao_.read(a)) {
         const core::Cor bruta = core::classificarCor(a.r, a.g, a.b, a.c);
+        const core::Cor antes = chaoAceita_;
         chaoAceita_ = core::filtrarCor(bruta, chaoAnterior_, chaoAceita_);   // so acredita se repetir em duas leituras
+        if (chaoAceita_ != antes) evento(std::string("[chao] ") + core::nomeCor(antes) + " -> " + core::nomeCor(chaoAceita_) + " rgbc " + std::to_string(a.r) + " " + std::to_string(a.g) + " " + std::to_string(a.b) + " " + std::to_string(a.c));   // diagnostico: cada troca da cor aceita, com a leitura crua
       }
     }
     return chaoAceita_;

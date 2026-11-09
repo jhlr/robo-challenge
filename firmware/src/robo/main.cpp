@@ -175,7 +175,7 @@ void telemetria() {
   bool preto[seguidor::kSensores];
   carro.ler(preto);
   char barraTxt[seguidor::kSensores + 1];
-  for (int i = 0; i < seguidor::kSensores; i++) barraTxt[i] = preto[i] ? '#' : '.';
+  for (int i = 0; i < seguidor::kSensores; i++) barraTxt[i] = preto[i] ? '#' : '.';   // ja com o verde mascarado (carro_real.h ler)
   barraTxt[seguidor::kSensores] = 0;
   dbg.printf("[%lu] barra %s | odo E %.0f D %.0f mm | rumo %.1f | alvo E %.0f D %.0f | cruz %d perdido %d busca %d | %s\n", millis(), barraTxt, carro.odoEMm(), carro.odoDMm(),
              fw ? fw->rumo : 0.0f, carro.roda(true), carro.roda(false), fw ? fw->cruzamentos : 0, fw ? fw->ticksPerdido : 0, fw ? fw->ticksBuscando : 0, fw ? fw->nav.ultimoPlano.c_str() : "");
