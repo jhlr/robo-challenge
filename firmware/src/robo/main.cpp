@@ -102,7 +102,9 @@ void setup() {
   Serial.begin(115200);
   delay(300);
   hal::beginStsBus(st);
-  Serial.printf("ombro: %s (a guarda da mao so vale com a garra no topo)\n", shoulderBegin(st) ? "ok" : "nao responde");
+  if (!shoulderBegin(st)) Serial.println("ombro: NAO RESPONDE");
+  else Serial.printf("ombro: indo para o topo (%d ticks, hoje em %d)... %s\n", params::kShoulderTicksUp, shoulderTicks(),
+                     shoulderGoTo(ShoulderLevel::Up) ? "no topo" : "NAO CHEGOU (travado, longe demais ou sem leitura): confira o braco antes de andar");   // sempre ao ligar: o topo e a posicao de partida conhecida
   drive.begin();
   garra.begin(pins::kClaw);
   parouTudo();
