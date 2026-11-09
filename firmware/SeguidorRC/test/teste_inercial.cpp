@@ -126,15 +126,15 @@ int main() {
     Colisao d;
     assert(!colisaoDetectada(d, {0, 2.0f, 0.0f, 1.0f}, false, 0, ai) && d.picoG > 1.9f); }
 
-  { // lacuna: virou 5 graus para a esquerda -> roda esquerda mais rapida; para a direita -> a direita
+  { // lacuna: fora da tolerancia gira no eixo (rodas em sentidos opostos) de volta; dentro dela anda reto
     Comando c; c.parar = false;
-    segurarRumoNaLacuna(c, 5.0f, 0.0f, aj, ai);
-    assert(c.esq > aj.velReto && c.dir < aj.velReto && c.esq + c.dir == 2 * aj.velReto);
-    segurarRumoNaLacuna(c, -5.0f, 0.0f, aj, ai);
-    assert(c.esq < aj.velReto && c.dir > aj.velReto);
-    segurarRumoNaLacuna(c, 90.0f, 0.0f, aj, ai);   // limitado
-    assert(c.esq - aj.velReto == ai.lacunaMaxPwm);
-    segurarRumoNaLacuna(c, 0.0f, 0.0f, aj, ai);
+    segurarRumoNaLacuna(c, 10.0f, 0.0f, aj, ai);   // virou para a esquerda -> gira para a direita
+    assert(c.esq > 0 && c.dir == -c.esq);
+    segurarRumoNaLacuna(c, -10.0f, 0.0f, aj, ai);
+    assert(c.esq < 0 && c.dir == -c.esq);
+    segurarRumoNaLacuna(c, 90.0f, 0.0f, aj, ai);
+    assert(c.esq > 0 && c.dir == -c.esq);
+    segurarRumoNaLacuna(c, 2.0f, 0.0f, aj, ai);    // dentro da tolerancia
     assert(c.esq == aj.velReto && c.dir == aj.velReto); }
   std::puts("teste_inercial: ok");
   return 0;

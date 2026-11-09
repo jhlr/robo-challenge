@@ -51,9 +51,8 @@ struct AjustesInercial {
   float colisaoG = 1.2f;
   unsigned long colisaoRefratarioMs = 500;
 
-  // Lacuna: correcao do rumo em PWM por grau de erro, e o maximo
-  float kpLacuna = 2.0f;
-  int lacunaMaxPwm = 25;
+  // Lacuna: ate esta diferenca de rumo (graus) anda reto; alem dela gira no eixo (rodas em sentidos opostos) de volta ao rumo
+  float lacunaToleranciaGraus = 4.0f;
 };
 
 inline float normaG(const Imu& m) { return sqrtf(m.ax * m.ax + m.ay * m.ay + m.az * m.az); }
@@ -192,12 +191,13 @@ inline bool colisaoDetectada(Colisao& c, const Imu& m, bool normal, unsigned lon
 // ---------------------------------------------------------------- lacuna na fita: segura o rumo
 
 // Corrige um comando de lacuna (a linha sumiu ha pouco) para manter o rumo em que ela foi perdida. rumo + = esquerda: se virou para a esquerda,
-// a roda esquerda acelera e a direita freia, para voltar. A lacuna anda reto na velocidade reta (nao repete o ultimo comando, que podia ser um giro).
+// gira no eixo para a direita (esquerda para frente, direita para tras): toda curva move as rodas em SENTIDOS OPOSTOS, nunca uma mais lenta arrastando.
+// Dentro da tolerancia anda reto na velocidade reta (nao repete o ultimo comando, que podia ser um giro).
 inline void segurarRumoNaLacuna(Comando& c, float rumoGraus, float rumoAoPerderGraus, const Ajustes& aj, const AjustesInercial& ai) {
-  float d = ai.kpLacuna * (rumoGraus - rumoAoPerderGraus);
-  d = fmaxf(-static_cast<float>(ai.lacunaMaxPwm), fminf(static_cast<float>(ai.lacunaMaxPwm), d));
-  c.esq = aj.velReto + static_cast<int>(d);
-  c.dir = aj.velReto - static_cast<int>(d);
+  float erro = rumoGraus - rumoAoPerderGraus;
+  if (fabsf(erro) <= ai.lacunaToleranciaGraus) { c.esq = c.dir = aj.velReto; return; }
+  c.esq = erro > 0.0f ? aj.velCorrecaoLeve : -aj.velCorrecaoLeve;
+  c.dir = -c.esq;
 }
 
 }  // namespace seguidor
