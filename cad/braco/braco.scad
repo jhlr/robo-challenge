@@ -23,28 +23,6 @@ module bar(p0, p1, x) {                       // barra entre dois pontos (y, z),
     hull() for (p = [p0, p1]) translate([x - bar_t / 2, p[0], p[1]]) rotate([0, 90, 0]) cylinder(d = bar_w, h = bar_t);
 }
 
-module mount_geom() {                         // suporte fixo (peca impressa): prato, berco do STS3215, torres do paralelogramo
-    zt = z_deck; zp = zt + base_t; tw = 4;     // tw: espessura das torres (cresce para dentro)
-    difference() {
-        union() {
-            box(-53, 20, -22, 22, zt, zp);                                                   // prato
-            box(-51.5, -16.5, -12.35, 12.35, zp, z_s - 11.3);                                // apoio sob o servo
-            for (s = [-1, 1]) box(-51.5, -16.5, s > 0 ? 12.35 : -14.85, s > 0 ? 14.85 : -12.35, zp, z_s + 2);   // abas laterais do berco
-            for (s = [-1, 1]) {
-                x0 = s > 0 ? col_x + 1.5 - tw : -col_x - 1.5;                                // torre: face externa em |x| = col_x + 1.5
-                box(x0, x0 + tw, -12, 12, zp, z_s + h_v + 8);
-                translate([x0, 0, zp]) rotate([90, 0, 90]) linear_extrude(height = tw) polygon([[-22, 0], [-12, 0], [-12, 45]]);   // reforco traseiro
-            }
-        }
-        for (z = [z_s, z_s + h_v]) translate([-15, 0, z]) rotate([0, 90, 0]) cylinder(d = 3.2, h = 30, $fn = 24);   // eixos dos pivos
-        for (x = [-50.5, 16.5], y = [-19, 19]) translate([x, y, zt - 1]) cylinder(d = 3.4, h = base_t + 2, $fn = 24); // M3 no convés
-        for (x = [-44, -24], s = [-1, 1]) box(x - 3, x + 3, s > 0 ? 16 : -18.5, s > 0 ? 18.5 : -16, zt - 1, zp + 1);   // fendas para abracadeira de nylon do servo
-    }
-}
-module mount() {
-    color("#9ca3af") mount_geom();
-}
-
 module bars_only() {
     color("#374151") for (x = [-bar_x, bar_x]) {
         bar([0, z_s], [u_arm, zl_arm], x);                                             // barras de baixo
@@ -83,7 +61,7 @@ module carrier_and_claw() {
 }
 
 module arm() {
-    translate([0, pivot_y, 0]) { mount(); bars(); carrier_and_claw(); }
+    translate([0, pivot_y, 0]) { bars(); carrier_and_claw(); }
 }
 
 module scene_arm() {
@@ -127,17 +105,11 @@ if (scene == "chk_gears") intersection() { cr_jaw_right(psi_chk, 0); cr_jaw_left
 if (scene == "jaws_top") { cr_frame(); cr_jaws(open ? cr_psi_open : 0); color("red") translate([-25, cr_cy - 25, 0]) cube([50, 50, 30]); }
 
 // ---------- pecas para impressao (um STL por peca): openscad -o stl/x.stl -D 'scene="part_..."' braco.scad ----------
-module bar_flat() difference() {                // barra do paralelogramo, deitada: 12 x (L1 + 12) x 3, furos M3 nos pivos
-    hull() for (y = [0, L1]) translate([0, y, 0]) cylinder(d = bar_w, h = bar_t, $fn = 40);
-    for (y = [0, L1]) translate([0, y, -1]) cylinder(d = 3.2, h = bar_t + 2, $fn = 24);
-}
 module jaw_print(right) { if (right) cr_jaw_right(0, 0); else cr_jaw_left(0); }   // ja saem na orientacao da montagem: engrenagem na mesa (com os dentes do lado do cubo cortados)
 if (scene == "part_coupler") translate([0, 0, cr_cp_dz]) cr_coupler_local();   // como no modelo: dentes do grampo para baixo (imprimir com suporte so sob o disco); mandibula esquerda = espelho
 if (scene == "part_frame") cr_frame();
 if (scene == "part_jaw_r") jaw_print(true);
 if (scene == "part_jaw_l") jaw_print(false);
-if (scene == "part_bar") bar_flat();
-if (scene == "part_mount") mount_geom();
 if (scene == "part_carrier") translate([0, 0, 14]) rotate([-90, 0, 0]) carrier_geom();      // deitado sobre a placa frontal: sem suporte
 
 // Extensor do eixo do servo: femea estriada (21 dentes, 4,8 x 4,3 mm, 5 mm de fundo) que entra no eixo + macho com a MESMA estria do eixo para onde o horn/engrenagem encaixa como se fosse o eixo original.
