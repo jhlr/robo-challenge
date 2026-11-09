@@ -32,4 +32,11 @@ inline bool shoulderWithinReach(uint16_t current, uint16_t goal, float maxDeg) {
   return deg <= maxDeg;
 }
 
+// The claw is raised (shoulder at the top height, within `tol` ticks): only then does the sonar see the front of the car instead of the lowered claw.
+// An unreadable position (negative) counts as NOT raised, so a lowered claw can never be mistaken for an obstacle.
+inline bool shoulderIsUp(int ticks, int upTicks, int tol) {
+  const int d = ticks - upTicks;
+  return ticks >= 0 && (d < 0 ? -d : d) <= tol;
+}
+
 }  // namespace core

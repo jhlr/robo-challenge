@@ -71,6 +71,7 @@ class CarroReal {
     ultimaMaoMs_ = millis();
     return mao_.update(sonar_.readMm(kSonarTimeoutUs));
   }
+  void soltarMao() { mao_.reset(); }   // guarda desligada (garra abaixada)
   core::HandStep depoisDoRecuo() { return mao_.backedUp(sonar_.readMm(kSonarTimeoutUs)); }
 
   // ---- sensores

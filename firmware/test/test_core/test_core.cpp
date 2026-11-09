@@ -138,6 +138,14 @@ void test_shoulder_next_target() {
   TEST_ASSERT_EQUAL_UINT16(2000, core::shoulderNextTarget(2000, 2000, 64));
 }
 
+void test_shoulder_is_up() {
+  TEST_ASSERT_TRUE(core::shoulderIsUp(1981, 1981, 100));
+  TEST_ASSERT_TRUE(core::shoulderIsUp(2080, 1981, 100));
+  TEST_ASSERT_FALSE(core::shoulderIsUp(2567, 1981, 100));   // platform height: claw lowered
+  TEST_ASSERT_FALSE(core::shoulderIsUp(2927, 1981, 100));   // pick height
+  TEST_ASSERT_FALSE(core::shoulderIsUp(-1, 1981, 100));     // unreadable: not up
+}
+
 void test_shoulder_reach() {
   TEST_ASSERT_TRUE(core::shoulderWithinReach(1981, 2927, 90.0f));    // up -> pick is 83 deg
   TEST_ASSERT_FALSE(core::shoulderWithinReach(1000, 2927, 90.0f));   // 169 deg in one go: refused
@@ -912,6 +920,7 @@ int main() {
   RUN_TEST(test_color_classes);
   RUN_TEST(test_shoulder_target);
   RUN_TEST(test_shoulder_next_target);
+  RUN_TEST(test_shoulder_is_up);
   RUN_TEST(test_shoulder_reach);
   RUN_TEST(test_handguard_backs_up_after_three_close_samples);
   RUN_TEST(test_handguard_fixed_obstacle_is_not_a_hand);

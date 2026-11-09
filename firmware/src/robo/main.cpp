@@ -8,7 +8,9 @@
 
 #include "carro_real.h"
 #include "hal/drive.h"
+#include "core/arm.h"
 #include "hal/sensors.h"
+#include "hal/shoulder.h"
 #include "params.h"
 #include "pins.h"
 
@@ -34,7 +36,19 @@ void parouTudo() {
 
 // Algo muito perto do sonar: da re; se o obstaculo veio junto, e uma mao segurando o carro no ar. Ai para as rodas e espera soltar (nao adianta girar motor nem ler sensor no ar).
 // O tempo parado nao conta no limite da missao.
+// So vale com a garra levantada: abaixada, ela fica na frente do sonar. Le o ombro a cada 60 ms; posicao ilegivel conta como abaixada.
+bool garraLevantada() {
+  static unsigned long ultima = 0;
+  static bool levantada = false;
+  if (millis() - ultima >= 60) {
+    ultima = millis();
+    levantada = core::shoulderIsUp(shoulderTicks(), params::kShoulderTicksUp, params::kShoulderUpTolTicks);
+  }
+  return levantada;
+}
+
 void guardaDaMao() {
+  if (!garraLevantada()) { carro.soltarMao(); return; }
   core::HandStep passo = carro.passoMao();
   if (passo == core::HandStep::None) return;
   if (passo == core::HandStep::BackUp) {
@@ -86,6 +100,7 @@ void setup() {
   Serial.begin(115200);
   delay(300);
   hal::beginStsBus(st);
+  Serial.printf("ombro: %s (a guarda da mao so vale com a garra no topo)\n", shoulderBegin(st) ? "ok" : "nao responde");
   drive.begin();
   parouTudo();
   hal::beginBuses();

@@ -22,6 +22,7 @@ constexpr int kShoulderUpSign = -1;
 // Shoulder heights in STS ticks (direct drive, 4096 ticks = 360 deg, bench 2026-11-09). Up = 1981, pick = 2927 (lower limit, claw at the floor cube); place = 2567 (cube on the platform).
 constexpr int kShoulderTicksUp = 1981;
 constexpr int kShoulderTicksPick = 2927;
+constexpr int kShoulderUpTolTicks = 100;   // ~9 deg: within this of kShoulderTicksUp the claw counts as raised (the lowered claw sits in front of the sonar)
 constexpr int kShoulderTicksPlace = 2567;
 constexpr uint16_t kShoulderSpeed = 300;  // steps/s, gentle (bench 2026-11-09)
 constexpr uint16_t kShoulderChunkTicks = 64;      // ~5.6 deg per commanded step: moves are small steps, each checked

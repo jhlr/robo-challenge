@@ -43,7 +43,7 @@ Carregando, a prioridade e entregar: a maquina nao tem desvios para coletar. A n
 ## Seguranca: mao segurando o carro (`core/handguard.h`)
 Regra do usuario: sonar muito perto (< 30 mm, ou eco 0) por 3 leituras faz o carro dar re de 5 cm (`CarroReal::recuar`, por encoders). Se depois da re o obstaculo continua tao perto, ele veio junto: e a mao, o carro esta no ar. Para as rodas, pausa a missao (o tempo parado nao conta no limite) e so volta depois de 5 leituras livres. Parede ou cubo ficam para tras e a missao segue. Ligado em `src/robo/main.cpp` (`guardaDaMao`, chamada a cada ciclo, inclusive dentro de giros).
 - A cor nao entra: com a mao a 2-4 cm o canal clear do TCS da frente ficou em 130..330 (parede branca ~250), nao escuro.
-- Ao ligar a maquina de pegar e colocar, suspender a guarda enquanto o cubo estiver de proposito a menos de 30 mm do sonar (garra fechando).
+- A guarda so vale com a garra no topo (ombro a ate 100 ticks de 1981, lido do servo a cada 60 ms): abaixada, a garra fica na frente do sonar e nao pode contar como obstaculo. Posicao ilegivel conta como abaixada. Isso tambem cobre pegar e colocar, que acontecem com o ombro fora do topo.
 - Limitacao: o HC-SR04 nao mede bem abaixo de ~2 cm; mao colada pode dar eco 0 ou sem eco (sem eco nao conta como perto).
 
 ## Pendente

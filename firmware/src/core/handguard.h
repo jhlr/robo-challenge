@@ -2,6 +2,7 @@
 // Pure logic (no Arduino.h): is the car being held in the air by a hand? (user rule, 2026-11-09)
 // Something VERY close to the sonar makes the car back up. If, after backing up, the SAME obstacle is still that close, it moves with the car: a hand. Then the app stops the wheels
 // and pauses everything (spinning the motors or reading sensors is pointless in the air) until the sonar is free again. A wall or cube stays behind when the car backs away: not a hand.
+// Only armed while the claw is raised (the app checks the shoulder): a lowered claw sits right in front of the sonar and must not count.
 // The sonar alone decides: the front color sensor does not read dark under a hand (measured: clear 130..330, same as a white wall).
 #include <cstdint>
 
@@ -38,6 +39,7 @@ class HandGuard {
     return HandStep::Hold;
   }
   bool lifted() const { return lifted_; }
+  void reset() { close_ = free_ = 0; lifted_ = false; }   // guard switched off (claw lowered): forget any half-counted readings
 
  private:
   uint8_t close_ = 0, free_ = 0;
