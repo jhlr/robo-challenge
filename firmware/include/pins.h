@@ -31,8 +31,9 @@ constexpr int kTrig = 15;
 constexpr int kEcho = 23;
 #endif
 
-// QRE8D channels, S1 (left) .. S8 (right), as wired 2026-10-31. All 8 pins can drive an output, which the RC reading needs (GPIO34-39 cannot).
-constexpr int kLine[] = {13, 4, 14, 27, 26, 25, 33, 32};
+// QRE8D channels, S1 (left) .. S8 (right). S1 = GPIO14 and S2 = GPIO27 (user, 2026-11-09); GPIO13 and GPIO4 read 2500 us on any floor (nothing live on them), they are the last two entries (S7, S8).
+// All 8 pins can drive an output, which the RC reading needs (GPIO34-39 cannot).
+constexpr int kLine[] = {14, 27, 26, 25, 33, 32, 13, 4};
 constexpr int kLineCount = sizeof(kLine) / sizeof(kLine[0]);
 
 // SG90 signal (claw). Unassigned: it used to say 22, which is the SCL of the floor RGB. Jaw is a stub for now (hal/claw.h); set the GPIO here when it is wired (free: none ideal, see docs).
