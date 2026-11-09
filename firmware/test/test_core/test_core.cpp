@@ -1,6 +1,8 @@
 #include <unity.h>
 
+#include <string>
 #include "core/arm.h"
+#include "core/pickplace.h"
 #include "core/belief.h"
 #include "core/color.h"
 #include "core/color_table.h"
@@ -148,6 +150,72 @@ void test_shoulder_target_refused() {
   TEST_ASSERT_FALSE(core::shoulderTarget(100, -45.0f, +1, 90.0f, &t));   // would go below 0
   TEST_ASSERT_FALSE(core::shoulderTarget(4000, 45.0f, +1, 90.0f, &t));   // would pass 4095
   TEST_ASSERT_EQUAL_UINT16(7, t);
+}
+
+
+// ---- pick-and-place state machine
+struct FakePp {
+  std::string log;
+  bool color = true, grip = true, clear = true, platform = true, platPos = true, platColor = true, shoulderOk = true;
+  int gripAfter = 0;      // grip only succeeds from the Nth check on (1 = first)
+  int checks = 0;
+  bool cubeColorOk() { log += "C "; return color; }
+  bool backUp(float mm) { log += mm < 100 ? "b9 " : "b13 "; return true; }
+  bool clawOpen() { log += "open "; return true; }
+  bool clawClose() { log += "close "; return true; }
+  bool shoulderTo(core::Level l) { log += l == core::Level::Up ? "up " : l == core::Level::Pick ? "pick " : "place "; return shoulderOk; }
+  bool holding() { ++checks; log += "grip? "; return grip && checks >= gripAfter; }
+  bool frontClear() { log += "clear? "; return clear; }
+  bool goToPlatform() { log += "go "; return platform; }
+  bool platformPositionOk() { log += "pos? "; return platPos; }
+  bool platformColorOk() { log += "pcolor? "; return platColor; }
+  bool turn180() { log += "turn "; return true; }
+};
+
+void test_pickplace_full_sequence() {
+  FakePp io; core::PickPlace pp; pp.run(io);
+  TEST_ASSERT_EQUAL(core::PpState::Done, pp.state);
+  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up clear? go pos? pcolor? b13 place open up turn ", io.log.c_str());
+  TEST_ASSERT_FALSE(pp.carrying);
+}
+
+void test_pickplace_grip_retry_then_ok() {
+  FakePp io; io.gripAfter = 3; core::PickPlace pp; pp.run(io);   // fails twice, third closing holds
+  TEST_ASSERT_EQUAL(core::PpState::Done, pp.state);
+  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? open pick close grip? open pick close grip? up clear? go pos? pcolor? b13 place open up turn ", io.log.c_str());
+}
+
+void test_pickplace_no_grip_aborts_with_shoulder_up() {
+  FakePp io; io.grip = false; core::PickPlace pp; pp.run(io);
+  TEST_ASSERT_EQUAL(core::PpState::Aborted, pp.state);
+  TEST_ASSERT_EQUAL(core::PpFail::NoGrip, pp.fail);
+  TEST_ASSERT_FALSE(pp.carrying);
+  TEST_ASSERT_TRUE(io.log.size() >= 3 && io.log.substr(io.log.size() - 3) == "up ");
+}
+
+void test_pickplace_wrong_color_never_moves() {
+  FakePp io; io.color = false; core::PickPlace pp; pp.run(io);
+  TEST_ASSERT_EQUAL(core::PpFail::WrongColor, pp.fail);
+  TEST_ASSERT_EQUAL_STRING("C ", io.log.c_str());
+}
+
+void test_pickplace_front_blocked_keeps_cube() {
+  FakePp io; io.clear = false; core::PickPlace pp; pp.run(io);
+  TEST_ASSERT_EQUAL(core::PpFail::FrontBlocked, pp.fail);
+  TEST_ASSERT_TRUE(pp.carrying);   // still holding the cube: the mission decides
+}
+
+void test_pickplace_wrong_platform_color_does_not_release() {
+  FakePp io; io.platColor = false; core::PickPlace pp; pp.run(io);
+  TEST_ASSERT_EQUAL(core::PpFail::PlatformColor, pp.fail);
+  TEST_ASSERT_TRUE(io.log.find("place") == std::string::npos);
+  TEST_ASSERT_TRUE(pp.carrying);
+}
+
+void test_pickplace_blocked_shoulder_gets_no_second_command() {
+  FakePp io; io.shoulderOk = false; core::PickPlace pp; pp.run(io);
+  TEST_ASSERT_EQUAL(core::PpFail::Shoulder, pp.fail);
+  TEST_ASSERT_EQUAL_STRING("C b9 open pick ", io.log.c_str());   // blocked on the way down: nothing else commanded
 }
 
 core::CubeBelief emptyCubes() {
@@ -806,6 +874,13 @@ int main() {
   RUN_TEST(test_shoulder_target);
   RUN_TEST(test_shoulder_next_target);
   RUN_TEST(test_shoulder_reach);
+  RUN_TEST(test_pickplace_full_sequence);
+  RUN_TEST(test_pickplace_grip_retry_then_ok);
+  RUN_TEST(test_pickplace_no_grip_aborts_with_shoulder_up);
+  RUN_TEST(test_pickplace_wrong_color_never_moves);
+  RUN_TEST(test_pickplace_front_blocked_keeps_cube);
+  RUN_TEST(test_pickplace_wrong_platform_color_does_not_release);
+  RUN_TEST(test_pickplace_blocked_shoulder_gets_no_second_command);
   RUN_TEST(test_shoulder_target_refused);
   return UNITY_END();
 }
