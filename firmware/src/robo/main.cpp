@@ -240,7 +240,7 @@ void setup() {
   registrar(String("TCS chao (Wire): ") + (corChao.begin(Wire) ? "ok" : "FALHOU") + " | TCS frente (Wire1): " + (corFrente.begin(Wire1) ? "ok" : "FALHOU"));
   for (int i = 0; i < seguidor::kSensores; i++) pinosBarra[i] = pins::kLine[i];
   barra.adaptativo = true;
-  barra.mortos = 0b00000011;   // S1 e S2 sem sinal (2500 us em qualquer chao, 2026-11-09, barra nao sera trocada): ver BarraRC::mortos
+  barra.mortos = 0;   // barra QRE-8D trocada em 2026-11-09: os 8 sensores sao lidos (era 0b11 com a barra antiga, S1/S2 sem sinal); ver BarraRC::mortos
   seguidor::iniciar(barra, pinosBarra);
   if (!seguidor::aplicarLimiar(barra, dbg)) {
     registrar("Poucos sensores da barra vivos: nao anda.");
