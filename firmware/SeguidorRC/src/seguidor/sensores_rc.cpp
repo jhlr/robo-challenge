@@ -34,7 +34,8 @@ void ler(BarraRC& b) {
     unsigned int maior = b.limiarUs;
     for (int i = 0; i < kSensores; i++) {
       if (!b.ok[i]) continue;
-      if (b.leituras[i] < b.branco[i]) {
+      if (b.leituras[i] > b.maximo[i]) b.maximo[i] = b.leituras[i];
+      if (b.leituras[i] < b.tempoLeituraUs && b.leituras[i] < b.branco[i]) {   // leitura cortada no teto nao e branco
         b.branco[i] = max(b.leituras[i], 400u);   // abaixo de 400 us nao e leitura de chao
         b.limiar[i] = constrain(b.branco[i] + (b.tempoMaxUs - b.branco[i]) / 2, b.limiarUs, b.tempoMaxUs - 200);
         mudou = true;
@@ -76,8 +77,11 @@ bool aplicarLimiar(BarraRC& b, Print& saida) {
 void reiniciarAdaptacao(BarraRC& b) {
   for (int i = 0; i < kSensores; i++) {
     b.branco[i] = b.tempoMaxUs;
-    b.limiar[i] = b.limiarUs;
+    b.maximo[i] = 0;
+    b.limiar[i] = b.tempoMaxUs - 200;   // ate ver branco nada e "preto": o limiar so desce quando o branco aparece
   }
+  b.tempoLeituraUs = b.tempoMaxUs;      // leitura de tempo cheio: uma leitura cortada no teto nao diz o quanto o chao e claro
+  b.qtr.setTimeout(b.tempoLeituraUs);
 }
 
 }  // namespace seguidor

@@ -178,8 +178,8 @@ void telemetria() {
   char barraTxt[seguidor::kSensores + 1];
   for (int i = 0; i < seguidor::kSensores; i++) barraTxt[i] = preto[i] ? '#' : '.';   // ja com o verde mascarado (carro_real.h ler)
   barraTxt[seguidor::kSensores] = 0;
-  dbg.printf("[%lu] barra %s | odo E %.0f D %.0f mm | rumo %.1f | alvo E %.0f D %.0f | lim S3 %u S5 %u S8 %u | cruz %d perdido %d busca %d | %s\n", millis(), barraTxt, carro.odoEMm(), carro.odoDMm(),
-             fw ? fw->rumo : 0.0f, carro.roda(true), carro.roda(false), barra.limiar[2], barra.limiar[4], barra.limiar[7], fw ? fw->cruzamentos : 0, fw ? fw->ticksPerdido : 0, fw ? fw->ticksBuscando : 0, fw ? fw->nav.ultimoPlano.c_str() : "");
+  dbg.printf("[%lu] barra %s | odo E %.0f D %.0f mm | rumo %.1f | alvo E %.0f D %.0f | mn/mx/lim S3 %u/%u/%u S5 %u/%u/%u S8 %u/%u/%u | cruz %d perdido %d busca %d | %s\n", millis(), barraTxt, carro.odoEMm(), carro.odoDMm(),
+             fw ? fw->rumo : 0.0f, carro.roda(true), carro.roda(false), barra.branco[2], barra.maximo[2], barra.limiar[2], barra.branco[4], barra.maximo[4], barra.limiar[4], barra.branco[7], barra.maximo[7], barra.limiar[7], fw ? fw->cruzamentos : 0, fw ? fw->ticksPerdido : 0, fw ? fw->ticksBuscando : 0, fw ? fw->nav.ultimoPlano.c_str() : "");
 }
 
 // Chamado a cada ciclo (tambem dentro dos giros e avancos que bloqueiam): manda o BLE, atende comandos, guarda da mao e limite de tempo.

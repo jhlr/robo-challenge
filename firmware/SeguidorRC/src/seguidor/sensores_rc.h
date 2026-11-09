@@ -14,6 +14,7 @@ struct BarraRC {
   unsigned int limiarUs = 1000;     // acima disso = preto. PROVISORIO: conferir com a barra a ~3 mm do chao (branco bem abaixo, preto bem acima)
   int sensoresMinimos = 6;          // abaixo disso o robo nao anda
   bool adaptativo = false;          // limiar por sensor pelo menor tempo ja lido (ver reiniciarAdaptacao); desligado = limiar fixo limiarUs
+  unsigned int maximo[kSensores] = {};       // maior tempo lido por sensor desde reiniciarAdaptacao() (diagnostico: o preto que a barra realmente le)
   unsigned int branco[kSensores] = {};       // menor tempo lido por sensor desde reiniciarAdaptacao() (so os vivos)
   uint8_t mortos = 0;               // bit i = S(i+1) sem sinal (ex.: 0b11 = S1 e S2 em 2500 us em qualquer chao): nao e lido, e a leitura dele copia o vizinho VIVO mais perto, para a logica
                                     // (que usa as pontas S1/S8 no cruzamento e na varredura) continuar valendo; a posicao da linha na ponta fica menos precisa (~1 passo de sensor)
