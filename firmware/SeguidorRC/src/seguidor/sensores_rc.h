@@ -13,6 +13,8 @@ struct BarraRC {
   unsigned int tempoMaxUs = 2500;   // valor do preto
   unsigned int limiarUs = 1000;     // acima disso = preto. PROVISORIO: conferir com a barra a ~3 mm do chao (branco bem abaixo, preto bem acima)
   int sensoresMinimos = 6;          // abaixo disso o robo nao anda
+  uint8_t mortos = 0;               // bit i = S(i+1) sem sinal (ex.: 0b11 = S1 e S2 em 2500 us em qualquer chao): nao e lido, e a leitura dele copia o vizinho VIVO mais perto, para a logica
+                                    // (que usa as pontas S1/S8 no cruzamento e na varredura) continuar valendo; a posicao da linha na ponta fica menos precisa (~1 passo de sensor)
 
   // Preenchido pela biblioteca
   const uint8_t* pinos = nullptr;            // S1 (ponta esquerda) ... S8 (ponta direita)

@@ -16,7 +16,7 @@ void iniciar(BarraRC& b, const uint8_t pinos[kSensores]) {
   uint8_t vivos[kSensores];
   b.quantos = 0;
   for (int i = 0; i < kSensores; i++) {
-    if (!podeCarregar(pinos[i])) continue;
+    if (!podeCarregar(pinos[i]) || (b.mortos >> i) & 1) continue;
     vivos[b.quantos] = pinos[i];
     b.indice[b.quantos++] = i;
   }
@@ -30,6 +30,13 @@ void ler(BarraRC& b) {
   b.qtr.read(crus, QTRReadMode::Off);   // sem pino de emissor: os LEDs ficam sempre acesos
   copiarLeituras(b, crus);
   for (int i = 0; i < kSensores; i++) b.preto[i] = b.ok[i] && b.leituras[i] > b.limiar[i];
+  for (int i = 0; i < kSensores; i++) {   // sensor morto (b.mortos): copia o vizinho vivo mais perto
+    if (!((b.mortos >> i) & 1)) continue;
+    for (int d = 1; d < kSensores; d++) {
+      if (i + d < kSensores && b.ok[i + d]) { b.preto[i] = b.preto[i + d]; break; }
+      if (i - d >= 0 && b.ok[i - d]) { b.preto[i] = b.preto[i - d]; break; }
+    }
+  }
 }
 
 bool aplicarLimiar(BarraRC& b, Print& saida) {
