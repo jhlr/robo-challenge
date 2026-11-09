@@ -47,7 +47,17 @@ bool ColorSensor::begin(TwoWire& bus) {
 bool ColorSensor::read(ColorSample& out) {
   if (!ok_ && bus_) ok_ = tcs_.begin(TCS34725_ADDRESS, bus_);   // a loose wire at boot (or later) heals itself the next time the sensor is asked
   if (!ok_) return false;
-  tcs_.getRawData(&out.r, &out.g, &out.b, &out.c);
+  // Leitura direta dos 8 registradores CDATA..BDATA numa so transacao (o chip ja integra sozinho em modo continuo). tcs_.getRawData() espera 25 ms (o tempo de integracao) DEPOIS de ler:
+  // isso travava o ciclo do carro a cada leitura do chao, e a barra de linha era lida a ~30 Hz em vez de 200 Hz.
+  bus_->beginTransmission(TCS34725_ADDRESS);
+  bus_->write(TCS34725_COMMAND_BIT | 0x20 | TCS34725_CDATAL);   // 0x20 = auto-incremento (tipo 01): c, r, g, b em sequencia; so 0x80 repetiria o mesmo registrador
+  uint8_t buf[8] = {};
+  if (bus_->endTransmission() != 0 || bus_->requestFrom(static_cast<uint8_t>(TCS34725_ADDRESS), static_cast<uint8_t>(8)) != 8) { ok_ = false; return false; }
+  for (uint8_t& b : buf) b = bus_->read();
+  out.c = buf[0] | (buf[1] << 8);
+  out.r = buf[2] | (buf[3] << 8);
+  out.g = buf[4] | (buf[5] << 8);
+  out.b = buf[6] | (buf[7] << 8);
   if (out.r == 0 && out.g == 0 && out.b == 0 && out.c == 0) { ok_ = false; return false; }   // all zeros = the bus did not answer: report a failed read and re-init on the next one
   out.floor = core::classify(out.r, out.g, out.b, out.c);
   return true;
