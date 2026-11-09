@@ -93,10 +93,8 @@ void test_first_step_to_unreachable_target_stays_put() {
 }
 
 void test_color_table_rejects_ambiguous_dim_colours() {
-  // halfway between the VERDE and AZUL references: both are close, neither clearly wins
-  const core::RefCor& g = core::kCoresRef[core::VERDE];
-  const core::RefCor& a = core::kCoresRef[core::AZUL];
-  TEST_ASSERT_EQUAL(core::DESCONHECIDA, core::classificarCor((g.r + a.r) / 2, (g.g + a.g) / 2, (g.b + a.b) / 2, (g.c + a.c) / 2));
+  // chroma halfway between VERDE (25 21 13) and AZUL (25 18 15), at their brightness: both are close, neither clearly wins
+  TEST_ASSERT_EQUAL(core::DESCONHECIDA, core::classificarCor(50, 39, 28, core::kCoresRef[core::VERDE].c));
 }
 
 void test_wrap_delta() {
@@ -281,6 +279,18 @@ void test_start_trigger_needs_consecutive_green() {
   TEST_ASSERT_FALSE(t.update(false));
   for (int i = 0; i < core::kStartGreenSamples - 1; i++) t.update(true);
   TEST_ASSERT_TRUE(t.update(true));                   // leaving and returning to green arms it again
+}
+
+// Readings taken on the car on 2026-11-09 over each arena color (the second VERDE is another spot): each must classify as itself.
+void test_floor_table_classifies_measured_readings() {
+  using namespace core;
+  TEST_ASSERT_EQUAL(BRANCO, classificarCor(112, 75, 51, 231));
+  TEST_ASSERT_EQUAL(PRETO, classificarCor(28, 18, 13, 57));
+  TEST_ASSERT_EQUAL(VERMELHO, classificarCor(58, 30, 19, 102));
+  TEST_ASSERT_EQUAL(AZUL, classificarCor(25, 18, 15, 56));
+  TEST_ASSERT_EQUAL(AMARELO, classificarCor(98, 57, 29, 177));
+  TEST_ASSERT_EQUAL(VERDE, classificarCor(25, 21, 13, 57));
+  TEST_ASSERT_EQUAL(VERDE, classificarCor(24, 20, 12, 54));
 }
 
 core::CubeBelief emptyCubes() {
@@ -943,6 +953,7 @@ int main() {
   RUN_TEST(test_handguard_backs_up_after_three_close_samples);
   RUN_TEST(test_handguard_fixed_obstacle_is_not_a_hand);
   RUN_TEST(test_handguard_obstacle_that_follows_is_a_hand_until_released);
+  RUN_TEST(test_floor_table_classifies_measured_readings);
   RUN_TEST(test_start_trigger_needs_consecutive_green);
   RUN_TEST(test_pickplace_pick_phase);
   RUN_TEST(test_pickplace_place_phase);

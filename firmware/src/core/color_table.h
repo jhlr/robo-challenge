@@ -1,6 +1,6 @@
 #pragma once
 // Pure logic (no Arduino.h): floor/cube colour from TCS34725 raw r, g, b, clear, by distance to a table of reference readings.
-// Ported from the teammate's line-follower sketch. Rafael reads this: keep the colour ORDER and the comments next to the table.
+// Rafael reads this: keep the colour ORDER and the comments next to the table.
 #include <stdint.h>
 
 namespace core {
@@ -12,19 +12,20 @@ struct RefCor {
   uint16_t r, g, b, c;
 };
 
-// Fill with the bring-up readout ({ r, g, b, c } over each colour); same numbers the teammate measured.
+// Measured 2026-11-09 with the floor TCS34725 as mounted on the car, over the arena colors (bringup/robo `s`: chao rgbc). The earlier teammate table read brighter than this sensor and
+// could not tell VERDE from PRETO: re-measure here whenever the sensor height, LED or lighting changes. VERDE is the mean of two readings in different spots.
 constexpr RefCor kCoresRef[NUM_CORES] = {
     // r    g    b    c
-    {121, 93, 67, 243},  // BRANCO
-    {36, 27, 20, 69},    // PRETO
-    {38, 34, 24, 75},    // VERDE
-    {127, 86, 48, 220},  // AMARELO
-    {47, 40, 30, 89},    // AZUL
-    {104, 44, 32, 150},  // VERMELHO
+    {112, 75, 51, 231},  // BRANCO
+    {28, 18, 13, 57},    // PRETO
+    {25, 21, 13, 56},    // VERDE
+    {98, 57, 29, 177},   // AMARELO
+    {25, 18, 15, 56},    // AZUL
+    {58, 30, 19, 102},   // VERMELHO
 };
 constexpr float kDistanciaMaxima = 0.15f;  // acima disso a cor fica DESCONHECIDA
 // A reading is believed only if the best reference is clearly closer than the runner-up (best <= kRazaoAmbigua * second). PRETO, VERDE and AZUL are dim and nearly the same
-// chroma in the current table (VERDE-AZUL differ by 0.0026, 60x below kDistanciaMaxima): without this the winner among them was noise. Re-measure the table to separate them.
+// chroma (dim surfaces, clear ~55: a count of 1 is ~2% of the sum), so the winner among them can be noise: without this a wrong colour would be believed.
 constexpr float kRazaoAmbigua = 0.5f;
 
 // Squared distance between a reading and one reference: chroma (r, g, b as fractions of their sum) weighs 4x, brightness relative to BRANCO 0.5x.
