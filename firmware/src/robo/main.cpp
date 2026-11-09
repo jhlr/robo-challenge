@@ -1,7 +1,8 @@
 // A missao completa no carro STS: a MESMA logica que o simulador testa (seguidor/robo.h) sobre o carro de verdade (carro_real.h).
 // Sem MPU: o rumo vem dos encoders das rodas com params::kTrackMm (a bitola EFETIVA, medida com o env `bitola`; sem ela os giros erram). O ombro se mexe de verdade ao pegar e largar; a garra e STUB (hal/claw.h).
 //
-// Seguranca: o carro NAO anda ao ligar. Console por USB (115200) E por Bluetooth LE ("RoboChallenge", Nordic UART: tools/console_ble.py ou nRF Connect):
+// Inicio: o carro NAO anda ao ligar. A partida comeca quando o chao le VERDE (zona de largada) por ~0,5 s seguidos, ou pelo comando g. Depois de x ou do fim do tempo
+// ele fica DESARMADO (nao reinicia sozinho sobre o verde): so g, ou desligar e ligar de novo, arma o gatilho do verde. Console por USB (115200) E por Bluetooth LE ("RoboChallenge", Nordic UART: tools/console_ble.py ou nRF Connect):
 //   g [segundos]  anda (padrao 60 s, para sozinho)   x  para e reinicia   s  estado e o que o boot achou   h  ajuda
 // Atualizacao de firmware por BLE (carro parado e sem console conectado):
 //   python3 SeguidorRC/tools/ota_ble.py firmware/.pio/build/robo/firmware.bin --nome RoboChallenge --segredo robo-challenge-2026
@@ -13,6 +14,8 @@
 
 #include "carro_real.h"
 #include "core/arm.h"
+#include "core/starttrigger.h"
+#include <esp_system.h>
 #include "hal/claw.h"
 #include "hal/drive.h"
 #include "hal/sensors.h"
@@ -42,9 +45,21 @@ bool andando = false;
 unsigned long fimMs = 0;
 String boot;            // o que o boot achou: ninguem estava conectado por BLE, entao `s` repete
 String linhaSerial;     // comando digitado no USB, ate o fim da linha
+constexpr uint32_t kMagicParado = 0xC0FFEE01;
+RTC_NOINIT_ATTR uint32_t paradoPorComando;   // sobrevive ao ESP.restart() (nao ao desligar): x ou fim do tempo desarmam o gatilho do verde
+core::StartTrigger gatilhoVerde;
+unsigned long ultimoGatilhoMs = 0;
 String linhaBle;        // ultimo comando recebido por BLE (entregue pelo ble.atualizar())
 
 void registrar(const String& texto) { boot += texto + "\n"; dbg.println(texto); }
+
+void reiniciarDesarmado() { paradoPorComando = kMagicParado; delay(200); ESP.restart(); }
+
+void iniciar(int segundos, const char* motivo) {
+  fimMs = millis() + 1000UL * segundos;
+  andando = true;
+  dbg.printf("ANDANDO por %d s (%s; x para parar)\n", segundos, motivo);
+}
 
 void parouTudo() {
   drive.setSpeeds(0.0f, 0.0f);
@@ -93,18 +108,17 @@ void tratar(String linha) {
   linha.toLowerCase();
   if (linha.length() == 0) return;
   const char cmd = linha[0];
-  if (cmd == 'x') { parouTudo(); dbg.println("PARADO (x): reiniciando"); delay(200); ESP.restart(); }
+  if (cmd == 'x') { parouTudo(); dbg.println("PARADO (x): reiniciando desarmado"); reiniciarDesarmado(); }
   if (cmd == 's') {
     dbg.print(boot);
-    dbg.printf("t=%lu ms | %s | ombro %d ticks (topo %d) | guarda da mao %s\n", millis(), andando ? "ANDANDO" : "PARADO", shoulderTicks(), params::kShoulderTicksUp,
+    dbg.printf("t=%lu ms | %s | gatilho do verde %s | ombro %d ticks (topo %d) | guarda da mao %s\n", millis(), andando ? "ANDANDO" : "PARADO", paradoPorComando == kMagicParado ? "DESARMADO" : "armado", shoulderTicks(), params::kShoulderTicksUp,
                garraLevantada() ? "ligada" : "desligada (garra abaixada)");
     if (fw) dbg.printf("entregues %d, coletados %d, pontos %d, cruzamentos %d, rumo %.1f\n", fw->nav.entregues, fw->nav.coletados, fw->nav.pontos, fw->cruzamentos, fw->rumo);
   } else if (cmd == 'g') {
     if (andando) { dbg.println("ja esta andando (x para parar)"); return; }
     const int s = linha.length() > 1 ? linha.substring(1).toInt() : 60;
-    fimMs = millis() + 1000UL * (s > 0 ? s : 60);
-    andando = true;
-    dbg.printf("ANDANDO por %d s (x para parar)\n", s > 0 ? s : 60);
+    paradoPorComando = 0;
+    iniciar(s > 0 ? s : 60, "comando g");
   } else {
     dbg.println("g [s] anda | x para e reinicia | s estado");
   }
@@ -123,12 +137,16 @@ void atender() {
 
 // Chamado a cada ciclo (tambem dentro dos giros e avancos que bloqueiam): manda o BLE, atende comandos, guarda da mao e limite de tempo.
 void vigiar() {
+  if (!andando && paradoPorComando != kMagicParado && millis() - ultimoGatilhoMs >= 100) {   // gatilho: chao verde
+    ultimoGatilhoMs = millis();
+    if (gatilhoVerde.update(carro.piso() == seguidor::kPisoVerde)) iniciar(core::kMatchSeconds, "chao verde");
+  }
   ble.atualizar();
   ota.atualizar();
   if (ota.ativo()) { parouTudo(); return; }   // atualizando o firmware: carro parado
   atender();
   if (andando) guardaDaMao();
-  if (andando && millis() > fimMs) { parouTudo(); dbg.println("TEMPO ACABOU: reiniciando"); delay(200); ESP.restart(); }
+  if (andando && millis() > fimMs) { parouTudo(); dbg.println("TEMPO ACABOU: reiniciando desarmado"); reiniciarDesarmado(); }
 }
 
 void preparar() {
@@ -150,6 +168,7 @@ void preparar() {
 
 void setup() {
   Serial.begin(115200);
+  if (esp_reset_reason() != ESP_RST_SW) paradoPorComando = 0;   // ligou de verdade (nao foi o nosso restart): arma o gatilho do verde
   ble.iniciar("RoboChallenge", [](const String& l) { linhaBle = l; });
   ota.iniciar(ble.servidor(), kOtaSegredo);   // antes de qualquer coisa que possa travar: um firmware que chega aqui ainda pode ser atualizado
   ble.anunciar();
@@ -175,7 +194,7 @@ void setup() {
     for (;;) { ble.atualizar(); ota.atualizar(); delay(100); }   // sem barra nao anda, mas ainda aceita OTA
   }
   preparar();
-  registrar("pronto. bitola supoe " + String(params::kTrackMm, 0) + " mm. g [s] anda, x para, s estado. O carro esta PARADO.");
+  registrar("pronto. bitola supoe " + String(params::kTrackMm, 0) + " mm. " + (paradoPorComando == kMagicParado ? "DESARMADO (g ou desligar e ligar arma o verde)" : "ARMADO: chao verde inicia") + ". g [s] anda, x para, s estado. O carro esta PARADO.");
 }
 
 void loop() {

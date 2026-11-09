@@ -4,6 +4,7 @@
 #include "core/arm.h"
 #include "core/handguard.h"
 #include "core/pickplace.h"
+#include "core/starttrigger.h"
 #include "core/belief.h"
 #include "core/color.h"
 #include "core/color_table.h"
@@ -268,6 +269,18 @@ void test_handguard_obstacle_that_follows_is_a_hand_until_released() {
   for (int i = 0; i < 4; i++) TEST_ASSERT_EQUAL(core::HandStep::Hold, g.update(300));
   TEST_ASSERT_EQUAL(core::HandStep::None, g.update(300));                  // fifth in a row releases
   TEST_ASSERT_FALSE(g.lifted());
+}
+
+void test_start_trigger_needs_consecutive_green() {
+  core::StartTrigger t;
+  for (int i = 0; i < core::kStartGreenSamples - 1; i++) TEST_ASSERT_FALSE(t.update(true));
+  TEST_ASSERT_FALSE(t.update(false));                 // an odd reading restarts the count
+  for (int i = 0; i < core::kStartGreenSamples - 1; i++) TEST_ASSERT_FALSE(t.update(true));
+  TEST_ASSERT_TRUE(t.update(true));                   // the Nth in a row fires
+  TEST_ASSERT_FALSE(t.update(true));                  // once per green stretch
+  TEST_ASSERT_FALSE(t.update(false));
+  for (int i = 0; i < core::kStartGreenSamples - 1; i++) t.update(true);
+  TEST_ASSERT_TRUE(t.update(true));                   // leaving and returning to green arms it again
 }
 
 core::CubeBelief emptyCubes() {
@@ -930,6 +943,7 @@ int main() {
   RUN_TEST(test_handguard_backs_up_after_three_close_samples);
   RUN_TEST(test_handguard_fixed_obstacle_is_not_a_hand);
   RUN_TEST(test_handguard_obstacle_that_follows_is_a_hand_until_released);
+  RUN_TEST(test_start_trigger_needs_consecutive_green);
   RUN_TEST(test_pickplace_pick_phase);
   RUN_TEST(test_pickplace_place_phase);
   RUN_TEST(test_pickplace_grip_retry_then_ok);

@@ -5,7 +5,7 @@ Camadas: `src/core` (logica pura, testada no PC), `src/hal` (dono do hardware: r
 ## Apps (`src/`)
 | env | o que faz |
 |---|---|
-| `robo` | missao completa no carro STS: a logica de `SeguidorRC/src/seguidor/robo.h` (a mesma do simulador) sobre `src/robo/carro_real.h`. O carro nao anda ao ligar: `g [s]` anda, `x` para, `s` estado |
+| `robo` | missao completa no carro STS: a logica de `SeguidorRC/src/seguidor/robo.h` (a mesma do simulador) sobre `src/robo/carro_real.h`. O carro nao anda ao ligar: a partida comeca quando o chao le VERDE por ~0,5 s (12 min de limite), ou por `g [s]`. `x` para e reinicia DESARMADO (o verde nao dispara de novo ate `g` ou desligar e ligar); `s` estado. Console e OTA por BLE (`RoboChallenge`) alem do USB |
 | `seguidor`, `rapido` | seguidor de linha (BLE + OTA, ver `SeguidorRC/`) |
 | `follow` | seguidor com juncoes (carro STS ou DC) |
 
