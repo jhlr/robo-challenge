@@ -8,6 +8,7 @@
 #include <seguidor/sensores_rc.h>
 
 #include "core/color_table.h"
+#include "core/handguard.h"
 #include "hal/drive.h"
 #include "hal/sensors.h"
 #include "params.h"
@@ -20,6 +21,8 @@ namespace robo {
 constexpr float kAlcanceCorFrenteMm = 110.0f;   // o TCS da frente so vale quando o sonar ve algo mais perto que isto (senao ele leria o chao ou a parede ao fundo)
 constexpr uint32_t kSonarTimeoutUs = 8000;      // ~1,4 m: a varredura de plataformas olha ate ~900 mm; sem eco nao trava o ciclo por 25 ms
 constexpr unsigned long kPeriodoTcsMs = 60;     // a leitura do TCS leva 24 ms: nao ler a cada ciclo
+constexpr unsigned long kPeriodoMaoMs = 60;     // de quanto em quanto tempo a guarda da mao le o sonar (core/handguard.h)
+constexpr float kRecuoVel = 0.3f;               // fracao do comando das rodas no recuo
 
 class CarroReal {
  public:
@@ -47,6 +50,28 @@ class CarroReal {
   double roda(bool esquerda) const { return esquerda ? alvoE_ : alvoD_; }
   // O braco ainda nao esta calibrado (angulos da garra e do ombro por medir): nao se mexe sem a validacao do usuario. A logica segue como se tivesse pegado.
   void coletar(int) { evento("COLETAR: braco/garra nao acionados nesta versao (falta calibrar); segue como se tivesse pegado"); }
+
+  // ---- recuo por encoders (um so dono: a guarda da mao e, depois, a maquina de pegar e colocar). True se andou os mm antes do tempo limite.
+  bool recuar(float mm, unsigned long limiteMs = 2000) {
+    const double ini = (drive_.leftMm() + drive_.rightMm()) / 2.0;
+    const unsigned long t0 = millis();
+    drive_.setSpeeds(-kRecuoVel, -kRecuoVel);
+    bool ok = false;
+    while (millis() - t0 < limiteMs) {
+      delay(10);
+      if (ini - (drive_.leftMm() + drive_.rightMm()) / 2.0 >= mm) { ok = true; break; }
+    }
+    drive_.setSpeeds(0.0f, 0.0f);
+    return ok;
+  }
+
+  // ---- seguranca: mao segurando o carro (core/handguard.h). Chamar a cada ciclo: le o sonar a cada kPeriodoMaoMs.
+  core::HandStep passoMao() {
+    if (millis() - ultimaMaoMs_ < kPeriodoMaoMs) return mao_.lifted() ? core::HandStep::Hold : core::HandStep::None;
+    ultimaMaoMs_ = millis();
+    return mao_.update(sonar_.readMm(kSonarTimeoutUs));
+  }
+  core::HandStep depoisDoRecuo() { return mao_.backedUp(sonar_.readMm(kSonarTimeoutUs)); }
 
   // ---- sensores
   void ler(bool preto[seguidor::kSensores]) const {
@@ -140,7 +165,8 @@ class CarroReal {
   uint32_t ultimoCicloUs_ = 0;
   double odoE_ = 0.0, odoD_ = 0.0;
   int alvoE_ = 0, alvoD_ = 0;
-  unsigned long ultimaChaoMs_ = 0;
+  unsigned long ultimaChaoMs_ = 0, ultimaMaoMs_ = 0;
+  core::HandGuard mao_;
   std::string ecoTipo_;
   core::Cor chaoAceita_ = core::DESCONHECIDA, chaoAnterior_ = core::DESCONHECIDA;
 };

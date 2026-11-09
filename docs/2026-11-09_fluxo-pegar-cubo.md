@@ -40,6 +40,12 @@ Constantes em `firmware/include/params.h` (`kShoulderTicksUp/Pick/Place`). Movim
 ## Cubo na garra: guardar ja
 Carregando, a prioridade e entregar: a maquina nao tem desvios para coletar. A navegacao ja simulada (`robo.h`) segue direto para o oeste/portao e, se acha outro cubo no caminho, nao pega: marca a rua como bloqueada temporariamente, lembra dele para depois da entrega e volta por outra rua (`tratarCubo`, `aoBloquearTemporario`).
 
+## Seguranca: mao segurando o carro (`core/handguard.h`)
+Regra do usuario: sonar muito perto (< 30 mm, ou eco 0) por 3 leituras faz o carro dar re de 5 cm (`CarroReal::recuar`, por encoders). Se depois da re o obstaculo continua tao perto, ele veio junto: e a mao, o carro esta no ar. Para as rodas, pausa a missao (o tempo parado nao conta no limite) e so volta depois de 5 leituras livres. Parede ou cubo ficam para tras e a missao segue. Ligado em `src/robo/main.cpp` (`guardaDaMao`, chamada a cada ciclo, inclusive dentro de giros).
+- A cor nao entra: com a mao a 2-4 cm o canal clear do TCS da frente ficou em 130..330 (parede branca ~250), nao escuro.
+- Ao ligar a maquina de pegar e colocar, suspender a guarda enquanto o cubo estiver de proposito a menos de 30 mm do sonar (garra fechando).
+- Limitacao: o HC-SR04 nao mede bem abaixo de ~2 cm; mao colada pode dar eco 0 ou sem eco (sem eco nao conta como perto).
+
 ## Pendente
 - Falta o IO real da maquina (inclui `reposition()`: reapontar para o cubo pelo sonar e ajustar a distancia): garra SG90 (angulos aberta/fechada nao medidos, e como saber se esta segurando algo), `backUp(mm)` pelos encoders, cor/sonar ja existem em `robo/carro_real.h`. `CarroReal::coletar` continua stub.
 - Ligar a maquina a `Robo` (SeguidorRC/seguidor/robo.h): `goToPlatform` e `turn180` vem da navegacao ja simulada; `coletar(i)` e `entregarNaPlataforma` devem chamar a maquina.

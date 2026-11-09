@@ -32,8 +32,31 @@ void parouTudo() {
   carro.parar();
 }
 
+// Algo muito perto do sonar: da re; se o obstaculo veio junto, e uma mao segurando o carro no ar. Ai para as rodas e espera soltar (nao adianta girar motor nem ler sensor no ar).
+// O tempo parado nao conta no limite da missao.
+void guardaDaMao() {
+  core::HandStep passo = carro.passoMao();
+  if (passo == core::HandStep::None) return;
+  if (passo == core::HandStep::BackUp) {
+    Serial.println("obstaculo muito perto: da re para ver se ele vem junto");
+    carro.recuar(core::kHandBackUpMm);
+    passo = carro.depoisDoRecuo();
+    if (passo == core::HandStep::None) { Serial.println("ficou para tras: obstaculo fixo, segue"); return; }
+  }
+  parouTudo();
+  Serial.println("MAO: o obstaculo veio junto na re, o carro esta no ar. Parado ate soltar");
+  const unsigned long desde = millis();
+  while (carro.passoMao() == core::HandStep::Hold) {
+    if (Serial.available() && Serial.peek() == 'x') return;   // deixa o vigiar tratar o 'x'
+    delay(20);
+  }
+  fimMs += millis() - desde;
+  Serial.println("solto: segue");
+}
+
 // Chamado a cada ciclo (tambem dentro dos giros e avancos que bloqueiam): 'x' para as rodas e reinicia, o tempo maximo tambem.
 void vigiar() {
+  if (andando) guardaDaMao();
   while (Serial.available()) {
     const char ch = Serial.read();
     if (ch == 'x') { parouTudo(); Serial.println("PARADO (x): reiniciando"); delay(100); ESP.restart(); }

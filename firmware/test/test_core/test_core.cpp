@@ -2,6 +2,7 @@
 
 #include <string>
 #include "core/arm.h"
+#include "core/handguard.h"
 #include "core/pickplace.h"
 #include "core/belief.h"
 #include "core/color.h"
@@ -224,6 +225,36 @@ void test_pickplace_blocked_shoulder_gets_no_second_command() {
   FakePp io; io.shoulderOk = false; core::PickPlace pp; pp.run(io);
   TEST_ASSERT_EQUAL(core::PpFail::Shoulder, pp.fail);
   TEST_ASSERT_EQUAL_STRING("C b9 open pick ", io.log.c_str());   // blocked on the way down: nothing else commanded
+}
+
+void test_handguard_backs_up_after_three_close_samples() {
+  core::HandGuard g;
+  TEST_ASSERT_EQUAL(core::HandStep::None, g.update(10)); TEST_ASSERT_EQUAL(core::HandStep::None, g.update(10));
+  TEST_ASSERT_EQUAL(core::HandStep::None, g.update(200));                  // an odd sample resets the count
+  TEST_ASSERT_EQUAL(core::HandStep::None, g.update(0)); TEST_ASSERT_EQUAL(core::HandStep::None, g.update(20));   // 0 = touching also counts
+  TEST_ASSERT_EQUAL(core::HandStep::BackUp, g.update(25));
+  TEST_ASSERT_EQUAL(core::HandStep::None, g.update(0xFFFF));              // no echo is not close
+}
+
+void test_handguard_fixed_obstacle_is_not_a_hand() {
+  core::HandGuard g;
+  for (int i = 0; i < 2; i++) g.update(15);
+  TEST_ASSERT_EQUAL(core::HandStep::BackUp, g.update(15));
+  TEST_ASSERT_EQUAL(core::HandStep::None, g.backedUp(65));                 // the wall stayed behind
+  TEST_ASSERT_FALSE(g.lifted());
+}
+
+void test_handguard_obstacle_that_follows_is_a_hand_until_released() {
+  core::HandGuard g;
+  for (int i = 0; i < 2; i++) g.update(15);
+  TEST_ASSERT_EQUAL(core::HandStep::BackUp, g.update(15));
+  TEST_ASSERT_EQUAL(core::HandStep::Hold, g.backedUp(15));                 // still that close after backing up
+  TEST_ASSERT_TRUE(g.lifted());
+  for (int i = 0; i < 4; i++) TEST_ASSERT_EQUAL(core::HandStep::Hold, g.update(300));   // free, but not long enough yet
+  TEST_ASSERT_EQUAL(core::HandStep::Hold, g.update(10));                   // the hand is back: the count restarts
+  for (int i = 0; i < 4; i++) TEST_ASSERT_EQUAL(core::HandStep::Hold, g.update(300));
+  TEST_ASSERT_EQUAL(core::HandStep::None, g.update(300));                  // fifth in a row releases
+  TEST_ASSERT_FALSE(g.lifted());
 }
 
 core::CubeBelief emptyCubes() {
@@ -882,6 +913,9 @@ int main() {
   RUN_TEST(test_shoulder_target);
   RUN_TEST(test_shoulder_next_target);
   RUN_TEST(test_shoulder_reach);
+  RUN_TEST(test_handguard_backs_up_after_three_close_samples);
+  RUN_TEST(test_handguard_fixed_obstacle_is_not_a_hand);
+  RUN_TEST(test_handguard_obstacle_that_follows_is_a_hand_until_released);
   RUN_TEST(test_pickplace_full_sequence);
   RUN_TEST(test_pickplace_grip_retry_then_ok);
   RUN_TEST(test_pickplace_grip_shows_after_lift);
