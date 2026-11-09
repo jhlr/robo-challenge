@@ -92,9 +92,12 @@ void test_first_step_to_unreachable_target_stays_put() {
   TEST_ASSERT_EQUAL(0, s.r);
 }
 
-void test_color_table_rejects_ambiguous_dim_colours() {
-  // chroma halfway between VERDE (25 21 13) and AZUL (25 18 15), at their brightness: both are close, neither clearly wins
-  TEST_ASSERT_EQUAL(core::DESCONHECIDA, core::classificarCor(50, 39, 28, core::kCoresRef[core::VERDE].c));
+void test_color_table_nearest_wins_and_is_relative() {
+  // chroma a little closer to AZUL (25 18 15) than to VERDE (25 21 13): the nearest wins, no "ambiguous" rejection
+  TEST_ASSERT_EQUAL(core::AZUL, core::classificarCor(25, 19, 14, 56));
+  TEST_ASSERT_EQUAL(core::VERDE, core::classificarCor(25, 20, 13, 56));
+  // an empty reading is unknown
+  TEST_ASSERT_EQUAL(core::DESCONHECIDA, core::classificarCor(0, 0, 0, 0));
 }
 
 void test_wrap_delta() {
@@ -942,7 +945,7 @@ int main() {
   RUN_TEST(test_pid_derivative_filter_tames_a_step);
   RUN_TEST(test_routes_from_outside_the_map_is_all_unreachable);
   RUN_TEST(test_first_step_to_unreachable_target_stays_put);
-  RUN_TEST(test_color_table_rejects_ambiguous_dim_colours);
+  RUN_TEST(test_color_table_nearest_wins_and_is_relative);
   RUN_TEST(test_wrap_delta);
   RUN_TEST(test_spin_counts);
   RUN_TEST(test_color_classes);

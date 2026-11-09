@@ -23,10 +23,9 @@ constexpr RefCor kCoresRef[NUM_CORES] = {
     {25, 18, 15, 56},    // AZUL
     {58, 30, 19, 102},   // VERMELHO
 };
-constexpr float kDistanciaMaxima = 0.15f;  // acima disso a cor fica DESCONHECIDA
-// A reading is believed only if the best reference is clearly closer than the runner-up (best <= kRazaoAmbigua * second). PRETO, VERDE and AZUL are dim and nearly the same
-// chroma (dim surfaces, clear ~55: a count of 1 is ~2% of the sum), so the winner among them can be noise: without this a wrong colour would be believed.
-constexpr float kRazaoAmbigua = 0.5f;
+constexpr float kDistanciaMaxima = 0.15f;  // acima disso a cor fica DESCONHECIDA (nada se parece com a leitura)
+// Classification is by PROXIMITY and fully RELATIVE: the table holds raw readings, but only ratios are compared (r, g, b as fractions of their sum, clear as a fraction of the
+// BRANCO reference), so the same table survives a change of overall light. The nearest reference wins; a repeat of two readings in a row (filtrarCor) is what guards against noise.
 
 // Squared distance between a reading and one reference: chroma (r, g, b as fractions of their sum) weighs 4x, brightness relative to BRANCO 0.5x.
 inline float distanciaCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const RefCor& ref, const RefCor& branco) {
@@ -39,29 +38,25 @@ inline float distanciaCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const 
   return 4.0f * (dr * dr + dg * dg + db * db) + 0.5f * dl * dl;
 }
 
-// Closest reference colour, or DESCONHECIDA when nothing is close enough or the reading is empty.
+// Nearest reference colour by relative distance, or DESCONHECIDA when nothing is within kDistanciaMaxima or the reading is empty.
 inline Cor classificarCor(uint16_t r, uint16_t g, uint16_t b, uint16_t c, const RefCor* refs = kCoresRef,
                           float distanciaMaxima = kDistanciaMaxima) {
   if (static_cast<float>(r) + g + b < 1.0f) return DESCONHECIDA;
   Cor melhor = DESCONHECIDA;
-  float menor = 1e9f, segundo = 1e9f;
+  float menor = 1e9f;
   for (int i = 0; i < NUM_CORES; ++i) {
     const float d = distanciaCor(r, g, b, c, refs[i], refs[BRANCO]);
     if (d < menor) {
-      segundo = menor;
       menor = d;
       melhor = static_cast<Cor>(i);
-    } else if (d < segundo) {
-      segundo = d;
     }
   }
-  if (menor > distanciaMaxima) return DESCONHECIDA;
-  return menor <= kRazaoAmbigua * segundo ? melhor : DESCONHECIDA;
+  return menor <= distanciaMaxima ? melhor : DESCONHECIDA;
 }
 
 inline const char* nomeCor(Cor cor) { return cor < NUM_CORES ? kNomesCores[cor] : "DESCONHECIDA"; }
 
-// A colour has to repeat in two readings in a row before it is believed (the teammate's filter). Returns the accepted colour.
+// A colour has to repeat in two readings in a row before it is believed. Returns the accepted colour.
 inline Cor filtrarCor(Cor nova, Cor& anterior, Cor aceita) {
   const Cor resultado = (nova == anterior) ? nova : aceita;
   anterior = nova;
