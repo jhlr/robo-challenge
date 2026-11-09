@@ -240,7 +240,7 @@ void setup() {
   registrar(String("TCS chao (Wire): ") + (corChao.begin(Wire) ? "ok" : "FALHOU") + " | TCS frente (Wire1): " + (corFrente.begin(Wire1) ? "ok" : "FALHOU"));
   for (int i = 0; i < seguidor::kSensores; i++) pinosBarra[i] = pins::kLine[i];
   barra.adaptativo = true;
-  barra.mortos = 0b11000000;   // S7 e S8 (GPIO13 e GPIO4) sem sinal: 2500 us em qualquer chao, com a barra antiga e a QRE-8D nova (2026-11-09); S1 e S2 estao em GPIO14 e GPIO27 (pins.h); ver BarraRC::mortos
+  barra.mortos = 0b11000000;   // S7 e S8 estao em GPIO35 e GPIO34, so de entrada: o modo RC nao carrega o pino e eles leem 2500 us em qualquer chao (2026-11-09); ver pins.h e BarraRC::mortos
   seguidor::iniciar(barra, pinosBarra);
   if (!seguidor::aplicarLimiar(barra, dbg)) {
     registrar("Poucos sensores da barra vivos: nao anda.");
