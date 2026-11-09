@@ -1,5 +1,5 @@
 // Bench: turns the shoulder STS (direct drive, 1 servo tick = 360/4096 deg of arm) by a delta from its CURRENT position.
-// Serial: 'u' = 45 deg up, 'd' = 45 deg down, 's' = stop holding (torque off). Moves in kChunkTicks steps and aborts if current gets high or the servo stops following.
+// Serial: a signed number of degrees + newline (positive = arm up, negative = down), limited to kShoulderMaxMoveDeg. Moves in kChunkTicks steps and aborts if current gets high or the servo stops following.
 #include <Arduino.h>
 
 #include <SCServo.h>
@@ -11,7 +11,6 @@ SMS_STS sms_sts;
 constexpr float kTicksPerDeg = 4096.0f / 360.0f;
 constexpr int kChunkTicks = 64;       // ~5.6 deg per step
 constexpr int kMaxCurrent = 400;      // raw units (~6.5 mA each): abort above this
-constexpr float kDeltaDeg = 45.0f;
 
 void turn(float deg) {  // deg > 0 = arm up (kShoulderUpSign decides the tick direction)
   const int id = params::kIdShoulder;
@@ -46,12 +45,14 @@ void setup() {
   sms_sts.pSerial = &Serial1;
   delay(1500);
   Serial.printf("id %d mode=%d pos=%d\n", params::kIdShoulder, sms_sts.ReadMode(params::kIdShoulder), sms_sts.ReadPos(params::kIdShoulder));
-  Serial.println("'u' = 45 deg up, 'd' = 45 deg down");
+  Serial.println("send signed degrees + newline: positive = up, negative = down");
 }
 
 void loop() {
   if (!Serial.available()) return;
-  const int c = Serial.read();
-  if (c == 'u') turn(kDeltaDeg);
-  else if (c == 'd') turn(-kDeltaDeg);
+  const float deg = Serial.parseFloat();
+  while (Serial.available()) Serial.read();
+  if (deg == 0.0f) return;
+  if (fabsf(deg) > params::kShoulderMaxMoveDeg) { Serial.printf("%.1f deg exceeds the %.0f deg limit\n", deg, params::kShoulderMaxMoveDeg); return; }
+  turn(deg);
 }
