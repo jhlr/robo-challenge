@@ -15,5 +15,5 @@ docs/                     decisoes, estado atual, checklist de bancada, imagens
 old/                      versoes descartadas (ombro SG90, MG996R direto e 4:1, conves baixo) e pecas soltas do plotter
 ```
 
-Comecar por `docs/2026-11-06_ombro-sts3215.md` (ombro atual), `docs/2026-11-09_fluxo-pegar-cubo.md` (fluxo e alturas) e `firmware/README.md`. O estado do chassi e da pinca ainda esta em `docs/2026-10-24_braco-opcao2-estado-atual.md`.
+Comecar por `docs/2026-11-06_ombro-sts3215.md` (ombro atual), `docs/2026-11-09_fluxo-pegar-cubo.md` (fluxo e alturas) e `2026-11-09_bancada-carro-no-mapa.md` (carro na arena: calibracao, gatilho do verde, ferramentas BLE) e `firmware/README.md`. O estado do chassi e da pinca ainda esta em `docs/2026-10-24_braco-opcao2-estado-atual.md`.
 O plotter de desenho e outro projeto (`jhlr/plotter`). Os scripts Python de `cad/` rodam da raiz do repo (ex.: `python3 cad/braco/mdf_nest.py ombro`).
