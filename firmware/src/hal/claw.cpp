@@ -12,14 +12,14 @@ void Claw::begin(int pin) {
 }
 
 bool Claw::open() {
-  if (isStub()) { Serial.println("[garra STUB] abrir"); return true; }
+  if (isStub()) return true;   // stub: o CarroReal registra "(garra stub)"
   servo_.write(params::kClawOpenDeg);
   delay(params::kClawMoveMs);
   return true;
 }
 
 bool Claw::close() {
-  if (isStub()) { Serial.println("[garra STUB] fechar"); return true; }
+  if (isStub()) return true;
   servo_.write(params::kClawClosedDeg);
   delay(params::kClawMoveMs);
   return true;

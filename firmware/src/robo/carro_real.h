@@ -134,7 +134,8 @@ class CarroReal {
   int consumirToques() { return 0; }   // o juiz sinaliza; o carro nao sabe
   void mostrarCarga(int, int) {}
   void limparCarga() {}
-  void evento(const std::string& texto) { Serial.printf("[%lu] %s\n", millis(), texto.c_str()); }
+  void evento(const std::string& texto) { saida_->printf("[%lu] %s\n", millis(), texto.c_str()); }
+  void saida(Print& p) { saida_ = &p; }   // para onde vai o log (USB e BLE)
   seguidor::Estado estado() const { return {0.0, 0.0, 0.0}; }   // so o simulador sabe a verdade
   const std::string& ecoTipo() const { return ecoTipo_; }   // so depuracao
 
@@ -198,6 +199,7 @@ class CarroReal {
   hal::Claw& garra_;
   seguidor::CorCubo corAlvo_ = seguidor::CorCubo::Nenhuma;   // cor do cubo que se esta largando
   float dtMs_;
+  Print* saida_ = &Serial;
   uint32_t ultimoCicloUs_ = 0;
   double odoE_ = 0.0, odoD_ = 0.0;
   int alvoE_ = 0, alvoD_ = 0;
