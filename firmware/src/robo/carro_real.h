@@ -9,8 +9,11 @@
 
 #include "core/color_table.h"
 #include "core/handguard.h"
+#include "core/pickplace.h"
+#include "hal/claw.h"
 #include "hal/drive.h"
 #include "hal/sensors.h"
+#include "hal/shoulder.h"
 #include "params.h"
 #include "pins.h"
 
@@ -26,8 +29,8 @@ constexpr float kRecuoVel = 0.3f;               // fracao do comando das rodas n
 
 class CarroReal {
  public:
-  CarroReal(hal::StsDrive& drive, seguidor::BarraRC& barra, hal::Ultrasonic& sonar, hal::ColorSensor& chao, hal::ColorSensor& frente, float dtMs)
-      : drive_(drive), barra_(barra), sonar_(sonar), chao_(chao), frente_(frente), dtMs_(dtMs) {}
+  CarroReal(hal::StsDrive& drive, seguidor::BarraRC& barra, hal::Ultrasonic& sonar, hal::ColorSensor& chao, hal::ColorSensor& frente, hal::Claw& garra, float dtMs)
+      : drive_(drive), barra_(barra), sonar_(sonar), chao_(chao), frente_(frente), garra_(garra), dtMs_(dtMs) {}
 
   // ---- tempo e ciclo: espera o proximo ciclo de dtMs, le a barra e as rodas
   unsigned long agoraMs() const { return millis(); }
@@ -48,8 +51,23 @@ class CarroReal {
   void parar() { comandar(0, 0); }
   void compensar(double, double) {}   // o servo regula a velocidade de cada roda: nada a compensar
   double roda(bool esquerda) const { return esquerda ? alvoE_ : alvoD_; }
-  // O braco ainda nao esta calibrado (angulos da garra e do ombro por medir): nao se mexe sem a validacao do usuario. A logica segue como se tivesse pegado.
-  void coletar(int) { evento("COLETAR: braco/garra nao acionados nesta versao (falta calibrar); segue como se tivesse pegado"); }
+  // Pegar e largar o cubo: a maquina de core/pickplace.h sobre o ombro real (hal/shoulder), o recuo por encoders, o sonar e o TCS da frente.
+  // A garra (hal/claw) e STUB por enquanto: abrir/fechar so registram e a pegada sempre "confere". O ombro e o recuo se mexem de verdade.
+  bool coletar(int) {
+    Manipulador io{*this};
+    auto pp = core::PickPlace::pick();
+    pp.run(io);
+    evento(pp.done() ? "COLETAR: sequencia completa (garra stub)" : "COLETAR falhou na etapa " + std::to_string(static_cast<int>(pp.state)) + ", motivo " + std::to_string(static_cast<int>(pp.fail)));
+    return pp.done();
+  }
+  bool soltar(seguidor::CorCubo cor) {
+    corAlvo_ = cor;
+    Manipulador io{*this};
+    auto pp = core::PickPlace::place();
+    pp.run(io);
+    evento(pp.done() ? "SOLTAR: sequencia completa (garra stub)" : "SOLTAR falhou, motivo " + std::to_string(static_cast<int>(pp.fail)));
+    return pp.done();
+  }
 
   // ---- recuo por encoders (um so dono: a guarda da mao e, depois, a maquina de pegar e colocar). True se andou os mm antes do tempo limite.
   bool recuar(float mm, unsigned long limiteMs = 2000) {
@@ -122,6 +140,21 @@ class CarroReal {
 
 
  private:
+  // O IO que a maquina de pegar e colocar pede (core/pickplace.h), sobre os orgaos do carro.
+  struct Manipulador {
+    CarroReal& c;
+    bool cubeColorOk() { return c.tcsFrente() != seguidor::CorCubo::Nenhuma; }
+    bool backUp(float mm) { return c.recuar(mm); }
+    bool clawOpen() { return c.garra_.open(); }
+    bool clawClose() { return c.garra_.close(); }
+    bool shoulderTo(core::Level l) { return shoulderGoTo(l == core::Level::Up ? ShoulderLevel::Up : l == core::Level::Place ? ShoulderLevel::Place : ShoulderLevel::Pick); }
+    bool holding() { return c.garra_.holding(); }
+    bool reposition() { c.evento("[reposicionar PENDENTE] sem reapontar pelo sonar"); return true; }   // TODO: reapontar para o cubo e acertar a distancia
+    bool frontClear() { return !c.algoPerto(kAlcanceCorFrenteMm); }   // ombro no topo: a garra nao esta na frente do sonar
+    bool platformPositionOk() { return c.algoPerto(kAlcanceCorFrenteMm); }
+    bool platformColorOk() { return c.plataformaNaFrente(kAlcanceCorFrenteMm) == c.corAlvo_; }
+  };
+
   // PWM do firmware (-255..255) -> fracao do comando das rodas. O simulador converte PWM em mm/s (2,31 mm/s por PWM: velReto 110 = 254 mm/s), mas o STS3215 so entrega ~kStsMaxSteps
   // passos/s (~150 mm/s com roda de 66 mm): a escala linear abaixo mantem a ordem das velocidades (giro < reta) em vez de saturar tudo acima de ~65 PWM. Ajuste kPwmPlenoSts na pista.
   static constexpr float kPwmPlenoSts = 160.0f;   // PWM do firmware que vira 100% do comando (NAO medido)
@@ -162,6 +195,8 @@ class CarroReal {
   hal::Ultrasonic& sonar_;
   hal::ColorSensor& chao_;
   hal::ColorSensor& frente_;
+  hal::Claw& garra_;
+  seguidor::CorCubo corAlvo_ = seguidor::CorCubo::Nenhuma;   // cor do cubo que se esta largando
   float dtMs_;
   uint32_t ultimoCicloUs_ = 0;
   double odoE_ = 0.0, odoD_ = 0.0;

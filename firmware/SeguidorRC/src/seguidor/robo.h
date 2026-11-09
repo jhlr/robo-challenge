@@ -1,7 +1,8 @@
 // A logica de navegacao do carro (seguir a rua, cruzamentos, giro na linha, mapa de cubos, coleta e entrega): UM dono, usado pelo simulador e pelo carro real.
 // `Carro` e o robo de verdade ou o simulado; precisa oferecer (duck typing):
 //   tempo/ciclo:  agoraMs(), avancar() (espera/simula um ciclo de cfg.dtMs)
-//   atuadores:    comandar(pwmEsq, pwmDir) (-255..255), parar(), compensar(ganhoEsq, ganhoDir), roda(esquerda) (alvo da roda, 0 = parada), coletar(i)
+//   atuadores:    comandar(pwmEsq, pwmDir) (-255..255), parar(), compensar(ganhoEsq, ganhoDir), roda(esquerda) (alvo da roda, 0 = parada),
+//                 coletar(i) -> bool (pegou e guardou o cubo), soltar(cor) -> bool (largou o cubo na plataforma)
 //   sensores:     ler(bool[8]) (true = linha), odoMm()/odoEMm()/odoDMm() (mm das rodas), us() (mm ou -1), tcsChao(), tcsFrente(), piso(),
 //                 plataformaNaFrente(alcanceMm), cuboNaFrente(alcanceMm), imu() (neutro sem MPU)
 //   missao:       missao(), usAtivo(), tcsPeriodoMs(), consumirToques(), mostrarCarga(slot, cor), limparCarga(), evento(texto)
@@ -1158,7 +1159,8 @@ struct Robo {
         encontrou = achou();
       }
       const seguidor::CorCubo vista = c.plataformaNaFrente(70.0);
-      if (vista == cor) {
+      const bool largou = vista == cor && c.soltar(cor);
+      if (largou) {
         nav.pontos += 100;
         nav.entregues++;
         c.evento(fmt("ENTREGOU cubo na plataforma da cor %d (+100, total %d pontos)", static_cast<int>(cor), nav.pontos));
@@ -1169,7 +1171,8 @@ struct Robo {
       } else {
         nav.pontos -= 10;
         nav.perdidos++;
-        c.evento(fmt("plataforma ERRADA (vi cor %d, o cubo e cor %d): cubo perdido (-10)", static_cast<int>(vista), static_cast<int>(cor)));
+        c.evento(vista == cor ? fmt("plataforma certa (cor %d) mas nao largou o cubo: cubo perdido (-10)", static_cast<int>(cor))
+                              : fmt("plataforma ERRADA (vi cor %d, o cubo e cor %d): cubo perdido (-10)", static_cast<int>(vista), static_cast<int>(cor)));
       }
       girarPara(c, 0.0);                // de costas para a plataforma: volta para o verde
       andarMm(c, 120.0, [] { return false; });
@@ -1280,7 +1283,13 @@ struct Robo {
       return true;
     }
     if (podeColetar(cor, nav.coleta)) {
-      c.coletar(idx);
+      if (!c.coletar(idx)) {   // nao conseguiu pegar: o cubo continua la, como cubo no caminho (lembra dele e volta por outra rua, sem ficar tentando para sempre)
+        nav.aoBloquearTemporario();
+        trechoRestante0 = -1.0;
+        c.evento(fmt("nao conseguiu pegar o cubo cor %d: lembra dele e volta por outra rua", static_cast<int>(cor)));
+        voltarDoCubo(c);
+        return true;
+      }
       nav.aoColetar(cor);
       portaoPendente = true;   // levando o cubo: a azul no fim da rua e o NOSSO portao
       c.mostrarCarga(nav.carga.size() == 1 ? 0 : 1, static_cast<int>(cor));

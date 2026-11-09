@@ -34,8 +34,10 @@ Constantes em `firmware/include/params.h` (`kShoulderTicksUp/Pick/Place`). Movim
 20. Repete tudo; priorizar cubos de localizacao ja conhecida.
 
 ## Implementacao
-- `firmware/src/core/pickplace.h`: maquina de estados pura (`PickPlace::step(IO&)`), testada com um IO falso (7 testes em `test_core`). Sem pegada: levanta o ombro, confere de novo (o cubo pode so aparecer como seguro ao levantar), reposiciona (sonar), desce e fecha outra vez, ate 3 fechamentos; qualquer falha para, sobe o ombro (exceto se o proprio ombro travou: ai nao manda segundo comando) e registra `PpFail`. Cubo na garra (`carrying`) fica registrado para a missao decidir.
-- `firmware/src/hal/shoulder.*`: ombro direto em ticks, sempre em passos de 64 ticks (~5,6 graus) a partir da posicao atual, checando posicao e corrente; `shoulderGoTo(Up|Place|Pick)`. Bringup: `l u|m|p` e `d <graus>`.
+- `firmware/src/core/pickplace.h`: maquina de estados pura em duas fases, porque a navegacao (`robo.h`) cuida de andar o mapa, achar cubo e plataforma e girar. `PickPlace::pick()`: cor, re 9 cm, abre, desce, fecha, confere pegada, sobe, confere frente livre; sem pegada levanta, confere de novo, reposiciona, desce e tenta outra vez (ate 3 fechamentos). `PickPlace::place()`: posicao e cor da plataforma, re 13 cm, desce a altura de plataforma, abre, sobe. Qualquer falha para e sobe o ombro (exceto se o proprio ombro travou).
+- Ligada ao carro: `CarroReal::coletar(i)` e `CarroReal::soltar(cor)` rodam a maquina sobre o ombro real, o recuo por encoders (`recuar`), o sonar e o TCS da frente. Em `robo.h`, `coletar` devolve bool (falhou = cubo continua la, vira rua bloqueada temporaria e o carro volta por outra) e `soltar` e chamado na plataforma (nao largou = cubo perdido). O simulador responde sempre true: o braco nao e simulado.
+- `firmware/src/hal/shoulder.*`: ombro direto em ticks, sempre em passos de 64 ticks a partir da posicao atual, checando posicao e corrente. Bringup: `l u|m|p` e `d <graus>`.
+- `firmware/src/hal/claw.*`: garra SG90 **STUB** (`pins::kClaw = -1`): abrir e fechar so registram, a pegada sempre confere. O SG90 nao da retorno de forca nem de posicao (o usuario fechou com forca e a leitura nao mudou). O pino 22 que estava no `pins.h` e o SCL do TCS do chao, por isso foi desatribuido.
 
 ## Cubo na garra: guardar ja
 Carregando, a prioridade e entregar: a maquina nao tem desvios para coletar. A navegacao ja simulada (`robo.h`) segue direto para o oeste/portao e, se acha outro cubo no caminho, nao pega: marca a rua como bloqueada temporariamente, lembra dele para depois da entrega e volta por outra rua (`tratarCubo`, `aoBloquearTemporario`).
@@ -47,7 +49,7 @@ Regra do usuario: sonar muito perto (< 30 mm, ou eco 0) por 3 leituras faz o car
 - Limitacao: o HC-SR04 nao mede bem abaixo de ~2 cm; mao colada pode dar eco 0 ou sem eco (sem eco nao conta como perto).
 
 ## Pendente
-- Falta o IO real da maquina (inclui `reposition()`: reapontar para o cubo pelo sonar e ajustar a distancia): garra SG90 (angulos aberta/fechada nao medidos, e como saber se esta segurando algo), `backUp(mm)` pelos encoders, cor/sonar ja existem em `robo/carro_real.h`. `CarroReal::coletar` continua stub.
-- Ligar a maquina a `Robo` (SeguidorRC/seguidor/robo.h): `goToPlatform` e `turn180` vem da navegacao ja simulada; `coletar(i)` e `entregarNaPlataforma` devem chamar a maquina.
+- Garra real: pino (livre e sem conflito), angulos aberta e fechada (`kClawOpenDeg/ClosedDeg` sao chute, nao medidos), e uma pegada de verdade (sensor ou chave); hoje `holding()` e sempre true.
+- `reposition()` e so um registro: falta reapontar para o cubo pelo sonar e acertar a distancia.
+- A sequencia pegar/largar nunca rodou no carro; o ombro desce 83 graus a partir do topo. Testar com o carro parado e o ombro livre antes de `g`.
 - CAD: `cad/braco/params.json` ainda tem `shoulder_ratio = 4`.
-- A altura de pegar derivou 150 ticks uma vez; era o usuario forcando a descida (torque segura bem).

@@ -1,7 +1,7 @@
 // Simulador do carrinho seguidor no PC: cinematica diferencial + barra de 8 sensores sobre uma pista de linhas, rodando a logica REAL da biblioteca
 // (decidir, cruzamentoConfirmado, giro de 90 graus, classificarPerda). Nao testa eletronica: testa se as REGRAS levam o carro onde deviam.
 //
-//   g++ -std=c++17 -Wall -Isrc test/simulador.cpp src/seguidor/decisao.cpp -o /tmp/simulador && /tmp/simulador [pasta_para_svg]
+//   g++ -std=c++17 -O2 -Wall -Isrc -I../src -pthread test/simulador.cpp src/seguidor/decisao.cpp -o /tmp/simulador && /tmp/simulador [pasta_para_svg]
 //
 // Modelo (tudo CHUTE ate medir na pista; os numeros ficam em ParamsFisicos):
 //   - carro 170 x 200 mm, eixo no meio, barra de 75 mm a 30 mm a frente do eixo, linha de 20 mm, sensor = ponto;
@@ -416,11 +416,13 @@ class Carro {
     return melhor;
   }
   // Pega o cubo i (some do mapa neste quadro).
-  void coletar(int i) {
-    if (!mundo_ || i < 0) return;
+  bool coletar(int i) {
+    if (!mundo_ || i < 0) return true;
     mundo_->cubos[static_cast<size_t>(i)].vivo = false;
     mundo_->cubos[static_cast<size_t>(i)].mortoEm = rastro_.size();
+    return true;
   }
+  bool soltar(seguidor::CorCubo) { return true; }   // o braco nao e simulado: largar sempre da certo
   // ---- interface da missao que o robo.h espera (no carro real: sem mundo, com ecoponto de verdade)
   bool missao() const { return mundo_ != nullptr; }
   bool usAtivo() const { return mundo_ && mundo_->cfg.us; }

@@ -1,36 +1,38 @@
 #pragma once
-// Pure logic (no Arduino.h): the cube pick-and-place sequence as an explicit state machine. One step() runs ONE state against an `IO` (the real car or a test double).
+// Pure logic (no Arduino.h): the cube pick and place sequences as an explicit state machine. One step() runs ONE state against an `IO` (the real car or a test double).
 //
-// Flow (user, 2026-11-09), starting when the sonar has already seen a cube and the shoulder is at the top:
-//   cube color -> back up 9 cm -> open claw -> shoulder to pick -> close claw -> check grip -> shoulder to top -> check nothing in front ->
-//   (no grip: shoulder to top, check again, reposition, open, lower, close, check again; up to kGripTries closings) ->
-//   drive to the platform -> check platform position (sonar) -> check platform color -> back up 13 cm -> shoulder to platform height -> open claw -> shoulder to top -> turn 180.
-// Walking the map and finding the cube/platform are the navigation's job (GoToPlatform is a hook into it); this machine owns the arm and claw order and every check between them.
+// Two phases, because the navigation (SeguidorRC robo.h) owns everything between them (walking the map, finding the cube, driving to the platform, turning):
+//   PICK  (`PickPlace::pick()`)   starts with the cube in front and the shoulder at the top:
+//     cube color -> back up 9 cm -> open claw -> shoulder to pick -> close claw -> check grip -> shoulder to top -> check nothing in front.
+//     No grip: shoulder to top, check again, reposition, open, lower, close, check again (up to kGripTries closings).
+//   PLACE (`PickPlace::place()`)  starts in front of the platform, cube in the claw:
+//     platform position (sonar) -> platform color -> back up 13 cm -> shoulder to platform height -> open claw -> shoulder to top.
+// Carrying a cube means STORING IT NOW: no state here collects anything else; cubes seen on the way are only remembered by the navigation (robo.h blocks that street temporarily,
+// remembers the cube for after the delivery and goes around it).
 //
 // IO contract (every call returns true on success):
-//   cubeColorOk()            front color sensor shows the expected cube color
+//   cubeColorOk()            front color sensor still shows a cube color
 //   backUp(mm)               straight back by mm (encoders)
 //   clawOpen() / clawClose() move the claw
 //   shoulderTo(Level)        small checked steps to a calibrated height; false = blocked, the shoulder holds where it stopped
 //   holding()                the claw is gripping something
-//   frontClear()             sonar sees no cube in front
 //   reposition()             after a failed grip, with the shoulder up: re-aim at the cube (sonar) and adjust the distance
-//   goToPlatform()           navigation brings the car in front of the platform. Carrying a cube means STORING IT NOW: no detours to collect; cubes seen on the way are only remembered (robo.h: a cube in the way is
-//                            blocked temporarily, remembered for after the delivery, and the car goes around it)
+//   frontClear()             sonar sees no cube in front
 //   platformPositionOk()     sonar confirms the platform is where it should be
-//   platformColorOk()        floor/front color matches the carried cube
-//   turn180()                spin half a turn
+//   platformColorOk()        front color matches the carried cube
+#include <cstdint>
+
 namespace core {
 
 enum class Level : uint8_t { Up, Place, Pick };
 
 enum class PpState : uint8_t {
   CheckColor, BackUpPick, OpenForPick, LowerPick, ClosePick, CheckGrip, RaiseRetry, CheckGripRaised, Reposition, RaiseCarry, CheckClear,
-  GoToPlatform, CheckPlatformPos, CheckPlatformColor, BackUpPlace, LowerPlace, Release, RaiseAfter, Turn180,
+  CheckPlatformPos, CheckPlatformColor, BackUpPlace, LowerPlace, Release, RaiseAfter,
   Done, Aborted
 };
 
-enum class PpFail : uint8_t { None, WrongColor, BackUp, Reposition, Claw, Shoulder, NoGrip, FrontBlocked, Platform, PlatformPos, PlatformColor, Turn };
+enum class PpFail : uint8_t { None, WrongColor, BackUp, Reposition, Claw, Shoulder, NoGrip, FrontBlocked, PlatformPos, PlatformColor };
 
 constexpr float kBackUpPickMm = 90.0f;     // user: ~9 cm
 constexpr float kBackUpPlaceMm = 130.0f;   // user: 13 cm
@@ -42,7 +44,11 @@ struct PickPlace {
   uint8_t gripTries = 0;
   bool carrying = false;  // true from the first successful grip until the release
 
+  static PickPlace pick() { return PickPlace{}; }
+  static PickPlace place() { PickPlace p; p.state = PpState::CheckPlatformPos; p.carrying = true; return p; }
+
   bool running() const { return state != PpState::Done && state != PpState::Aborted; }
+  bool done() const { return state == PpState::Done; }
 
   // Runs the current state once. Returns running(). On a failure it records `fail`, and (unless the shoulder itself is the problem) lifts the shoulder to the top before stopping.
   template <class IO>
@@ -65,8 +71,7 @@ struct PickPlace {
         break;
       case PpState::Reposition: next(io.reposition(), PpState::OpenForPick, PpFail::Reposition); break;
       case PpState::RaiseCarry: shoulder(io, Level::Up, PpState::CheckClear); break;
-      case PpState::CheckClear: next(io.frontClear(), PpState::GoToPlatform, PpFail::FrontBlocked); break;
-      case PpState::GoToPlatform: next(io.goToPlatform(), PpState::CheckPlatformPos, PpFail::Platform); break;
+      case PpState::CheckClear: next(io.frontClear(), PpState::Done, PpFail::FrontBlocked); break;
       case PpState::CheckPlatformPos: next(io.platformPositionOk(), PpState::CheckPlatformColor, PpFail::PlatformPos); break;
       case PpState::CheckPlatformColor: next(io.platformColorOk(), PpState::BackUpPlace, PpFail::PlatformColor); break;
       case PpState::BackUpPlace: next(io.backUp(kBackUpPlaceMm), PpState::LowerPlace, PpFail::BackUp); break;
@@ -74,8 +79,7 @@ struct PickPlace {
       case PpState::Release:
         if (io.clawOpen()) { carrying = false; state = PpState::RaiseAfter; } else abort(io, PpFail::Claw);
         break;
-      case PpState::RaiseAfter: shoulder(io, Level::Up, PpState::Turn180); break;
-      case PpState::Turn180: next(io.turn180(), PpState::Done, PpFail::Turn); break;
+      case PpState::RaiseAfter: shoulder(io, Level::Up, PpState::Done); break;
       case PpState::Done: case PpState::Aborted: break;
     }
     return running();

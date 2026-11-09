@@ -35,7 +35,8 @@ constexpr int kEcho = 23;
 constexpr int kLine[] = {13, 4, 14, 27, 26, 25, 33, 32};
 constexpr int kLineCount = sizeof(kLine) / sizeof(kLine[0]);
 
-constexpr int kClaw = 22;      // SG90 signal (claw)
+// SG90 signal (claw). Unassigned: it used to say 22, which is the SCL of the floor RGB. Jaw is a stub for now (hal/claw.h); set the GPIO here when it is wired (free: none ideal, see docs).
+constexpr int kClaw = -1;
 // Indicators must not share a pin with the line array (26/27 used to be here and turned S4/S5 into outputs). GPIO5 is free; the STS car uses the DevKit's on-board LED
 // (GPIO2). The DC car drives GPIO2 as a motor input, so it has no LED (-1).
 constexpr int kBuzzer = 5;

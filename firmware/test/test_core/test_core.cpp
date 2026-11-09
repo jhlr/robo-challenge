@@ -165,7 +165,7 @@ void test_shoulder_target_refused() {
 // ---- pick-and-place state machine
 struct FakePp {
   std::string log;
-  bool color = true, grip = true, clear = true, platform = true, platPos = true, platColor = true, shoulderOk = true;
+  bool color = true, grip = true, clear = true, platPos = true, platColor = true, shoulderOk = true;
   int gripAfter = 0;      // grip only succeeds from the Nth check on (1 = first)
   int checks = 0;
   bool cubeColorOk() { log += "C "; return color; }
@@ -176,34 +176,39 @@ struct FakePp {
   bool gripOnLift = false;  // the cube only shows as held after the lift
   bool holding() { ++checks; log += "grip? "; return gripOnLift ? log.find("up ") != std::string::npos : grip && checks >= gripAfter; }
   bool frontClear() { log += "clear? "; return clear; }
-  bool goToPlatform() { log += "go "; return platform; }
   bool platformPositionOk() { log += "pos? "; return platPos; }
   bool platformColorOk() { log += "pcolor? "; return platColor; }
   bool reposition() { log += "repo "; return true; }
-  bool turn180() { log += "turn "; return true; }
 };
 
-void test_pickplace_full_sequence() {
-  FakePp io; core::PickPlace pp; pp.run(io);
-  TEST_ASSERT_EQUAL(core::PpState::Done, pp.state);
-  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up clear? go pos? pcolor? b13 place open up turn ", io.log.c_str());
+void test_pickplace_pick_phase() {
+  FakePp io; auto pp = core::PickPlace::pick(); pp.run(io);
+  TEST_ASSERT_TRUE(pp.done());
+  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up clear? ", io.log.c_str());
+  TEST_ASSERT_TRUE(pp.carrying);
+}
+
+void test_pickplace_place_phase() {
+  FakePp io; auto pp = core::PickPlace::place(); pp.run(io);
+  TEST_ASSERT_TRUE(pp.done());
+  TEST_ASSERT_EQUAL_STRING("pos? pcolor? b13 place open up ", io.log.c_str());
   TEST_ASSERT_FALSE(pp.carrying);
 }
 
 void test_pickplace_grip_retry_then_ok() {
-  FakePp io; io.gripAfter = 5; core::PickPlace pp; pp.run(io);   // checks: 1 pick(no) 2 raised(no) -> reposition -> 3 pick(no) 4 raised(no) -> reposition -> 5 pick(yes)
+  FakePp io; io.gripAfter = 5; auto pp = core::PickPlace::pick(); pp.run(io);   // checks: 1 pick(no) 2 raised(no) -> reposition -> 3 pick(no) 4 raised(no) -> reposition -> 5 pick(yes)
   TEST_ASSERT_EQUAL(core::PpState::Done, pp.state);
-  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up grip? repo open pick close grip? up grip? repo open pick close grip? up clear? go pos? pcolor? b13 place open up turn ", io.log.c_str());
+  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up grip? repo open pick close grip? up grip? repo open pick close grip? up clear? ", io.log.c_str());
 }
 
 void test_pickplace_grip_shows_after_lift() {
-  FakePp io; io.gripOnLift = true; core::PickPlace pp; pp.run(io);   // not held at the pick height, held once lifted: no reposition, straight on
+  FakePp io; io.gripOnLift = true; auto pp = core::PickPlace::pick(); pp.run(io);   // not held at the pick height, held once lifted: no reposition, straight on
   TEST_ASSERT_EQUAL(core::PpState::Done, pp.state);
-  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up grip? clear? go pos? pcolor? b13 place open up turn ", io.log.c_str());
+  TEST_ASSERT_EQUAL_STRING("C b9 open pick close grip? up grip? clear? ", io.log.c_str());
 }
 
 void test_pickplace_no_grip_aborts_with_shoulder_up() {
-  FakePp io; io.grip = false; core::PickPlace pp; pp.run(io);
+  FakePp io; io.grip = false; auto pp = core::PickPlace::pick(); pp.run(io);
   TEST_ASSERT_EQUAL(core::PpState::Aborted, pp.state);
   TEST_ASSERT_EQUAL(core::PpFail::NoGrip, pp.fail);
   TEST_ASSERT_FALSE(pp.carrying);
@@ -211,26 +216,26 @@ void test_pickplace_no_grip_aborts_with_shoulder_up() {
 }
 
 void test_pickplace_wrong_color_never_moves() {
-  FakePp io; io.color = false; core::PickPlace pp; pp.run(io);
+  FakePp io; io.color = false; auto pp = core::PickPlace::pick(); pp.run(io);
   TEST_ASSERT_EQUAL(core::PpFail::WrongColor, pp.fail);
   TEST_ASSERT_EQUAL_STRING("C ", io.log.c_str());
 }
 
 void test_pickplace_front_blocked_keeps_cube() {
-  FakePp io; io.clear = false; core::PickPlace pp; pp.run(io);
+  FakePp io; io.clear = false; auto pp = core::PickPlace::pick(); pp.run(io);
   TEST_ASSERT_EQUAL(core::PpFail::FrontBlocked, pp.fail);
   TEST_ASSERT_TRUE(pp.carrying);   // still holding the cube: the mission decides
 }
 
 void test_pickplace_wrong_platform_color_does_not_release() {
-  FakePp io; io.platColor = false; core::PickPlace pp; pp.run(io);
+  FakePp io; io.platColor = false; auto pp = core::PickPlace::place(); pp.run(io);
   TEST_ASSERT_EQUAL(core::PpFail::PlatformColor, pp.fail);
   TEST_ASSERT_TRUE(io.log.find("place") == std::string::npos);
   TEST_ASSERT_TRUE(pp.carrying);
 }
 
 void test_pickplace_blocked_shoulder_gets_no_second_command() {
-  FakePp io; io.shoulderOk = false; core::PickPlace pp; pp.run(io);
+  FakePp io; io.shoulderOk = false; auto pp = core::PickPlace::pick(); pp.run(io);
   TEST_ASSERT_EQUAL(core::PpFail::Shoulder, pp.fail);
   TEST_ASSERT_EQUAL_STRING("C b9 open pick ", io.log.c_str());   // blocked on the way down: nothing else commanded
 }
@@ -925,7 +930,8 @@ int main() {
   RUN_TEST(test_handguard_backs_up_after_three_close_samples);
   RUN_TEST(test_handguard_fixed_obstacle_is_not_a_hand);
   RUN_TEST(test_handguard_obstacle_that_follows_is_a_hand_until_released);
-  RUN_TEST(test_pickplace_full_sequence);
+  RUN_TEST(test_pickplace_pick_phase);
+  RUN_TEST(test_pickplace_place_phase);
   RUN_TEST(test_pickplace_grip_retry_then_ok);
   RUN_TEST(test_pickplace_grip_shows_after_lift);
   RUN_TEST(test_pickplace_no_grip_aborts_with_shoulder_up);

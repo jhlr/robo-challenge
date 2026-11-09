@@ -1,5 +1,5 @@
 // A missao completa no carro STS: a MESMA logica que o simulador testa (seguidor/robo.h) sobre o carro de verdade (carro_real.h).
-// Sem MPU: o rumo vem dos encoders das rodas com params::kTrackMm (a bitola EFETIVA, medida com o env `bitola`; sem ela os giros erram). O braco/garra ainda nao sao acionados.
+// Sem MPU: o rumo vem dos encoders das rodas com params::kTrackMm (a bitola EFETIVA, medida com o env `bitola`; sem ela os giros erram). O ombro se mexe de verdade ao pegar e largar; a garra e STUB (hal/claw.h).
 //
 // Seguranca: o carro NAO anda ao ligar. Console serial (115200):  g [segundos]  anda (padrao 60 s, para sozinho)   x  para e reinicia   s  imprime o estado
 #include <Arduino.h>
@@ -7,6 +7,7 @@
 #include <Wire.h>
 
 #include "carro_real.h"
+#include "hal/claw.h"
 #include "hal/drive.h"
 #include "core/arm.h"
 #include "hal/sensors.h"
@@ -20,11 +21,12 @@ hal::StsDrive drive(st);
 seguidor::BarraRC barra;
 hal::Ultrasonic sonar;
 hal::ColorSensor corChao, corFrente;
+hal::Claw garra;
 uint8_t pinosBarra[seguidor::kSensores];
 
 constexpr float kDtMs = 5.0f;   // um ciclo de leitura + decisao: o mesmo do simulador
 
-robo::CarroReal carro(drive, barra, sonar, corChao, corFrente, kDtMs);
+robo::CarroReal carro(drive, barra, sonar, corChao, corFrente, garra, kDtMs);
 seguidor::Robo<robo::CarroReal>* fw = nullptr;
 bool andando = false;
 unsigned long fimMs = 0;
@@ -102,6 +104,7 @@ void setup() {
   hal::beginStsBus(st);
   Serial.printf("ombro: %s (a guarda da mao so vale com a garra no topo)\n", shoulderBegin(st) ? "ok" : "nao responde");
   drive.begin();
+  garra.begin(pins::kClaw);
   parouTudo();
   hal::beginBuses();
   sonar.begin();

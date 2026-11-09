@@ -123,7 +123,10 @@ void handle(const String& cmd) {
       if (drive.hasEncoders()) Serial.printf("forward %.1f mm, spin %.1f deg (since v)\n", drive.forwardMm(), drive.spinDeg());
       else Serial.println("this car has no encoders");
       break;
-    case 'g': claw.write(cmd.substring(1).toFloat()); Serial.println("ok"); break;
+    case 'g':
+      if (pins::kClaw < 0) { Serial.println("claw not wired: pins::kClaw is -1"); break; }
+      claw.write(cmd.substring(1).toFloat()); Serial.println("ok");
+      break;
     case 'd': {
 #if defined(CAR_DC)
       Serial.println("no STS bus on the DC car");
@@ -166,7 +169,7 @@ void setup() {
   hal::beginIndicators();
   hal::beginBuses();
   Serial.printf("front rgb (Wire1): %s | floor rgb (Wire): %s\n", frontColor.begin(Wire1) ? "ok" : "FAIL", floorColor.begin(Wire) ? "ok" : "FAIL");
-  claw.begin(pins::kClaw);
+  if (pins::kClaw >= 0) claw.begin(pins::kClaw);
 #if !defined(CAR_DC)
   Serial.printf("shoulder STS id %u: %s\n", params::kIdShoulder, shoulderBegin(st) ? "ok" : "no reply");
 #endif

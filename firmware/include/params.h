@@ -24,6 +24,10 @@ constexpr int kShoulderTicksUp = 1981;
 constexpr int kShoulderTicksPick = 2927;
 constexpr int kShoulderUpTolTicks = 100;   // ~9 deg: within this of kShoulderTicksUp the claw counts as raised (the lowered claw sits in front of the sonar)
 constexpr int kShoulderTicksPlace = 2567;
+// Claw SG90 angles (deg, 0..180) and settle time. NOT MEASURED: unused while the claw is a stub (pins::kClaw < 0); measure with bringup `g <deg>` before assigning a pin.
+constexpr float kClawOpenDeg = 0.0f;
+constexpr float kClawClosedDeg = 90.0f;
+constexpr uint16_t kClawMoveMs = 600;
 constexpr uint16_t kShoulderSpeed = 300;  // steps/s, gentle (bench 2026-11-09)
 constexpr uint16_t kShoulderChunkTicks = 64;      // ~5.6 deg per commanded step: moves are small steps, each checked
 constexpr uint16_t kShoulderFollowTicks = 40;     // abort when the servo is farther than this from the step target after kShoulderStepMs
