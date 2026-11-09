@@ -21,8 +21,8 @@ constexpr float kShoulderRatio = 4.0f;
 constexpr int kShoulderSign = -1;
 constexpr float kShoulderCenterDeg = 109.0f;
 // The shoulder is an STS3215 in position mode (id kIdShoulder): the 12-bit position is the feedback, so moves are deltas from the CURRENT position (user rule), never absolute.
-// ASSUMPTION until the bench: position increasing raises the arm. Flip kShoulderUpSign if the first small move goes the wrong way.
-constexpr int kShoulderUpSign = +1;
+// Bench 2026-11-09: position increasing LOWERS the claw, so increasing is down and up is -1.
+constexpr int kShoulderUpSign = -1;
 constexpr uint16_t kShoulderSpeed = 400;  // steps/s, gentle for the first tests
 constexpr uint8_t kShoulderAcc = 20;
 // HARD LIMIT (user rule: never more than 90 deg at the shoulder): the largest single rotation accepted.
