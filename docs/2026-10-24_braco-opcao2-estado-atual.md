@@ -1,5 +1,7 @@
 # Braço opção 2: estado atual (2026-10-24)
 
+> **Desatualizado no ombro (2026-11-09).** O ombro agora e um STS3215 ligado direto no pivo, sem reducao 4:1, integrado a torre de MDF: ver `2026-11-06_ombro-sts3215.md` e `2026-11-06_sts3215-disco.md`. O resto (chassi, regra dos 300 mm, pinca) segue valido, menos o que cita SG90 no ombro, pinhao, setor e `ombro_reducao`.
+
 Consolida `2026-10-20_braco-opcao2.md`, `2026-10-21_chassi-superior-alargado.md` e `2026-10-22_ombro-mg996r.md` (esta última é uma decisão descartada, mantida como histórico). Onde houver conflito, vale este documento. Nada abaixo foi testado em hardware.
 
 Eixos: x lateral, y para frente, z para cima; pivô das barras em (y = 0, z = 93). Fonte única dos números: `cad/braco/params.json` → `python3 cad/braco/cinematica.py` (relatório + `params_gen.scad`).

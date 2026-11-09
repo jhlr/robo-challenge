@@ -1,5 +1,7 @@
 # Plano do firmware (2026-10-20)
 
+> **Historico.** O firmware existe hoje: ver `firmware/README.md` e `2026-11-09_fluxo-pegar-cubo.md`. Este plano e de antes do codigo.
+
 Estado: so planejamento. Nao existe codigo de firmware; so o simulador em `sim/`.
 
 ## Decisoes

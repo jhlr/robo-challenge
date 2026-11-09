@@ -1,5 +1,7 @@
 # Checklist de bancada (2026-10-24)
 
+> **Itens do ombro SG90/4:1 desatualizados (2026-11-09).** Para o ombro STS3215 direto, as medidas pendentes estao em `2026-11-06_ombro-sts3215.md` (profundidade da rosca do disco, saliencia, cabeca do parafuso do eixo) e as alturas calibradas em `2026-11-09_fluxo-pegar-cubo.md`.
+
 Ordem pensada para gastar o mínimo de material: cada bloco só começa depois que o anterior passou. Estado de partida: `2026-10-24_braco-opcao2-estado-atual.md`. Marque o resultado ao lado de cada item e me passe os números.
 
 ## A. Medidas (só paquímetro, 10 min)

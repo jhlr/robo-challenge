@@ -1,10 +1,10 @@
 # Robo Challenge 2026
 
-Robo autonomo para o desafio (regras: 300 x 300 mm com tudo estendido, totalmente autonomo). Chassi com 2 conveses, braco paralelogramo em MDF com ombro 4:1 e garra rotativa, sensores de linha, cor e ultrassom.
+Robo autonomo para o desafio (regras: 300 x 300 mm com tudo estendido, totalmente autonomo). Chassi com 2 conveses, braco paralelogramo em MDF com ombro STS3215 ligado direto na torre e garra rotativa, sensores de linha, cor e ultrassom.
 
 ```
 firmware/                 codigo que roda no robo
-  src/ include/ test/       ESP32 DevKit (PlatformIO): bringup (menu serial) e follow (seguidor com juncoes); testes de src/core rodam no PC
+  src/ include/ test/       ESP32 DevKit (PlatformIO): apps em src/, ferramentas de bancada em test/bench/, testes de src/core no PC (veja firmware/README.md)
   SeguidorRC/               biblioteca Arduino do seguidor de linha (ESP32-S3 + TB6612 + 8 sensores RC): sensores, decisao, ponte H; exemplo em examples/
 cad/                      modelos e pecas
   braco/                    braco em OpenSCAD: params.json -> cinematica.py -> params_gen.scad; pecas de MDF (mdf/*.dxf) e STL impressos
@@ -12,8 +12,8 @@ cad/                      modelos e pecas
   modelo_robo/              modelo do robo completo, garra de mastro, lista de materiais
 sim/                      simulador da pista e das estrategias
 docs/                     decisoes, estado atual, checklist de bancada, imagens
-old/                  versoes descartadas (ombro SG90, MG996R direto, conves baixo) e pecas soltas do plotter
+old/                      versoes descartadas (ombro SG90, MG996R direto e 4:1, conves baixo) e pecas soltas do plotter
 ```
 
-Comecar por `docs/2026-10-24_braco-opcao2-estado-atual.md` e `docs/2026-10-24_checklist-bancada.md`.
+Comecar por `docs/2026-11-06_ombro-sts3215.md` (ombro atual), `docs/2026-11-09_fluxo-pegar-cubo.md` (fluxo e alturas) e `firmware/README.md`. O estado do chassi e da pinca ainda esta em `docs/2026-10-24_braco-opcao2-estado-atual.md`.
 O plotter de desenho e outro projeto (`jhlr/plotter`). Os scripts Python de `cad/` rodam da raiz do repo (ex.: `python3 cad/braco/mdf_nest.py ombro`).
