@@ -92,6 +92,17 @@ class CarroReal {
   void soltarMao() { mao_.reset(); }   // guarda desligada (garra abaixada)
   core::HandStep depoisDoRecuo() { return mao_.backedUp(sonar_.readMm(kSonarTimeoutUs)); }
 
+  // Leitura do TCS do chao para diagnostico: valores crus, cor bruta e cor aceita (a que vale para o gatilho do verde e para a navegacao).
+  std::string chaoTexto() {
+    hal::ColorSample a;
+    if (!chao_.read(a)) return "TCS chao sem leitura";
+    const core::Cor bruta = core::classificarCor(a.r, a.g, a.b, a.c);
+    char t[110];
+    snprintf(t, sizeof t, "chao rgbc %u %u %u %u -> bruta %s, aceita %s", a.r, a.g, a.b, a.c, bruta == core::DESCONHECIDA ? "?" : core::kNomesCores[bruta],
+             chaoAceita_ == core::DESCONHECIDA ? "?" : core::kNomesCores[chaoAceita_]);
+    return t;
+  }
+
   // ---- sensores
   void ler(bool preto[seguidor::kSensores]) const {
     for (int i = 0; i < seguidor::kSensores; i++) preto[i] = barra_.preto[i];

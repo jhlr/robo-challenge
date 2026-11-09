@@ -113,6 +113,7 @@ void tratar(String linha) {
     dbg.print(boot);
     dbg.printf("t=%lu ms | %s | gatilho do verde %s | ombro %d ticks (topo %d) | guarda da mao %s\n", millis(), andando ? "ANDANDO" : "PARADO", paradoPorComando == kMagicParado ? "DESARMADO" : "armado", shoulderTicks(), params::kShoulderTicksUp,
                garraLevantada() ? "ligada" : "desligada (garra abaixada)");
+    dbg.printf("%s\n", carro.chaoTexto().c_str());
     if (fw) dbg.printf("entregues %d, coletados %d, pontos %d, cruzamentos %d, rumo %.1f\n", fw->nav.entregues, fw->nav.coletados, fw->nav.pontos, fw->cruzamentos, fw->rumo);
   } else if (cmd == 'g') {
     if (andando) { dbg.println("ja esta andando (x para parar)"); return; }
@@ -139,7 +140,10 @@ void atender() {
 void vigiar() {
   if (!andando && paradoPorComando != kMagicParado && millis() - ultimoGatilhoMs >= 100) {   // gatilho: chao verde
     ultimoGatilhoMs = millis();
-    if (gatilhoVerde.update(carro.piso() == seguidor::kPisoVerde)) iniciar(core::kMatchSeconds, "chao verde");
+    const seguidor::Piso piso = carro.piso();
+    static seguidor::Piso anterior = seguidor::kPisoBranco;
+    if (piso != anterior) { anterior = piso; dbg.printf("[parado] %s\n", carro.chaoTexto().c_str()); }   // quem olha pelo BLE ve o chao mudar
+    if (gatilhoVerde.update(piso == seguidor::kPisoVerde)) iniciar(core::kMatchSeconds, "chao verde");
   }
   ble.atualizar();
   ota.atualizar();
