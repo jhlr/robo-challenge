@@ -23,9 +23,10 @@ constexpr float kShoulderCenterDeg = 109.0f;
 // The shoulder is an STS3215 in position mode (id kIdShoulder): the 12-bit position is the feedback, so moves are deltas from the CURRENT position (user rule), never absolute.
 // Bench 2026-11-09: position increasing LOWERS the claw, so increasing is down and up is -1.
 constexpr int kShoulderUpSign = -1;
-// Shoulder heights in STS ticks (direct drive, 4096 ticks = 360 deg, bench 2026-11-09). Up = 1981, pick = 2927 (lower limit, claw at the floor cube); place (cube on the platform) still to be measured.
+// Shoulder heights in STS ticks (direct drive, 4096 ticks = 360 deg, bench 2026-11-09). Up = 1981, pick = 2927 (lower limit, claw at the floor cube); place = 2567 (cube on the platform).
 constexpr int kShoulderTicksUp = 1981;
 constexpr int kShoulderTicksPick = 2927;
+constexpr int kShoulderTicksPlace = 2567;
 constexpr uint16_t kShoulderSpeed = 400;  // steps/s, gentle for the first tests
 constexpr uint8_t kShoulderAcc = 20;
 // HARD LIMIT (user rule: never more than 90 deg at the shoulder): the largest single rotation accepted.
