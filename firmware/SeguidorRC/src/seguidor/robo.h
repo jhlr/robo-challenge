@@ -567,6 +567,18 @@ struct Robo {
     ROBO_DBG("    PARADA[andado %.0f restante0 %.0f pularProx %d th %.0f] t=%.1fs pos (%.0f,%.0f) cor=%d acao=%d portaoPend=%d inGreen=%d\n", andadoDesdeSaida(c, c.agoraMs()), trechoRestante0, (int)nav.pularProximo, c.estado().th * 57.3, c.agoraMs() / 1000.0, c.estado().x, c.estado().y, static_cast<int>(corAgora), static_cast<int>(acao), portaoPendente, nav.loc.inGreen);
     // Com o odometro, uma faixa de cruzamento a mais de 150 mm do ponto onde o proximo DEVIA estar nao e a chegada: e o cruzamento de onde saiu (o carro recuou ou balancou por cima
     // dele, por exemplo ao pegar um cubo logo na saida da curva). Contar como chegada avancava a pose uma rua sem o carro sair do lugar e dai em diante tudo ficava deslocado.
+    // Chegada CEDO = limite do tabuleiro (mapa oficial): entre dois cruzamentos sao 400 mm, mas a borda (vermelha em cima/embaixo, azul dos lados) fica a so ~168 mm do ultimo cruzamento. Uma faixa
+    // que fecha a barra depois de ~168 mm numa rua de 400 mm e a borda, qualquer que seja a cor lida (o branco sombreado ja foi lido como vermelho e como amarelo). A cor so diz QUAL borda quando a
+    // distancia nao decide; o eixo da pose diz (andando em +c a borda e a azul do outro lado, senao a vermelha). Abaixo de ~108 mm e o cruzamento de onde saiu (tratado logo abaixo).
+    CorLinha corBorda = corAgora;
+    if (cfg.encoder && nav.ativo && !nav.loc.inGreen && !nav.loc.atGate && !portaoPendente && !indoParaOeste() && acao == AcaoCruzamento::Cruzamento && trechoRestante0 >= 300.0) {
+      const double andadoAteAqui = andadoDesdeSaida(c, c.agoraMs());
+      if (andadoAteAqui >= kBeco - 60.0 && andadoAteAqui < trechoRestante0 - 150.0) {
+        corBorda = core::estimate(nav.loc).pose.dc > 0 ? CorLinha::Azul : CorLinha::Vermelho;
+        acao = acaoNaPonta(corBorda, nav.carregando, false);
+        c.evento(fmt("chegou CEDO (%.0f mm de %.0f): limite do tabuleiro", andadoAteAqui, trechoRestante0));
+      }
+    }
     if (cfg.encoder && nav.ativo && !nav.loc.inGreen && acao == AcaoCruzamento::Cruzamento && trechoRestante0 > 0.0 && andadoDesdeSaida(c, c.agoraMs()) < trechoRestante0 - 150.0) {
       ROBO_DBG("    (faixa do cruzamento de onde saiu, andado %.0f de %.0f: nao e chegada)\n", andadoDesdeSaida(c, c.agoraMs()), trechoRestante0);
       comecarASair(cruz, c.agoraMs(), odoCruz(c));
@@ -575,10 +587,10 @@ struct Robo {
     if (nav.ativo && acao == AcaoCruzamento::Navegador) acao = AcaoCruzamento::MeiaVolta;   // com o navegador ligado ele mesmo decide a rota: na borda so da meia-volta
     if (acao != AcaoCruzamento::Cruzamento) {   // borda do mapa: nao gira para confirmar
       bordas++;
-      c.evento(fmt("BORDA %s em (%.0f,%.0f): meia-volta", corAgora == CorLinha::Azul ? "azul" : "vermelha", c.estado().x, c.estado().y));
+      c.evento(fmt("BORDA %s em (%.0f,%.0f): meia-volta", corBorda == CorLinha::Azul ? "azul" : "vermelha", c.estado().x, c.estado().y));
       if (acao == AcaoCruzamento::MeiaVolta) {
         std::vector<AmostraGiro> est, ver;
-        if (nav.ativo) nav.aoProibido(corAgora == CorLinha::Azul ? core::Forbidden::OtherBlue : core::Forbidden::Red);
+        if (nav.ativo) nav.aoProibido(corBorda == CorLinha::Azul ? core::Forbidden::OtherBlue : core::Forbidden::Red);
         girarAte(c, 0.0f, 180.0f, est, ver, c.estado().th, rumo);
         meiasVoltas++;
                 esquecerUltimoComando(memoria);
@@ -1401,8 +1413,12 @@ struct Robo {
       tick(c);
       // A azul acabou (150 ms depois): atravessou o portao. Mas a rua da linha pode ficar ao lado do eixo (a entrada erra uns 40 mm de y) e, sem linha na barra, a busca achava a faixa
       // azul ATRAS (a mais perto) e a seguia como rua. Por isso continua em frente, segurando o rumo, ate algum sensor ver preto de novo (a rua) ou 150 mm a mais.
-      const bool algumPreto = p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7];
-      if (azulSeguidas == 0 && agora - cruzandoPortaoDesde > 150 && (algumPreto || agora - cruzandoPortaoDesde > 1300)) {
+      // O carro nao comeca numa rua reta: saindo do verde ele pode chegar de lado na primeira rua (as 2 pontas da barra pretas ao mesmo tempo). Seguir uma linha PARCIAL dali o fazia
+      // girar no lugar atras dela (o rumo ia a 155 graus). Entao segura o rumo ate as pontas fecharem (a rua que cruza, ~168 mm depois do portao): essa e a 1a juncao, que o cruzamento
+      // normal confirma, e o navegador decide para que lado virar. Sem as pontas, o fim e o de antes (algum preto, ou 1,3 s).
+      const bool pontas = p[0] && p[kSensores - 1];
+      const bool achouRuaDeLado = pontas && agora - cruzandoPortaoDesde > 150;
+      if (azulSeguidas == 0 && agora - cruzandoPortaoDesde > 150 && (achouRuaDeLado || agora - cruzandoPortaoDesde > 1300)) {
         cruzandoPortao = false;
         portoes++;
         portaoPendente = false;
@@ -1411,7 +1427,7 @@ struct Robo {
         c.evento(fmt("PORTAO azul atravessado em (%.0f,%.0f) (de frente ou de lado)", c.estado().x, c.estado().y));
         esquecerUltimoComando(memoria);
         cruz = MemoriaCruzamento{};
-        comecarASair(cruz, agora, odoCruz(c));
+        if (!achouRuaDeLado) comecarASair(cruz, agora, odoCruz(c));   // com as pontas pretas a barra JA esta na 1a juncao: sem "saindo", o cruzamento normal a confirma no proximo ciclo
       }
       return;
     }
