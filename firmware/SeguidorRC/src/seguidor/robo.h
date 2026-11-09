@@ -440,6 +440,24 @@ struct Robo {
 
   static void apaga(int& v, float x) { v = static_cast<int>(x); }
 
+  // A BARRA e a referencia principal; o TCS do chao so confirma cor. O verde (e o azul do portao) e ESCURO no infravermelho: sobre o verde quase todos os sensores leem preto, e isso e chao,
+  // nao linha nem cruzamento: fica mascarado so ENQUANTO nada indica o portao. Assim que o TCS le a faixa azul a barra passa a valer crua (a faixa e vista como linha, que o fluxo do portao
+  // espera), e o primeiro momento com branco na barra depois dela (`saiuDoVerde`) e o carro entrando no tabuleiro: vale na hora, sem esperar o TCS aceitar outra cor (duas leituras de 60 ms,
+  // que faziam o carro passar direto da primeira rua). A mascara antes ficava no hardware, atrelada ao verde ACEITO pelo TCS.
+  bool emVerdeAnt = false, viuAzulNoVerde = false, saiuDoVerde = false;
+  void lerBarra(Carro& c, bool p[kSensores]) {
+    c.ler(p);
+    const bool noVerde = nav.ativo && (nav.loc.inGreen || nav.entregando);
+    if (noVerde && !emVerdeAnt) { viuAzulNoVerde = false; saiuDoVerde = false; }
+    emVerdeAnt = noVerde;
+    if (!noVerde || saiuDoVerde) return;
+    if (azulSeguidas > 0) viuAzulNoVerde = true;
+    if (viuAzulNoVerde) {
+      if (acesos(p) < kSensores - 2) saiuDoVerde = true;   // branco na barra depois da faixa azul: entrou no tabuleiro
+      return;
+    }
+    if (acesos(p) >= kSensores - 2) for (int i = 0; i < kSensores; i++) p[i] = false;   // chao verde (escuro no IR)
+  }
   static int acesos(const bool p[kSensores]) {
     int n = 0;
     for (int i = 0; i < kSensores; i++) n += p[i] ? 1 : 0;
@@ -461,7 +479,7 @@ struct Robo {
     while ((esq ? previsto() < alvo : previsto() > alvo) && c.agoraMs() - inicio < 3000) {
       tick(c);
       bool p[kSensores];
-      c.ler(p);
+      lerBarra(c, p);
       omega = (rumo - rumoAnt) / static_cast<float>(cfg.dtMs / 1000.0);
       rumoAnt = rumo;
       if (usaImu) agora = rumo - rumoRef;   // angulo pelo giroscopio
@@ -490,7 +508,7 @@ struct Robo {
     while (c.agoraMs() - inicio < 4000) {
       tick(c);
       bool p[kSensores];
-      c.ler(p);
+      lerBarra(c, p);
       omega = (rumo - rumoAnt) / static_cast<float>(cfg.dtMs / 1000.0);
       rumoAnt = rumo;
       agora = rumo - rumoRef;
@@ -554,7 +572,7 @@ struct Robo {
           andarMm(c, 400.0, [&] {
             const unsigned long dt = c.agoraMs() - t0;
             bool pp[kSensores];
-            c.ler(pp);
+            lerBarra(c, pp);
             const bool algumPreto = pp[0] || pp[1] || pp[2] || pp[3] || pp[4] || pp[5] || pp[6] || pp[7];
             return dt >= 130 && c.tcsChao() != CorLinha::Azul && (algumPreto || dt >= 1300);
           });
@@ -676,7 +694,7 @@ struct Robo {
         if (k.terminou) break;
         tick(c);
         bool p[kSensores];
-        c.ler(p);
+        lerBarra(c, p);
         if (usaImu) estimado = rumo - rumo0;
         else estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;
         leitura = {estimado, p[0], p[7], acesos(p), static_cast<float>(c.us())};
@@ -747,7 +765,7 @@ struct Robo {
     for (int i = 0; i < 120; i++) {   // ate 600 ms
       tick(c);
       bool p[kSensores];
-      c.ler(p);
+      lerBarra(c, p);
       if (!p[0] && !p[7]) break;
     }
     c.parar();
@@ -1375,7 +1393,7 @@ struct Robo {
       if (colisaoDetectada(colisao, ultimoImu, true, c.agoraMs(), ai)) colisoes++;
     }
     bool p[kSensores];
-    c.ler(p);
+    lerBarra(c, p);
     const unsigned long agora = c.agoraMs();
     if (agora - ultimoTcsMs >= c.tcsPeriodoMs()) {   // o TCS do chao nao le a cada ciclo
       ultimoTcsMs = agora;
@@ -1416,9 +1434,10 @@ struct Robo {
       // O carro nao comeca numa rua reta: saindo do verde ele pode chegar de lado na primeira rua (as 2 pontas da barra pretas ao mesmo tempo). Seguir uma linha PARCIAL dali o fazia
       // girar no lugar atras dela (o rumo ia a 155 graus). Entao segura o rumo ate as pontas fecharem (a rua que cruza, ~168 mm depois do portao): essa e a 1a juncao, que o cruzamento
       // normal confirma, e o navegador decide para que lado virar. Sem as pontas, o fim e o de antes (algum preto, ou 1,3 s).
+      const bool algumPreto = acesos(p) > 0;
       const bool pontas = p[0] && p[kSensores - 1];
-      const bool achouRuaDeLado = pontas && agora - cruzandoPortaoDesde > 150;
-      if (azulSeguidas == 0 && agora - cruzandoPortaoDesde > 150 && (achouRuaDeLado || agora - cruzandoPortaoDesde > 1300)) {
+      const bool achouRuaDeLado = pontas && saiuDoVerde;
+      if ((saiuDoVerde && agora - cruzandoPortaoDesde > 60 && algumPreto) || agora - cruzandoPortaoDesde > 1300) {   // entrou no tabuleiro (barra no branco) e a rua apareceu em algum sensor; branco total = ainda no beco: segue em frente
         cruzandoPortao = false;
         portoes++;
         portaoPendente = false;

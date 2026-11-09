@@ -104,11 +104,9 @@ class CarroReal {
   }
 
   // ---- sensores
-  // O verde da arena e ESCURO no infravermelho da barra (medido: os 8 sensores leem "preto" sobre ele), mas no modelo da logica o verde e chao claro sem linha.
-  // Aqui, onde o hardware vira o modelo, sobre o verde a barra diz "sem linha"; a logica reconhece a zona verde pelo TCS do chao, nao pela barra.
+  // A barra sai crua: o verde da arena e ESCURO no infravermelho (os 8 sensores leem "preto"), e quem trata isso e a logica (Robo::lerBarra), pela propria barra e nao pelo TCS.
   void ler(bool preto[seguidor::kSensores]) {
-    const bool sobreVerde = corDoChao() == core::VERDE;
-    for (int i = 0; i < seguidor::kSensores; i++) preto[i] = sobreVerde ? false : barra_.preto[i];
+    for (int i = 0; i < seguidor::kSensores; i++) preto[i] = barra_.preto[i];
   }
   double odoEMm() const { return odoE_; }
   double odoDMm() const { return odoD_; }
