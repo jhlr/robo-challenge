@@ -29,6 +29,20 @@ void ler(BarraRC& b) {
   uint16_t crus[kSensores];
   b.qtr.read(crus, QTRReadMode::Off);   // sem pino de emissor: os LEDs ficam sempre acesos
   copiarLeituras(b, crus);
+  if (b.adaptativo) {
+    bool mudou = false;
+    unsigned int maior = b.limiarUs;
+    for (int i = 0; i < kSensores; i++) {
+      if (!b.ok[i]) continue;
+      if (b.leituras[i] < b.branco[i]) {
+        b.branco[i] = max(b.leituras[i], 400u);   // abaixo de 400 us nao e leitura de chao
+        b.limiar[i] = constrain(b.branco[i] + (b.tempoMaxUs - b.branco[i]) / 2, b.limiarUs, b.tempoMaxUs - 200);
+        mudou = true;
+      }
+      maior = max(maior, b.limiar[i]);
+    }
+    if (mudou) { b.tempoLeituraUs = min(b.tempoMaxUs, maior + 100); b.qtr.setTimeout(b.tempoLeituraUs); }   // a espera cobre o maior limiar
+  }
   for (int i = 0; i < kSensores; i++) b.preto[i] = b.ok[i] && b.leituras[i] > b.limiar[i];
   for (int i = 0; i < kSensores; i++) {   // sensor morto (b.mortos): copia o vizinho vivo mais perto
     if (!((b.mortos >> i) & 1)) continue;
@@ -59,35 +73,11 @@ bool aplicarLimiar(BarraRC& b, Print& saida) {
   return validos >= b.sensoresMinimos;
 }
 
-bool calibrarPeloVerde(BarraRC& b, Print& saida, float fracao, int amostras) {
-  b.qtr.setTimeout(b.tempoMaxUs);   // mede o tempo cheio, nao cortado no limiar
-  unsigned long soma[kSensores] = {};
-  for (int n = 0; n < amostras; n++) {
-    uint16_t crus[kSensores];
-    b.qtr.read(crus, QTRReadMode::Off);
-    copiarLeituras(b, crus);
-    for (int i = 0; i < kSensores; i++) soma[i] += b.leituras[i];
-    delay(2);
-  }
-  int escuros = 0;
-  unsigned int maior = b.limiarUs;
-  unsigned int novo[kSensores];
+void reiniciarAdaptacao(BarraRC& b) {
   for (int i = 0; i < kSensores; i++) {
-    novo[i] = b.limiarUs;
-    if (!b.ok[i]) continue;
-    const unsigned int media = static_cast<unsigned int>(soma[i] / amostras);
-    if (media > b.limiarUs) escuros++;
-    novo[i] = constrain(static_cast<unsigned int>(fracao * media), b.limiarUs, b.tempoMaxUs - 100);
-    if (novo[i] > maior) maior = novo[i];
+    b.branco[i] = b.tempoMaxUs;
+    b.limiar[i] = b.limiarUs;
   }
-  const bool plausivel = escuros > 0;
-  if (plausivel) for (int i = 0; i < kSensores; i++) b.limiar[i] = novo[i];
-  b.tempoLeituraUs = min(b.tempoMaxUs, maior + 100);   // o tempo de espera cobre o maior limiar
-  b.qtr.setTimeout(b.tempoLeituraUs);
-  saida.printf("Limiar pelo verde (%s):", plausivel ? "calibrado" : "leitura implausivel, mantem o fixo");
-  for (int i = 0; i < kSensores; i++) saida.printf(" S%d=%u%s", i + 1, b.limiar[i], b.ok[i] ? "" : "(morto)");
-  saida.println();
-  return plausivel;
 }
 
 }  // namespace seguidor

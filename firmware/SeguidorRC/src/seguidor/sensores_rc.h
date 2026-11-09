@@ -13,6 +13,8 @@ struct BarraRC {
   unsigned int tempoMaxUs = 2500;   // valor do preto
   unsigned int limiarUs = 1000;     // acima disso = preto. PROVISORIO: conferir com a barra a ~3 mm do chao (branco bem abaixo, preto bem acima)
   int sensoresMinimos = 6;          // abaixo disso o robo nao anda
+  bool adaptativo = false;          // limiar por sensor pelo menor tempo ja lido (ver reiniciarAdaptacao); desligado = limiar fixo limiarUs
+  unsigned int branco[kSensores] = {};       // menor tempo lido por sensor desde reiniciarAdaptacao() (so os vivos)
   uint8_t mortos = 0;               // bit i = S(i+1) sem sinal (ex.: 0b11 = S1 e S2 em 2500 us em qualquer chao): nao e lido, e a leitura dele copia o vizinho VIVO mais perto, para a logica
                                     // (que usa as pontas S1/S8 no cruzamento e na varredura) continuar valendo; a posicao da linha na ponta fica menos precisa (~1 passo de sensor)
 
@@ -34,10 +36,10 @@ void iniciar(BarraRC& barra, const uint8_t pinos[kSensores]);
 // false = poucos sensores vivos: nao deve andar assim.
 bool aplicarLimiar(BarraRC& barra, Print& saida);
 
-// Limiar por sensor a partir do VERDE do inicio da partida (o carro comeca sobre ele): o verde e escuro no infravermelho, entao o limiar de cada sensor vira `fracao` do tempo que ele
-// leu sobre o verde (media de `amostras` leituras), nunca abaixo de limiarUs. Segue o nivel de iluminacao e a altura da barra daquele dia. So chame com o TCS do chao lendo VERDE.
-// false = leitura implausivel (nenhum sensor vivo acima de limiarUs): mantem o limiar fixo.
-bool calibrarPeloVerde(BarraRC& barra, Print& saida, float fracao = 0.8f, int amostras = 20);
+// Limiar ADAPTATIVO, so pela barra (sem TCS): cada sensor guarda o MENOR tempo que ja leu desde o inicio da partida (o branco de hoje, com a altura e a luz de hoje) e o limiar fica no
+// meio entre esse branco e o teto de leitura (tempoMaxUs, onde a fita preta satura). Sobre o verde (escuro no IR) o minimo ainda e alto e o limiar tambem; ao pisar no branco depois do
+// portao o minimo cai na primeira leitura e o limiar acompanha. Ligue `adaptativo` e chame reiniciarAdaptacao() no comeco de cada partida.
+void reiniciarAdaptacao(BarraRC& barra);
 
 // Le os 8 de uma vez e atualiza barra.preto[].
 void ler(BarraRC& barra);

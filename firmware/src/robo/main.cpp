@@ -56,9 +56,7 @@ void registrar(const String& texto) { boot += texto + "\n"; dbg.println(texto); 
 void reiniciarDesarmado() { paradoPorComando = kMagicParado; delay(200); ESP.restart(); }
 
 void iniciar(int segundos, const char* motivo) {
-  carro.tcsChao(); carro.tcsChao();   // duas leituras frescas: a cor so e aceita quando repete, e logo depois do boot ainda nao ha cor aceita
-  if (carro.tcsChao() == seguidor::CorLinha::Verde) seguidor::calibrarPeloVerde(barra, dbg);   // o carro comeca sobre o verde: o limiar da barra segue a luz e a altura de hoje
-  else dbg.println("Limiar da barra: o chao nao e verde, fica o ultimo (fixo ou do ultimo verde)");
+  seguidor::reiniciarAdaptacao(barra);   // limiar da barra: recomeca do branco de hoje (so a barra, sem o TCS)
   fimMs = millis() + 1000UL * segundos;
   andando = true;
   dbg.printf("ANDANDO por %d s (%s; x para parar)\n", segundos, motivo);
@@ -180,8 +178,8 @@ void telemetria() {
   char barraTxt[seguidor::kSensores + 1];
   for (int i = 0; i < seguidor::kSensores; i++) barraTxt[i] = preto[i] ? '#' : '.';   // ja com o verde mascarado (carro_real.h ler)
   barraTxt[seguidor::kSensores] = 0;
-  dbg.printf("[%lu] barra %s | odo E %.0f D %.0f mm | rumo %.1f | alvo E %.0f D %.0f | cruz %d perdido %d busca %d | %s\n", millis(), barraTxt, carro.odoEMm(), carro.odoDMm(),
-             fw ? fw->rumo : 0.0f, carro.roda(true), carro.roda(false), fw ? fw->cruzamentos : 0, fw ? fw->ticksPerdido : 0, fw ? fw->ticksBuscando : 0, fw ? fw->nav.ultimoPlano.c_str() : "");
+  dbg.printf("[%lu] barra %s | odo E %.0f D %.0f mm | rumo %.1f | alvo E %.0f D %.0f | lim S3 %u S5 %u S8 %u | cruz %d perdido %d busca %d | %s\n", millis(), barraTxt, carro.odoEMm(), carro.odoDMm(),
+             fw ? fw->rumo : 0.0f, carro.roda(true), carro.roda(false), barra.limiar[2], barra.limiar[4], barra.limiar[7], fw ? fw->cruzamentos : 0, fw ? fw->ticksPerdido : 0, fw ? fw->ticksBuscando : 0, fw ? fw->nav.ultimoPlano.c_str() : "");
 }
 
 // Chamado a cada ciclo (tambem dentro dos giros e avancos que bloqueiam): manda o BLE, atende comandos, guarda da mao e limite de tempo.
@@ -241,6 +239,7 @@ void setup() {
   sonar.begin();
   registrar(String("TCS chao (Wire): ") + (corChao.begin(Wire) ? "ok" : "FALHOU") + " | TCS frente (Wire1): " + (corFrente.begin(Wire1) ? "ok" : "FALHOU"));
   for (int i = 0; i < seguidor::kSensores; i++) pinosBarra[i] = pins::kLine[i];
+  barra.adaptativo = true;
   barra.mortos = 0b00000011;   // S1 e S2 sem sinal (2500 us em qualquer chao, 2026-11-09, barra nao sera trocada): ver BarraRC::mortos
   seguidor::iniciar(barra, pinosBarra);
   if (!seguidor::aplicarLimiar(barra, dbg)) {
