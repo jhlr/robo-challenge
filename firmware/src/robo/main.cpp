@@ -31,6 +31,9 @@ hal::Ultrasonic sonar;
 hal::ColorSensor corChao, corFrente;
 hal::Claw garra;
 uint8_t pinosBarra[seguidor::kSensores];
+// S7 e S8 estao em GPIO35 e GPIO34, so de entrada: o modo RC nao carrega o pino e eles leem 2500 us em qualquer chao (2026-11-09); ver pins.h e BarraRC::mortos.
+// Uma constante so para a barra (copia o vizinho) e para a decisao (nao conta a copia como leitura).
+constexpr uint8_t kBarraMortos = 0b11000000;
 
 seguidor::DepuracaoBLE ble;
 seguidor::OtaBLE ota;
@@ -207,6 +210,7 @@ void preparar() {
   cfg.encoder = true;
   cfg.rumoPeloEncoder = true;
   cfg.ajustes.bitolaMm = params::kTrackMm;   // a bitola que o firmware supoe (a EFETIVA, ja com a derrapagem)
+  cfg.ajustes.sensoresMortos = kBarraMortos;
   cfg.ajustes = seguidor::normalizar(cfg.ajustes);
   fw = new seguidor::Robo<robo::CarroReal>(cfg);
   fw->ceder = vigiar;
@@ -240,7 +244,7 @@ void setup() {
   registrar(String("TCS chao (Wire): ") + (corChao.begin(Wire) ? "ok" : "FALHOU") + " | TCS frente (Wire1): " + (corFrente.begin(Wire1) ? "ok" : "FALHOU"));
   for (int i = 0; i < seguidor::kSensores; i++) pinosBarra[i] = pins::kLine[i];
   barra.adaptativo = true;
-  barra.mortos = 0b11000000;   // S7 e S8 estao em GPIO35 e GPIO34, so de entrada: o modo RC nao carrega o pino e eles leem 2500 us em qualquer chao (2026-11-09); ver pins.h e BarraRC::mortos
+  barra.mortos = kBarraMortos;
   seguidor::iniciar(barra, pinosBarra);
   if (!seguidor::aplicarLimiar(barra, dbg)) {
     registrar("Poucos sensores da barra vivos: nao anda.");

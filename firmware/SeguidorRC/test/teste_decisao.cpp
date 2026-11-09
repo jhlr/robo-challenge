@@ -92,6 +92,20 @@ int main() {
     bool avancou = false;
     for (unsigned long t = 0; t < a.periodoCorrecaoMs; t++) avancou |= passo(m, a, "###....#", t).esq > 0;
     assert(avancou); }
+  { // S7 e S8 mortos (copias de S6): S6 aceso aparece como ".....###" mas e UM sensor, nao curva fechada: tem que intercalar giro e avanco
+    Ajustes a; a.sensoresMortos = 0b11000000;
+    Memoria m;
+    bool avancou = false;
+    for (unsigned long t = 0; t < a.periodoCorrecaoMs; t++) { const Comando c = passo(m, a, ".....###", t); avancou |= c.esq > 0 && c.dir > 0; }
+    assert(avancou);
+    Memoria m2;   // e a posicao vem so do sensor vivo (S6 = leve), nao da media com as copias (forte)
+    const Comando c = passo(m2, a, ".....###", 0);
+    assert(c.esq == a.velCorrecaoLeve && c.dir == -a.velCorrecaoLeve);
+    Memoria m3;   // espelho: S1 e S2 mortos
+    Ajustes e; e.sensoresMortos = 0b00000011;
+    bool avancouE = false;
+    for (unsigned long t = 0; t < e.periodoCorrecaoMs; t++) { const Comando c = passo(m3, e, "###.....", t); avancouE |= c.esq > 0 && c.dir > 0; }
+    assert(avancouE); }
   { Memoria m;  // S4 e S5 sozinhos: reto
     const Comando c = passo(m, aj, "...##...", 1);
     assert(c.esq == aj.velReto && c.dir == aj.velReto && !c.estranho); }

@@ -104,11 +104,13 @@ Comando decidir(const bool preto[kSensores], unsigned long agoraMs, const Ajuste
   const bool pontaSozinha = preto[0] != preto[7];             // S1 xor S8: leitura suspeita
   const bool pontasJuntas = preto[0] && preto[7];
 
+  const auto morto = [&aj](int i) { return ((aj.sensoresMortos >> i) & 1) != 0; };   // preto[i] de um morto e copia do vizinho: nao conta como leitura
+
   // Posicao da linha so pelos sensores do meio (S2..S7): media dos acesos
   float soma = 0.0f;
   int n = 0;
   for (int i = 1; i <= 6; i++) {
-    if (preto[i]) {
+    if (preto[i] && !morto(i)) {
       soma += i - 3.5f;
       n++;
     }
@@ -157,10 +159,12 @@ Comando decidir(const bool preto[kSensores], unsigned long agoraMs, const Ajuste
       // Giro intercalado com avanco: nos primeiros fracaoGiro do ciclo gira no eixo, no resto anda reto
       const float fracao = aj.fracaoGiroLeve + (aj.fracaoGiroForte - aj.fracaoGiroLeve) * t;
       // Curva fechada: so de um lado, 3 ou mais acesos: gira direto, sem avancar entre os giros
+      // So conta sensor vivo, e o lado precisa ter os 3 vivos: com um morto a copia do vizinho faria 1 sensor parecer 3 (e o carro giraria no lugar sem nunca avancar)
       int esqN = 0, dirN = 0;
-      for (int i = 0; i < 3; i++) esqN += preto[i] ? 1 : 0;
-      for (int i = 5; i < 8; i++) dirN += preto[i] ? 1 : 0;
-      const bool curvaFechada = aj.curvaFechadaSensores > 0 && ((esqN >= aj.curvaFechadaSensores && dirN == 0) || (dirN >= aj.curvaFechadaSensores && esqN == 0));
+      bool esqVivos = true, dirVivos = true;
+      for (int i = 0; i < 3; i++) { if (morto(i)) esqVivos = false; else esqN += preto[i] ? 1 : 0; }
+      for (int i = 5; i < 8; i++) { if (morto(i)) dirVivos = false; else dirN += preto[i] ? 1 : 0; }
+      const bool curvaFechada = aj.curvaFechadaSensores > 0 && ((esqVivos && esqN >= aj.curvaFechadaSensores && dirN == 0) || (dirVivos && dirN >= aj.curvaFechadaSensores && esqN == 0));
       const bool girando = curvaFechada || (agoraMs % aj.periodoCorrecaoMs) < static_cast<unsigned long>(aj.periodoCorrecaoMs * fracao);
       if (!girando) {
         int avanco = static_cast<int>(aj.velReto * aj.fatorAvancoCorrecao);

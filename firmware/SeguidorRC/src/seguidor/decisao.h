@@ -1,6 +1,7 @@
 #pragma once
 // Decisao: dado quais sensores veem preto, escolhe a velocidade de cada roda.
 // Nao toca em pino e nao chama millis(): o tempo entra como argumento, entao da para testar no PC.
+#include <cstdint>
 
 namespace seguidor {
 
@@ -40,6 +41,10 @@ struct Ajustes {
   // Padrao largo (3 ou mais acesos, sem ser cruzamento): chegando num cruzamento, ou torto sobre a linha. Reduz a velocidade
   int larguraAviso = 4;        // sensores acesos que contam como "largo"
   float fatorLargura = 0.7f;   // velReto x isto
+
+  // Sensores mortos (bit i = S(i+1)): a camada da barra os preenche com a COPIA do vizinho vivo, para as pontas continuarem valendo. Uma copia nao e leitura nova:
+  // decidir() nao a conta na posicao da linha nem na curva fechada (3 acesos de um lado seria so o vizinho aparecendo 3 vezes e travaria o carro girando no lugar).
+  uint8_t sensoresMortos = 0;
 
   // Oscilacao: correcoes que trocam de lado varias vezes seguidas = ganho alto. Reduz a velocidade
   int janelaOscilacao = 6;     // ultimas decisoes olhadas (maximo kJanelaOsc)
