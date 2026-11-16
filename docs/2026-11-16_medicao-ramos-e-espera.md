@@ -96,3 +96,13 @@ Causa: `kMinBelief` era 0,3, abaixo do prior de rua nunca medida (0,4). Todo cru
 Correcao: `kMinBelief = 0,5` (acima do prior), com o motivo no comentario. Um limiar de "provavel" abaixo do prior faz o prior virar alvo.
 Resultado (20 sementes, 6 cubos): 117/120 (antes 115), 17 completas (antes 16). Ganhou nas sementes 2, 5, 7 e 14 (+1, +2, +1, +1); perdeu 1 em 1, 3 e 8 (-1 cada). Ganho pequeno e nao testado em outro conjunto de sementes.
 Testes unitarios (teste_alvo, teste_cruzamento, teste_perfil_carro, teste_decisao, teste_exploracao, teste_borda, teste_giro_cruzamento, teste_segurar_rumo): ok. `test/test_core` usa Unity (PlatformIO): nao rodado aqui.
+
+## Sementes ruins (1, 3, 8): causas e correcoes (so nelas; demais sementes nao reexecutadas)
+Estado de partida: 1, 3 e 8 com 5 de 6 (ruins depois da exploracao).
+
+1. **Oscilacao entre duas esquinas ao perseguir cubo real (semente 1).** `nextTowardBestCube` escolhia como meta a ponta da rua de cubo MAIS DISTANTE. A meta trocava de lado a cada passo: de (1,1) a meta era (0,0); de (0,1) passava a ser (1,0). Resultado: 16 alvos seguidos, meia-volta a cada cruzamento, cubo nunca alcancado. Correcao: meta = ponta MAIS PROXIMA (entra na rua por ela); ao estar nela, meta = a outra (atravessa). Verificado: a pose estimada batia com a real, o movimento era real.
+2. **Laco de entrega perto de cubo no caminho (semente 3).** Com a coluna abaixo de 0,8, o roteador de entrega ignorava as ruas bloqueadas (so desviava com pose segura), e voltava pela rua bloqueada. Correcao: o bloqueio vale com qualquer confianca (a pose estimada e a melhor disponivel). Semente 3 passou a 6/6 em 412 s.
+3. **Semente 8 (sobra): 6o cubo nao achado.** Apos a 5a entrega o carro explora 165 s e nao acha o cubo real (1,0)-N. A crenca final dessa rua e 0,00: o carro tem certeza de que esta vazia. A leitura que a marcou como vazia e a varredura lateral/frontal `VAZIA-SEM-ECO` (lado 0, andado 0..280), sem eco. Hipotese: o cubo do meio da rua so aparece numa janela de ~30 mm em frente ao sonar, e a atualizacao do mapa e a cada 300 ms (48 mm andados). Testado: atualizar a cada 30 ms piorou a semente 8 (4 entregas). Revertido. Causa ainda aberta.
+
+Resultado: seeds 1 e 3 completas (6/6); seed 8 segue 5/6. Unidades: teste_alvo, teste_cruzamento, teste_perfil_carro, teste_decisao, teste_exploracao, teste_borda, teste_giro_cruzamento, teste_segurar_rumo: ok.
+NAO verificado: as demais 17 sementes (a correcao 1 mexe no planejador de todos os cruzamentos). Conforme pedido, nao foram rodadas. Antes de commitar como melhoria, precisa de uma rodada das 20.

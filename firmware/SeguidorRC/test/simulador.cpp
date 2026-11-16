@@ -1207,6 +1207,7 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   if (getenv("SIM_FASES")) fprintf(stderr, "    semente %lu, entregou %d em %.0f s, ajudas %d | tempo: %s\n", semente, fw.nav.entregues, c.agoraMs() / 1000.0, ajudas, fw.resumoFases().c_str());
   if (getenv("SIM_FASES")) fprintf(stderr, "    ramos: %s\n", fw.resumoRamos().c_str());
   if (getenv("SIM_DEBUG")) { for (const Cubo& q : m.cubos) if (q.vivo && !q.obstaculo) fprintf(stderr, "    CUBO-REAL rua (%d,%d)-%s cor %d\n", q.c, q.r, q.leste ? "E" : "N", static_cast<int>(q.cor)); }
+  if (getenv("SIM_DEBUG")) { for (int c = 0; c < core::kMapCols; c++) for (int r = 0; r < core::kMapRows; r++) { if (c + 1 < core::kMapCols) fprintf(stderr, "CRENCA-FIM (%d,%d)-E %.2f\n", c, r, core::streetSlot(fw.nav.cubos, core::Node{static_cast<int8_t>(c), static_cast<int8_t>(r)}, core::Node{static_cast<int8_t>(c + 1), static_cast<int8_t>(r)})); if (r + 1 < core::kMapRows) fprintf(stderr, "CRENCA-FIM (%d,%d)-N %.2f\n", c, r, core::streetSlot(fw.nav.cubos, core::Node{static_cast<int8_t>(c), static_cast<int8_t>(r)}, core::Node{static_cast<int8_t>(c), static_cast<int8_t>(r + 1)})); } }
   if (getenv("SIM_DEBUG")) { for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str()); const Estado e = c.estado(); fprintf(stderr, "    FIM coleta: robo (%.0f,%.0f) th %.0f carregando %d entregues %d coletados %d\n", e.x, e.y, e.th * 57.3, fw.nav.carregando, fw.nav.entregues, fw.nav.coletados); }
   return entregas;
 }

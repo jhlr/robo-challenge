@@ -161,7 +161,11 @@ inline bool nextTowardBestCube(const Pose& pose, const CubeBelief& belief, Node*
     // a street cube is walked from its nearer end; if the robot already stands on that end, the goal is the other one
     const bool aNearer = routes.dist[a.c][a.r] <= routes.dist[z.c][z.r];
     const float before = best;
-    consider(p, (aNearer ? routes.dist[a.c][a.r] : routes.dist[z.c][z.r]) + 1.0f, aNearer ? z : a);
+    // Meta = a ponta MAIS PROXIMA (entra na rua por ela). Se ja esta nela, a meta e a outra ponta (atravessa). Com a meta sempre a ponta distante, a meta trocava de lado a cada
+    // passo (o robo oscilava entre duas esquinas: 16 alvos seguidos na semente 1, sem chegar ao cubo real).
+    const Node perto = aNearer ? a : z, longe = aNearer ? z : a;
+    const Node meta = (aNearer ? routes.dist[a.c][a.r] : routes.dist[z.c][z.r]) == 0.0f ? longe : perto;
+    consider(p, (aNearer ? routes.dist[a.c][a.r] : routes.dist[z.c][z.r]) + 1.0f, meta);
     if (best > before) { bestA = a; bestZ = z; }   // the street that holds the cube we are heading for
   });
   if (goalA) *goalA = bestA;

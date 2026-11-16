@@ -169,7 +169,7 @@ struct Navegador {
       const int k = seguidor::ruaDoEco(usMm, andadoMm);
       if (k < 0) return;   // perto de um cruzamento: ambiguo
       const int j0 = seguidor::primeiraRuaAindaAFrente(andadoMm);
-      for (int j = j0; j < k; j++) { core::Node a, b; if (rua(j, &a, &b) && !ruaVaziaCerta(a, b)) core::observeStreet(cubos, a, b, false, bm); }
+      for (int j = j0; j < k; j++) { core::Node a, b; if (rua(j, &a, &b) && !ruaVaziaCerta(a, b)) { ROBO_DBG("    VAZIA-ECO-LONGE rua (%d,%d)-(%d,%d) usMm %.0f k %d andado %.0f\n", a.c, a.r, b.c, b.r, usMm, k, andadoMm); core::observeStreet(cubos, a, b, false, bm); } }
       core::Node a, b;
       if (rua(k, &a, &b)) {
         if (ruaVaziaCerta(a, b)) oponenteVisto++;   // rua que ja era vazia de certeza: o eco so pode ser o outro robo
@@ -179,7 +179,7 @@ struct Navegador {
       // Leitura DE LADO na varredura: o carro gira em torno do eixo, que fica ~38 mm fora da linha da rua do lado, e o cone do ultrassom e estreito (+-10 graus): um cubo no meio da rua
       // vizinha (a ~150 mm do cruzamento) fica FORA do cone. Sem eco, a primeira rua do lado nao pode ser dada como vazia (so as de depois, que o cone alcanca).
       const int j0 = std::max(seguidor::primeiraRuaAindaAFrente(andadoMm), deLado ? 1 : 0), j1 = seguidor::ultimaRuaVistaVazia(andadoMm, 900.0f);
-      for (int j = j0; j <= j1 && j < 3; j++) { core::Node a, b; if (rua(j, &a, &b)) core::observeStreet(cubos, a, b, false, bm); }
+      for (int j = j0; j <= j1 && j < 3; j++) { core::Node a, b; if (rua(j, &a, &b)) { ROBO_DBG("    VAZIA-SEM-ECO rua (%d,%d)-(%d,%d) lado %d andado %.0f\n", a.c, a.r, b.c, b.r, (int)deLado, andadoMm); core::observeStreet(cubos, a, b, false, bm); } }
     }
   }
   int ecosLongeVistos = 0;
@@ -297,7 +297,7 @@ struct Navegador {
       if (colSure && rowSure && core::inMap(p.at.c - 1, p.at.r) && core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r})) {
         qAlvo = qDesvio(p.at);   // a rua para o oeste esta bloqueada por um cubo: vai para a linha mais proxima com o oeste livre
       }
-      if (colSure && rowSure && (!bloqTemporariosVazio() || desviar)) {
+      if (!bloqTemporariosVazio() || desviar) {   // com a crenca abaixo do limite (76-79% na coluna) o bloqueio ainda vale: sem isso o carro voltava pela rua bloqueada em laco (150 s)
         // Pose segura e ruas bloqueadas por cubos: nao basta subir ou descer (a rua vertical tambem pode ter cubo, e ele ia e voltava ate o fim da partida). Menor caminho PELAS RUAS LIVRES ate
         // qualquer cruzamento da coluna 0, de onde a rua para o oeste leva ao portao (a propria rua do oeste da coluna 0 nunca esta bloqueada: e o beco).
         core::Routes rotas;
@@ -339,7 +339,11 @@ struct Navegador {
         core::Node tmp{}, ga{}, gz{};
         if (!core::nextTowardBestCube(p, cubos, &tmp, core::kKnownCube, &bloq, &ga, &gz)) core::nextTowardBestCube(p, cubos, &tmp, core::kMinBelief, &bloq, &ga, &gz);   // o mesmo alvo que decideAtCrossing escolheu (guloso: cubo visto primeiro)
         alvoX = (xDoCruzamento(ga.c) + xDoCruzamento(gz.c)) / 2; alvoY = (yDoCruzamento(ga.r) + yDoCruzamento(gz.r)) / 2;
-        ROBO_DBG("    ALVO-CUBO t=%.1fs rua (%d,%d)-(%d,%d) crenca %.2f pose (%d,%d)\n", nav_t_ms / 1000.0, ga.c, ga.r, gz.c, gz.r, core::streetSlot(cubos, ga, gz), p.at.c, p.at.r);
+        ROBO_DBG("    ALVO-CUBO t=%.1fs rua (%d,%d)-(%d,%d) crenca %.2f pose (%d,%d) bloq E%d N%d W%d S%d\n", nav_t_ms / 1000.0, ga.c, ga.r, gz.c, gz.r, core::streetSlot(cubos, ga, gz), p.at.c, p.at.r,
+                 core::inMap(p.at.c + 1, p.at.r) ? (int)core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c + 1), p.at.r}) : -1,
+                 core::inMap(p.at.c, p.at.r + 1) ? (int)core::streetSlot(bloq, p.at, core::Node{p.at.c, static_cast<int8_t>(p.at.r + 1)}) : -1,
+                 core::inMap(p.at.c - 1, p.at.r) ? (int)core::streetSlot(bloq, p.at, core::Node{static_cast<int8_t>(p.at.c - 1), p.at.r}) : -1,
+                 core::inMap(p.at.c, p.at.r - 1) ? (int)core::streetSlot(bloq, p.at, core::Node{p.at.c, static_cast<int8_t>(p.at.r - 1)}) : -1);
       } else if (d.next.c >= 0 && core::inMap(d.next.c, d.next.r)) { alvoX = xDoCruzamento(d.next.c); alvoY = yDoCruzamento(d.next.r); }
     }
     ruaDe = p.at;
