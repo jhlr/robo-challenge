@@ -175,3 +175,10 @@ S2/S3 veem a rua, o seguidor sem historico (`vinhaSeguindo` falso) gira no eixo 
 e lida como "chegou CEDO" (borda azul), com a meia-volta voltando pela arena ate o lado do oponente (x~2300). `trechoRestante0` agora e zerado
 ao cruzar o portao (valor da ultima saida, 360 mm, estava velho; correto, sem efeito medido). A causa a atacar e o giro no eixo com a rua so
 22 mm ao lado logo depois do portao: devia corrigir de leve, nao girar.
+
+### Giro no eixo logo depois do portao (semente 10)
+
+Causa: a travessia do portao terminava com preto em S3..S6; com a entrada 22 mm fora da rua, so S2/S3 viam a rua (`.##.....`), o seguidor
+lia "linha 2 sensores a esquerda" e girava no eixo (a barra, a 15 mm do eixo, nao leva a linha ao centro girando) ate 65 graus, depois
+"chegou CEDO". Agora a travessia so acaba com preto nos 2 sensores do centro (S4/S5), ou 1,3 s, e segue reto ate a rua (ou o 1o cruzamento).
+Sementes ruins (2,8,10,12,18,19): 15 -> 21; sementes 0-4: 20 -> 23; testes ok.

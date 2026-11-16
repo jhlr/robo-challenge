@@ -363,6 +363,7 @@ struct Robo {
   int pedidosDeAjuda = 0, marcoMetas = 0;
   unsigned long ultimaMetaMs = 0;
   bool portaoSoMeio = true;
+  bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
   bool ancorarSemRepetir = true;
   bool olharSoSeNaoMedida = true;   // depois de virar, o olhar de 35 graus (~1,4 s) so quando a rua nova ainda nao foi medida pelo ultrassom
   static constexpr double kRetoParaReancorarMm = 150.0;
@@ -578,7 +579,7 @@ struct Robo {
             bool pp[kSensores];
             lerBarra(c, pp);
             const bool algumPreto = pp[0] || pp[1] || pp[2] || pp[3] || pp[4] || pp[5] || pp[6] || pp[7];
-            const bool noMeio = pp[2] || pp[3] || pp[4] || pp[5];   // so as pontas acesas logo depois da faixa azul e a sobra da faixa (ou a rua 30 mm ao lado): nao e a rua sob a barra
+            const bool noMeio = portaoSoMeio2 ? (pp[3] || pp[4]) : (pp[2] || pp[3] || pp[4] || pp[5]);   // so as pontas acesas logo depois da faixa azul e a sobra da faixa (ou a rua 30 mm ao lado): nao e a rua sob a barra
             return dt >= 130 && c.tcsChao() != CorLinha::Azul && ((portaoSoMeio ? noMeio : algumPreto) || dt >= 1300);
           });
           esquecerUltimoComando(memoria);
