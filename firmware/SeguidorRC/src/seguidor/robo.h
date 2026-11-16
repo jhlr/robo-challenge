@@ -5,7 +5,7 @@
 //                 coletar(i) -> bool (pegou e guardou o cubo), soltar(cor) -> bool (largou o cubo na plataforma)
 //   sensores:     ler(bool[8]) (true = linha), odoMm()/odoEMm()/odoDMm() (mm das rodas), us() (mm ou -1), tcsChao(), tcsFrente(), piso(),
 //                 plataformaNaFrente(alcanceMm), cuboNaFrente(alcanceMm)
-//   missao:       missao(), usAtivo(), tcsPeriodoMs(), consumirToques(), mostrarCarga(slot, cor), limparCarga(), evento(texto)
+//   missao:       missao(), usAtivo(), tcsPeriodoMs(), consumirToques(), mostrarCarga(slot, cor), limparCarga(), sinal(ligado) (buzzer), evento(texto)
 //   so depuracao: estado() (a verdade do simulador; o carro real devolve zeros), ecoTipo() (o que deu o ultimo eco; vazio no carro real)
 #pragma once
 #include <math.h>
@@ -207,6 +207,14 @@ struct Navegador {
     *saindoPeloPortao = false;
     core::forget(cubos, static_cast<float>(agoraMs - ultimoForgetMs) / 1000.0f, bm);
     ultimoForgetMs = agoraMs;
+    // O rumo dos encoders manda no sentido da pose: a busca (linha perdida, partida num y que nao e de rua) gira o carro sem passar por aposVirar, e a pose seguia achando que ele
+    // olhava para onde entrou (a linha contada de cima virava a de baixo e o carro saia pelo portao errado).
+    if (!loc.inGreen) {
+      const int qRumo = ((static_cast<int>(lroundf(rumoGraus / 90.0f)) % 4) + 4) % 4;   // 0 = leste, 1 = norte, 2 = oeste, 3 = sul
+      const core::Pose& pe = core::estimate(loc).pose;
+      const int qPose = pe.dc == 1 ? 0 : pe.dr == 1 ? 1 : pe.dc == -1 ? 2 : 3;
+      if (qRumo != qPose) core::onTurn(loc, (qRumo - qPose + 4) % 4);
+    }
     const bool chegouNormal = !pularProximo && naRua && !loc.inGreen && !loc.atGate;
     if (pularProximo) pularProximo = false; else core::onCrossing(loc);
     if (loc.inGreen) return 'S';
@@ -345,6 +353,12 @@ struct Robo {
     }
     return t;
   }
+  // Pedir ajuda: pegar o carro e poe-lo de volta no verde e permitido (custa o reinicio), e vagar procurando custa a partida inteira (60% do tempo no simulador). Sem nenhuma META
+  // (coletar, entregar, observar as plataformas, passar o portao) por kMaxSemMetaMs ele PARA e apita ate o verde aparecer sob o sensor (o `VERDE inesperado` de sempre o reposiciona).
+  static constexpr unsigned long kMaxSemMetaMs = 150000;
+  bool esperandoAjuda = false;
+  int pedidosDeAjuda = 0, marcoMetas = 0;
+  unsigned long ultimaMetaMs = 0;
   static constexpr double kMaxVerdeSemLinhaMm = 700.0;
   double semLinhaNoVerdeMm = -1.0;   // odometro quando comecou a andar no verde sem ver linha (-1 = nao esta nisso)
   const char* ultimaAcao = "";   // o que a decisao mandou no ultimo ciclo (telemetria e rastro do simulador)
@@ -724,7 +738,9 @@ struct Robo {
       usAnt = -1.0f; ecoLembradoMm = -1.0f; ecoRealinhado = false; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
       tSaidaMs = c.agoraMs(); odoSaida = c.odoMm();                          // daqui em diante conta o caminho andado na rua nova
       andadoRuaMm = 0.0f;
-      trechoRestante0 = (a == 'L' || a == 'R') ? kPasso - 40.0 : kPasso;   // depois de virar para o lado o eixo ja andou ~40 mm
+      // Partindo de um cruzamento que NAO se sabe onde esta (ANCORAR: o carro largou num y qualquer e o 'cruzamento' pode ser so a rua vertical vista de lado), nao ha distancia esperada ate o
+      // proximo: com 360 mm supostos, o primeiro cruzamento de verdade chegava 'cedo' e era lido como a borda do tabuleiro (pose invertida, entrega para o lado errado).
+      trechoRestante0 = nav.ancorando ? -1.0 : ((a == 'L' || a == 'R') ? kPasso - 40.0 : kPasso);   // depois de virar para o lado o eixo ja andou ~40 mm
       if (a == 'S') comecarASair(cruz, c.agoraMs(), odoCruz(c));   // reto: a barra ainda esta em cima da faixa do cruzamento, o debounce evita contar de novo
       else cruz = MemoriaCruzamento{};                 // virou (L, R, U): a barra ja nao esta na faixa; o debounce de 300 ms (75 mm) engolia a BORDA a 49 mm do beco (o carro passou da linha vermelha)
     } else {
@@ -1403,6 +1419,17 @@ struct Robo {
     bool p[kSensores];
     lerBarra(c, p);
     const unsigned long agora = c.agoraMs();
+    {   // observador de metas: so conta o que e objetivo da partida
+      const int metas = nav.coletados + nav.entregues + portoes + (nav.plataformasObservadas ? 1 : 0);
+      if (metas != marcoMetas || ultimaMetaMs == 0) { marcoMetas = metas; ultimaMetaMs = agora; }
+      else if (nav.ativo && !esperandoAjuda && !cruzandoPortao && agora - ultimaMetaMs > kMaxSemMetaMs) {
+        esperandoAjuda = true;
+        pedidosDeAjuda++;
+        c.parar();
+        c.evento(fmt("PEDINDO AJUDA: %lu s sem nenhuma meta (pose %s). Parado e apitando: recoloque o carro no verde", (agora - ultimaMetaMs) / 1000, nav.loc.inGreen ? "no verde" : "na cidade"));
+      }
+    }
+    if (esperandoAjuda) c.sinal((agora / 400) % 2 == 0);   // apita em pulsos
     if (agora - ultimoTcsMs >= c.tcsPeriodoMs()) {   // o TCS do chao nao le a cada ciclo
       ultimoTcsMs = agora;
       const CorLinha lida = c.tcsChao();
@@ -1410,17 +1437,20 @@ struct Robo {
       proibidasSeguidas = proibida ? proibidasSeguidas + 1 : 0;
       azulSeguidas = lida == CorLinha::Azul ? azulSeguidas + 1 : 0;
       verdesSeguidos = lida == CorLinha::Verde ? verdesSeguidos + 1 : 0;   // uma leitura isolada de verde pode ser erro do sensor: so vale com varias seguidas
-      if (nav.ativo && !nav.loc.inGreen && verdesSeguidos >= kVerdesParaReposicionar && reposicionadoPeloVerde(CorLinha::Verde, portaoPendente, nav.entregando)) {   // verde inesperado: o juiz pegou e pos de volta
+      if (nav.ativo && verdesSeguidos >= kVerdesParaReposicionar && (esperandoAjuda || (!nav.loc.inGreen && reposicionadoPeloVerde(CorLinha::Verde, portaoPendente, nav.entregando)))) {   // pediu ajuda: o verde sob o sensor E o humano recolocando   // verde inesperado: o juiz pegou e pos de volta
         nav.reposicionado();
         precisaAlinhar = true;
-        reposicionados++;   // o rumo continua valendo
+        reposicionados++;
+        rumo = 0.0f;   // sem MPU o rumo so vem dos encoders: quem recoloca o carro o poe de frente para a cidade (rumo 0); o rumo de antes nao vale mais
         memoria = Memoria{};
         cruz = MemoriaCruzamento{};
         esquecerCor(memCor);
         portaoPendente = true;
         c.evento(fmt("VERDE inesperado em (%.0f,%.0f): reposicionado (pose e rumo reiniciados, o mapa de cubos fica)", c.estado().x, c.estado().y));
+        if (esperandoAjuda) { esperandoAjuda = false; c.sinal(false); ultimaMetaMs = agora; }
       }
     }
+    if (esperandoAjuda) { c.parar(); tick(c); return; }   // parado ate alguem recolocar o carro no verde
     // Regras 7: "o robo deve responder de forma imediata sempre que QUALQUER sensor detectar vermelho no chao". Vermelho e azul (fora do portao) nunca sao rota: os sensores RC
     // leem essas linhas como preto, e antes disso o carro as seguia como se fossem uma rua (a moldura da arena). So uma leitura vale se alguma ponta da barra ve preto; sozinha, duas.
     if (agora >= semReacaoAte && proibidasSeguidas >= 2 && !nav.entregando) {   // duas leituras seguidas: uma so pode ser erro do sensor (e o carro dava meia-volta no meio da rua)

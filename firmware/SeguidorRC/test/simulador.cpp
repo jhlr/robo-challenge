@@ -407,6 +407,7 @@ class Carro {
   bool usAtivo() const { return mundo_ && mundo_->cfg.us; }
   unsigned long tcsPeriodoMs() const { return mundo_ ? mundo_->cfg.tcsPeriodoMs : 0; }
   int consumirToques() { if (!mundo_) return 0; const int n = mundo_->toquesPendentes; mundo_->toquesPendentes = 0; return n; }   // cubos tocados sem coletar (sinalizados pelo juiz)
+  void sinal(bool) {}   // buzzer (o simulador nao ouve)
   void mostrarCarga(int slot, int cor) { if (!mundo_) return; (slot == 0 ? mundo_->carga0 : mundo_->carga1) = static_cast<int8_t>(cor); }
   void limparCarga() { if (mundo_) mundo_->carga0 = mundo_->carga1 = 0; }
   void evento(const std::string& texto) { if (mundo_) mundo_->evento(t_, texto); }
@@ -1164,9 +1165,10 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   using seguidor::CorCubo;
   Pista p = tabuleiro();
   Mundo m;
-  Carro c(p, {-140, yDoCruzamento(2), 0.0});
-  Firmware fw;
   gSemente = semente;
+  m.rnd();   // (o mundo e semeado por configurarMissao; aqui so sorteia a partida)
+  Carro c(p, {-270.0 + 230.0 * ((semente * 37 % 100) / 100.0), 60.0 + (kAlt - 120.0) * ((semente * 61 % 100) / 100.0), 0.0});   // posicao ALEATORIA do verde (deterministica pela semente), de frente para a cidade: a partida real e depois de cada reposicionamento
+  Firmware fw;
   configurarMissao(m, fw, c, 0, false, false);
   fw.nav.verdade = &m;
   const CorCubo cores[4] = {CorCubo::Azul, CorCubo::Vermelho, CorCubo::Amarelo, CorCubo::Preto};
@@ -1175,11 +1177,17 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   m.semearCubos(n, lista);
   std::vector<double> entregas;
   constexpr unsigned long kPartidaMs = 720000;   // 12 min (regras)
+  unsigned long pedidoEm = 0;
+  int ajudas = 0;
   while (c.agoraMs() < kPartidaMs && fw.nav.entregues < n) {
     fw.passo(c);
+    if (fw.esperandoAjuda) {   // o humano pega o carro parado e apitando e o poe no verde, num ponto aleatorio, depois de 8 s
+      if (!pedidoEm) pedidoEm = c.agoraMs();
+      else if (c.agoraMs() - pedidoEm > 8000) { c.colocarEm({-270.0 + m.rnd() * 230.0, 60.0 + m.rnd() * (kAlt - 120.0), 0.0}); pedidoEm = 0; ajudas++; }
+    }
     while (static_cast<int>(entregas.size()) < fw.nav.entregues) entregas.push_back(c.agoraMs() / 1000.0);
   }
-  if (getenv("SIM_FASES")) fprintf(stderr, "    semente %lu, entregou %d em %.0f s | tempo: %s\n", semente, fw.nav.entregues, c.agoraMs() / 1000.0, fw.resumoFases().c_str());
+  if (getenv("SIM_FASES")) fprintf(stderr, "    semente %lu, entregou %d em %.0f s, ajudas %d | tempo: %s\n", semente, fw.nav.entregues, c.agoraMs() / 1000.0, ajudas, fw.resumoFases().c_str());
   if (getenv("SIM_DEBUG")) { for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str()); const Estado e = c.estado(); fprintf(stderr, "    FIM coleta: robo (%.0f,%.0f) th %.0f carregando %d entregues %d coletados %d\n", e.x, e.y, e.th * 57.3, fw.nav.carregando, fw.nav.entregues, fw.nav.coletados); }
   return entregas;
 }

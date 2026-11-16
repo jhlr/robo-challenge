@@ -163,6 +163,7 @@ class CarroReal {
   bool usAtivo() const { return true; }
   unsigned long tcsPeriodoMs() const { return kPeriodoTcsMs; }
   int consumirToques() { return 0; }   // o juiz sinaliza; o carro nao sabe
+  void sinal(bool ligado) { if (pins::kBuzzer >= 0) digitalWrite(pins::kBuzzer, ligado ? HIGH : LOW); }   // pede ajuda (robo.h: kMaxSemMetaMs)
   void mostrarCarga(int, int) {}
   void limparCarga() {}
   void evento(const std::string& texto) { saida_->printf("[%lu] %s\n", millis(), texto.c_str()); }
