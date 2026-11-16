@@ -189,3 +189,10 @@ A semente 8 so entregava 2 de 6 mas nao estava parada: os 3 cubos seguintes eram
 dava "vazia" em y=1147/1391/611 (reais 1098/1358/578): o eco parado erra +20..+50 mm no y (bordas cortadas na varredura) e a conta de distancia soma ~20 mm, entao
 o carro lia a 50-70 mm do centro e nao via a plataforma. Agora, se o eco ja tinha visto plataforma a menos de 80 mm da marca, antes de dar "vazia" tenta 55 mm para
 cada lado (`tentarLados`). Sementes ruins (7,8,13,22,30,38): 10 -> 13 (semente 8: 2 -> 5); sementes 0-4: 23 -> 23; testes ok.
+
+### Semente 7: portao lido como borda azul
+
+Reentrada a y=1004 (36 mm fora da rua, rumo 5 graus torto): na faixa azul o branco aparece numa ponta da barra (`saiuDoVerde`) e o fim da travessia
+(`algumPreto`) disparava com o carro AINDA em cima da faixa; a barra toda preta virava "cruzamento", a cor azul sem `portaoPendente` virava "BORDA azul do outro lado" e a
+meia-volta levava o carro de volta ao verde, onde ele seguia a moldura vermelha do ecoponto (x=-640) por mais de 150 s. A travessia agora so termina com o TCS fora do azul
+(`portaoAteAzulAcabar`; o teto de 1,3 s continua). Sementes ruins (7,13,22,30,38,53): 9 -> 20; sementes 0-4: 23 -> 22 (ruido); testes ok.

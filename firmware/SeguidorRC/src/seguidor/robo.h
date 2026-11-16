@@ -363,6 +363,7 @@ struct Robo {
   int pedidosDeAjuda = 0, marcoMetas = 0;
   unsigned long ultimaMetaMs = 0;
   bool tentarLados = true;
+  bool portaoAteAzulAcabar = true;   // a travessia do portao so termina quando o TCS deixou o azul (antes: branco numa ponta + qualquer preto da propria faixa ja bastava)
   bool portaoSoMeio = true;
   bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
   bool ancorarSemRepetir = true;
@@ -1518,7 +1519,7 @@ struct Robo {
       const bool algumPreto = acesos(p) > 0;
       const bool pontas = p[0] && p[kSensores - 1];
       const bool achouRuaDeLado = pontas && saiuDoVerde;
-      if ((saiuDoVerde && agora - cruzandoPortaoDesde > 60 && algumPreto) || agora - cruzandoPortaoDesde > 1300) {   // entrou no tabuleiro (barra no branco) e a rua apareceu em algum sensor; branco total = ainda no beco: segue em frente
+      if ((saiuDoVerde && agora - cruzandoPortaoDesde > 60 && algumPreto && (azulSeguidas == 0 || !portaoAteAzulAcabar)) || agora - cruzandoPortaoDesde > 1300) {   // entrou no tabuleiro (barra no branco) e a rua apareceu em algum sensor; branco total = ainda no beco: segue em frente
         cruzandoPortao = false;
         portoes++;
         portaoPendente = false;
