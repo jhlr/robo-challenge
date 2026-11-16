@@ -90,3 +90,9 @@ Resultado (semente 7, 58 alvos):
 - 20 sementes: 115/120, identico ao baseline. A correcao limpa a crenca, mas nao muda as entregas: a perda de tempo nao estava no alvo fantasma. Nao e o gargalo.
 
 Conclusao da etapa 2b: o fantasma que a semente 7 mostrava (rua (2,0)-(3,0), 14 alvos) era atribuicao de cubo confirmado a rua errada. Corrigido. O que segue na semente 7 e exploracao com prior e a volta de meia-volta, nao crenca falsa.
+
+## Exploracao: o prior nao pode ser alvo de cubo (fase seguinte da semente 7)
+Causa: `kMinBelief` era 0,3, abaixo do prior de rua nunca medida (0,4). Todo cruzamento com rua nao medida tinha "cubo provavel", e o planejador ia para ela antes da exploracao (`stepToUnseen`). Na semente 7, 28 de 58 alvos eram ruas com crenca 0,40 (prior), nao observacao.
+Correcao: `kMinBelief = 0,5` (acima do prior), com o motivo no comentario. Um limiar de "provavel" abaixo do prior faz o prior virar alvo.
+Resultado (20 sementes, 6 cubos): 117/120 (antes 115), 17 completas (antes 16). Ganhou nas sementes 2, 5, 7 e 14 (+1, +2, +1, +1); perdeu 1 em 1, 3 e 8 (-1 cada). Ganho pequeno e nao testado em outro conjunto de sementes.
+Testes unitarios (teste_alvo, teste_cruzamento, teste_perfil_carro, teste_decisao, teste_exploracao, teste_borda, teste_giro_cruzamento, teste_segurar_rumo): ok. `test/test_core` usa Unity (PlatformIO): nao rodado aqui.
