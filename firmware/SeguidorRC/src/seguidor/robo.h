@@ -128,10 +128,9 @@ struct Navegador {
       core::onOwnBlue(loc);
       // Sem saber a linha, o 1o contato com a coluna 0 e quase sempre o MEIO de um quarteirao (ou o beco), nao um cruzamento: contar como cruzamento fazia a conta de linhas passar de 4
       // (partida a y<168: 5 "cruzamentos" para cima) e o localizador ficava seguro numa linha errada sem nunca ver a moldura. Pula a contagem dele: o proximo cruzamento de verdade e o 1o no (0, r).
-      if (primeiroContatoNaoENo) { pularProximo = true; contatoNaoContado = true; }
+      pularProximo = true; contatoNaoContado = true;
     }
   }
-  bool primeiroContatoNaoENo = true;
   bool contatoNaoContado = false;   // o 1o contato com a coluna 0 foi pulado (nao contou como no): ate o 1o cruzamento contado nao ha no 'de onde veio' para a meia-volta da borda voltar a
   int linhaEntrada = -1;   // a linha pela qual entrou (conhecida pela moldura vermelha); -1 = nao sabe
   double faseGrade = std::nan("");   // as plataformas ficam numa grade de 260 mm, mas a FASE dela (nas 5 marcas ou entre elas) so se sabe depois de ver uma: desvio de (y - meio) em relacao ao passo
@@ -405,17 +404,6 @@ struct Robo {
   bool esperandoAjuda = false;
   int pedidosDeAjuda = 0, marcoMetas = 0;
   unsigned long ultimaMetaMs = 0;
-  bool tentarLados = true;
-  bool portaoAteAzulAcabar = true;   // a travessia do portao so termina quando o TCS deixou o azul (antes: branco numa ponta + qualquer preto da propria faixa ja bastava)
-  bool zerarSaindoNoFim = true;
-  bool ancorarSemVarrer = true;
-  bool corNaSaidaParaTudo = true;
-  bool sinteticoLimpaPular = true;
-  bool irDiretoParaPlataforma = true;
-  bool portaoSoMeio = true;
-  bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
-  bool ancorarSemRepetir = true;
-  bool olharSoSeNaoMedida = true;   // depois de virar, o olhar de 35 graus (~1,4 s) so quando a rua nova ainda nao foi medida pelo ultrassom
   static constexpr double kRetoParaReancorarMm = 150.0;
   double retoDesdeMm = -1.0;   // odometro quando comecou a andar reto sobre a linha (-1 = nao esta nisso)
   static constexpr double kMaxVerdeSemLinhaMm = 700.0;
@@ -631,9 +619,8 @@ struct Robo {
             const unsigned long dt = c.agoraMs() - t0;
             bool pp[kSensores];
             lerBarra(c, pp);
-            const bool algumPreto = pp[0] || pp[1] || pp[2] || pp[3] || pp[4] || pp[5] || pp[6] || pp[7];
-            const bool noMeio = portaoSoMeio2 ? (pp[3] || pp[4]) : (pp[2] || pp[3] || pp[4] || pp[5]);   // so as pontas acesas logo depois da faixa azul e a sobra da faixa (ou a rua 30 mm ao lado): nao e a rua sob a barra
-            return dt >= 130 && c.tcsChao() != CorLinha::Azul && ((portaoSoMeio ? noMeio : algumPreto) || dt >= 1300);
+            const bool noMeio = pp[3] || pp[4];   // so as pontas acesas logo depois da faixa azul e a sobra da faixa (ou a rua 30 mm ao lado): nao e a rua sob a barra
+            return dt >= 130 && c.tcsChao() != CorLinha::Azul && (noMeio || dt >= 1300);
           });
           esquecerUltimoComando(memoria);
           memoria.perdeuEm = 0;
@@ -641,7 +628,7 @@ struct Robo {
           // enquanto a barra estava no preto) e o carro passava direto pela coluna 0, contando a seguinte como a primeira (pose uma coluna adiante pelo resto da partida).
           bool fim[kSensores];
           lerBarra(c, fim);
-          if (zerarSaindoNoFim && pontasJuntas(fim)) cruz = MemoriaCruzamento{};
+          if (pontasJuntas(fim)) cruz = MemoriaCruzamento{};
         }
       }
       return;
@@ -662,7 +649,7 @@ struct Robo {
       }
     }
     // Ancorando (trecho desconhecido) o limite e o menor trecho que nao e o mesmo cruzamento: ~60 mm (o 1o cruzamento depois do portao fica a ~130 mm); sem isso a faixa do cruzamento que acabou de deixar contava duas vezes.
-    const double minAndado = trechoRestante0 > 0.0 ? trechoRestante0 - 150.0 : (ancorarSemRepetir && !nav.pularProximo ? 60.0 : -1.0);
+    const double minAndado = trechoRestante0 > 0.0 ? trechoRestante0 - 150.0 : (!nav.pularProximo ? 60.0 : -1.0);
     if (cfg.encoder && nav.ativo && !nav.loc.inGreen && acao == AcaoCruzamento::Cruzamento && andadoDesdeSaida(c, c.agoraMs()) < minAndado) {
       ROBO_DBG("    (faixa do cruzamento de onde saiu, andado %.0f de %.0f: nao e chegada)\n", andadoDesdeSaida(c, c.agoraMs()), trechoRestante0);
       comecarASair(cruz, c.agoraMs(), odoCruz(c));
@@ -743,7 +730,7 @@ struct Robo {
     }
     // ANCORAR (linha desconhecida, indo reto pela coluna ate a moldura vermelha): a coluna e conhecida e o cruzamento chegou a ~kPasso do anterior, entao e o proximo no da coluna, nao uma
     // falsa faixa; o giro de varredura (~4 s por no) so olha as ruas laterais, e na entrada o que importa e chegar a moldura. Passa direto, como com a pose segura.
-    if (!pularVarredura && ancorarSemVarrer && nav.ativo && nav.ancorando && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo && !nav.loc.atGate) {
+    if (!pularVarredura && nav.ativo && nav.ancorando && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo && !nav.loc.atGate) {
       const core::Estimate es = core::estimate(nav.loc);
       const double andado = andadoDesdeSaida(c, c.agoraMs());
       if (core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && fabs(andado - kPasso) < 40.0) { pularVarredura = true; gesto = false; contar(Ramo::CruzAncorar); }
@@ -797,7 +784,7 @@ struct Robo {
     else falsosAlarmes++;
     // Chegada SINTETICA (meia-volta logo depois de sair do no: o carro ainda esta nele): o `pularProximo` da meia-volta e deste no. Se a varredura nao o confirmou como cruzamento
     // (endireitou, falso alarme) ninguem o consome aqui e ele pulava o cruzamento SEGUINTE de verdade (pose uma linha atras pelo resto da partida).
-    if (sintetico && varr.resultado != Oito::Cruzamento && sinteticoLimpaPular) nav.pularProximo = false;
+    if (sintetico && varr.resultado != Oito::Cruzamento) nav.pularProximo = false;
     esquecerUltimoComando(memoria);
     if (varr.resultado == Oito::Endireitou) memoria.perdeuEm = 0;   // estava de lado em cima da linha e agora esta alinhado: volta a seguir
     tUltimoCruzamento = c.agoraMs();
@@ -822,7 +809,7 @@ struct Robo {
         Fatia giroF(*this, c, Fase::Vira);
         if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
         else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo, true); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
-        if ((a == 'L' || a == 'R') && !nav.loc.inGreen && (!olharSoSeNaoMedida || nav.ruaAtualNaoMedida())) olharAdiante(c, a == 'L' ? 1 : -1);
+        if ((a == 'L' || a == 'R') && !nav.loc.inGreen && nav.ruaAtualNaoMedida()) olharAdiante(c, a == 'L' ? 1 : -1);
       }
       usAnt = -1.0f; ecoLembradoMm = -1.0f; ecoRealinhado = false; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
       tSaidaMs = c.agoraMs(); odoSaida = c.odoMm();                          // daqui em diante conta o caminho andado na rua nova
@@ -1175,7 +1162,7 @@ struct Robo {
         // O eco parado ja viu plataforma por aqui, mas a posicao dele (e a conta de distancia) erra ate ~70 mm: antes de dar a marca por vazia, tenta 55 mm para cada lado.
         bool ecoAqui = false;
         for (const double o : nav.platPresentes) if (fabs(o - yt) < 80.0) ecoAqui = true;
-        if (vista == seguidor::CorCubo::Nenhuma && ecoAqui && tentarLados) {
+        if (vista == seguidor::CorCubo::Nenhuma && ecoAqui) {
           for (const double passoLado : {-55.0, 110.0}) {
             girarPara(c, passoLado > 0 ? 90.0 : -90.0);
             andarMm(c, fabs(passoLado), [] { return false; });
@@ -1294,7 +1281,7 @@ struct Robo {
     for (const seguidor::CorCubo cor : nav.carga) { bool sabe = false; for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) sabe = true; if (!sabe) falta = true; }
     // So vai ao MEIO do mapa para varrer o ecoponto de la (mapearDeLonge) ou para a viagem de observacao; com a plataforma da cor ja conhecida segue direto da linha do portao ate a altura dela
     // (antes passava sempre pelo meio: ate ~800 mm a mais por entrega).
-    const bool precisaDoMeio = !irDiretoParaPlataforma || nav.observando || (falta && !nav.mapeado && !nav.plataformasObservadas);
+    const bool precisaDoMeio = nav.observando || (falta && !nav.mapeado && !nav.plataformasObservadas);
     if (precisaDoMeio && fabs(kAlt / 2.0 - yAtual) > minMovMm()) {
       girarPara(c, kAlt / 2.0 > yAtual ? 90.0 : -90.0);
       andarMm(c, fabs(kAlt / 2.0 - yAtual), [] { return false; });
@@ -1422,7 +1409,7 @@ struct Robo {
     // Logo depois de uma curva o carro sai ~5 graus torto e o cone (+-10) pode passar ao lado de um cubo que esta a 100-200 mm do cruzamento (medido: cubo a 11 graus do eixo, cone de 10,
     // e o eco lia a parede do fundo a 870 mm: ele passou por cima). O TCS da frente nao depende do angulo (faixa estreita a ~90 mm): nos primeiros 250 mm da rua uma cor de cubo
     // a frente vale como eco na distancia de parar.
-    if (corNaSaidaParaTudo && andadoRuaMm < 250.0f && (d <= 0.0f || d > nav.alvo.cuboParaDePertoMm + 15.0f) && c.tcsFrente() != seguidor::CorCubo::Nenhuma) d = nav.alvo.cuboParaDePertoMm;
+    if (andadoRuaMm < 250.0f && (d <= 0.0f || d > nav.alvo.cuboParaDePertoMm + 15.0f) && c.tcsFrente() != seguidor::CorCubo::Nenhuma) d = nav.alvo.cuboParaDePertoMm;
     if (ROBO_TRACE(agora)) fprintf(stderr, "      US t=%.2f eixo (%.0f,%.0f) th %.0f d=%.0f andadoRua=%.0f vel=%.0f\n", agora / 1000.0, c.estado().x, c.estado().y, c.estado().th * 57.3, d, andadoRuaMm, velMmSAtual);
     // MEMORIA DO ECO: depois de uma curva o carro balanca de 5 a 10 graus ao realinhar na rua e o cone (+-10) pode perder um cubo no meio da rua justo quando ele chega na distancia
     // de parar (o eco de 82 mm numa leitura e sem eco na seguinte: ele passava por cima). Um eco perto que some quando ainda falta andar ate ele vale como o eco menos o que andou.
@@ -1617,7 +1604,7 @@ struct Robo {
       const bool algumPreto = acesos(p) > 0;
       const bool pontas = p[0] && p[kSensores - 1];
       const bool achouRuaDeLado = pontas && saiuDoVerde;
-      if ((saiuDoVerde && agora - cruzandoPortaoDesde > 60 && algumPreto && (azulSeguidas == 0 || !portaoAteAzulAcabar)) || agora - cruzandoPortaoDesde > 1300) {   // entrou no tabuleiro (barra no branco) e a rua apareceu em algum sensor; branco total = ainda no beco: segue em frente
+      if ((saiuDoVerde && agora - cruzandoPortaoDesde > 60 && algumPreto && azulSeguidas == 0) || agora - cruzandoPortaoDesde > 1300) {   // entrou no tabuleiro (barra no branco) e a rua apareceu em algum sensor; branco total = ainda no beco: segue em frente
         cruzandoPortao = false;
         portoes++;
         portaoPendente = false;
