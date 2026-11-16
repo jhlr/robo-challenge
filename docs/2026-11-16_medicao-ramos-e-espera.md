@@ -48,3 +48,13 @@ Testes (20 sementes, 6 cubos; baseline 115/120):
 - Limite de coluna 0,7 em vez de 0,8: 110/120 (sementes 0, 5, 8, 9, 11, 12, 18 pioram; so a 14 melhora). Revertido.
 
 Conclusao: nenhuma das duas alavancas melhora. A causa que sobra e a odometria entre cruzamentos (erro de distancia por rua) e o planejador ancorar com a crenca na faixa 0,75-0,80. Proximo passo: medir o erro de distancia entre cruzamentos no simulador (rumo e odometria) antes de mexer no localizador.
+
+## Erro de distancia entre cruzamentos (medido) e reanalise
+Medido no simulador (`SIM_DEBUG`, PARADA): distancia andada pela odometria entre dois cruzamentos seguidos em linha reta, contra a distancia real entre as posicoes verdadeiras.
+- seed 0: 93 pares, media +43 mm; seed 2: 81 pares, +47 mm; seed 5: 94 pares, +24 mm. Nenhum par encurtado acima de 20%; 4, 3 e 1 pares alongados acima de 25%.
+- Ou seja: a odometria superestima ~10% (uma rua de 300 mm mede ~330). Dentro da banda de 12% que o localizador ja assume: o erro de escala NAO explica a crenca decaindo nem a piora com a distancia.
+
+Reanalise: o problema observado (coluna em 78%, ancorar, borda) e uma consequencia. O defeito que aparece com a crenca CONFIANTE e o planejador trocando de alvo a cada cruzamento:
+- seed 2, com distancia (confianca 100%/97%): entre (0,3) e (1,3) o carro faz 'coletar, seguir U' por ~60 s, sem nenhum evento de cubo. O alvo guloso (`decideAtCrossing`, `kKnownCube`) e refeito a cada cruzamento e aponta para o lado oposto ao que acabou de tomar.
+- seed 7, sem distancia: em row 2, colunas 2 a 5, o mesmo padrao 'coletar U / ancorar' por 150 s.
+Hipotese de trabalho (nao verificada ainda): o alvo nao tem compromisso (nao e mantido ate ser alcancado ou confirmado vazio) e o planejador nao verifica se o cubo mapeado ainda esta la quando passa pela rua. Proximo passo: identificar o cubo-alvo em cada volta (SIM_TRACE do alvo) e confirmar se ele existe na simulacao.
