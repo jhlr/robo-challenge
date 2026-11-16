@@ -241,3 +241,14 @@ Carregando, um cubo no caminho junto ao no (`aoBloquearTemporario`: `pularProxim
 SINTETICA (o carro ainda esta no no). Quando a varredura dava "ENDIREITOU" (nao "cruzamento") ninguem consumia o `pularProximo`, e ele pulava o cruzamento SEGUINTE de verdade:
 pose uma linha atras (est (5,3), real (5,4)) por centenas de segundos. Agora a chegada sintetica limpa o `pularProximo` quando a varredura nao confirma cruzamento (`sinteticoLimpaPular`).
 Sementes ruins (10,41,43,47,57): 8 -> 14 (semente 10: 1 -> 5); sementes 0-4: 29 -> 29; 20 sementes: 106 -> 109; testes ok.
+
+### Gargalos com a missao rodando (sementes 0-4, 6 cubos, ~90 s por cubo)
+
+Fases: reto 31-35 %, plataforma 19-25 %, cruzamento (varre 9-14 + gesto 11-14 + vira 11-14 + parada 3) ~38 %, entrada 4-6 %. Por entrega (portao -> reentrada): 12-29 s (tipico 17-21):
+ate a altura da plataforma 3-15 s, achar 0,1-2,6 s, `yPeloGiro` 2,1 s fixo, volta ate a linha de reentrada.
+Testado em 20 sementes (referencia 109 entregas): sem o gesto no cruzamento (`gesto=-1`) 102 (o gesto ajuda: ve cubos nas ruas laterais); velocidade reta 180: 101 (o carro ja anda a 160 de um
+teto fisico de ~174 mm/s, 180 satura); velocidade de giro 140: 108 (sem efeito). Nada disso e alavanca. Ir direto da linha do portao a altura da plataforma, sem passar pelo meio do mapa
+(`irDiretoParaPlataforma`, so passa pelo meio para varrer o ecoponto na 1a vez): 107 entregas, tempo medio para 6 cubos 631 -> 601 s (ruido de +-30 s esperado).
+Limite da metrica: com 6 cubos muitas sementes fecham 6/6 em ~450-650 s e a contagem de entregas satura; tempo para 6 cubos (`tools/tempo20.sh`) e a medida certa, e uma partida com 36 cubos
+(como a pista) mostraria o gargalo real, ja que a busca de cubo encurta e o custo por cruzamento e por entrega passa a pesar mais. Ainda nao existe o cenario de 36 cubos.
+Scripts em `firmware/SeguidorRC/tools`: ruins.sh, avalia.sh, total20.sh, tempo20.sh, entrada.py.

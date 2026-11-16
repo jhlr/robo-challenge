@@ -375,6 +375,7 @@ struct Robo {
   bool ancorarSemVarrer = true;
   bool corNaSaidaParaTudo = true;
   bool sinteticoLimpaPular = true;
+  bool irDiretoParaPlataforma = true;
   bool portaoSoMeio = true;
   bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
   bool ancorarSemRepetir = true;
@@ -1240,14 +1241,17 @@ struct Robo {
       }
       yAtual = kAlt - 40.0;   // com a barra na borda da faixa vermelha, o eixo esta ~40 mm abaixo dela
     }
-    if (fabs(kAlt / 2.0 - yAtual) > minMovMm()) {
+    nav.plataformasVistas = nav.platConhecidas;   // o que ja foi lido de perto (cruzamentos iniciais e entregas anteriores)
+    bool falta = false;
+    for (const seguidor::CorCubo cor : nav.carga) { bool sabe = false; for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) sabe = true; if (!sabe) falta = true; }
+    // So vai ao MEIO do mapa para varrer o ecoponto de la (mapearDeLonge) ou para a viagem de observacao; com a plataforma da cor ja conhecida segue direto da linha do portao ate a altura dela
+    // (antes passava sempre pelo meio: ate ~800 mm a mais por entrega).
+    const bool precisaDoMeio = !irDiretoParaPlataforma || nav.observando || (falta && !nav.mapeado && !nav.plataformasObservadas);
+    if (precisaDoMeio && fabs(kAlt / 2.0 - yAtual) > minMovMm()) {
       girarPara(c, kAlt / 2.0 > yAtual ? 90.0 : -90.0);
       andarMm(c, fabs(kAlt / 2.0 - yAtual), [] { return false; });
       yAtual = kAlt / 2.0;
     }
-    nav.plataformasVistas = nav.platConhecidas;   // o que ja foi lido de perto (cruzamentos iniciais e entregas anteriores)
-    bool falta = false;
-    for (const seguidor::CorCubo cor : nav.carga) { bool sabe = false; for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) sabe = true; if (!sabe) falta = true; }
     if (falta && !nav.mapeado && !nav.plataformasObservadas) mapearDeLonge(c, yAtual);
     if (nav.observando) {   // viagem so de olhar: le as cores de todas as plataformas (procurarPlataforma sem cor-alvo olha todas) e fixa o que se pode coletar
       if (!nav.mapeado && !nav.plataformasObservadas) mapearDeLonge(c, yAtual);
