@@ -49,12 +49,14 @@ int main() {
     passo(m, "########", 2410);
     assert(passo(m, "########", 2420)); }
   // ---- o que a linha sumida significa ----
-  { AjustesCruzamento aj;   // beco: 127 mm a 250 mm/s = 508 ms
+  { AjustesCruzamento aj;   // beco: a linha sumiu depois de andar ~becoMm (127 mm) desde o cruzamento; a linha ja esta sumida ha 200 ms
+    const float v200 = aj.velMmS * 0.2f;
     assert(classificarPerda(0, 700, 120, aj) == Perda::Nenhuma);
-    assert(classificarPerda(60, 700, 120, aj) == Perda::Lacuna);                       // falha curta
-    assert(classificarPerda(200, 508 + 200, 120, aj) == Perda::FimDeBeco);             // sumiu ~508 ms depois do cruzamento
-    assert(classificarPerda(200, 1500 + 200, 120, aj) == Perda::Perdida);              // sumiu muito depois: nao e beco
-    assert(classificarPerda(200, 150 + 200, 120, aj) == Perda::Perdida); }             // sumiu cedo demais: nao e beco
+    assert(classificarPerda(60, 700, 120, aj) == Perda::Lacuna);                                       // falha curta
+    assert(classificarPerda(200, aj.becoMm + v200, 120, aj) == Perda::FimDeBeco);                      // sumiu ~becoMm depois do cruzamento
+    assert(classificarPerda(200, aj.becoMm + v200 + 40.0f, 120, aj) == Perda::FimDeBeco);              // dentro da tolerancia
+    assert(classificarPerda(200, 3 * aj.becoMm + v200, 120, aj) == Perda::Perdida);                    // sumiu muito depois: nao e beco
+    assert(classificarPerda(200, aj.becoMm / 4 + v200, 120, aj) == Perda::Perdida); }                  // sumiu cedo demais: nao e beco
   // ---- sensor travado no preto ----
   { SaudeSensores s; bool ok[kSensores]; for (bool& o : ok) o = true;
     bool b[kSensores] = {true, false, false, false, false, false, false, false};

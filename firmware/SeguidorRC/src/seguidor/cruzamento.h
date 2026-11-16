@@ -4,6 +4,7 @@
 // e passar um tempo minimo (o robo ainda esta andando por cima do mesmo cruzamento).
 #include <math.h>
 
+#include "alvo.h"      // kBecoMm
 #include "decisao.h"   // kSensores
 
 namespace seguidor {
@@ -14,9 +15,9 @@ struct AjustesCruzamento {
   float saidaMm = 40.0f;                 // e, se o odometro for dado, ate ter andado isso: parado (esperando um eco, por exemplo) o tempo passa mas o carro nao saiu de cima do cruzamento
 
   // Para saber se a linha sumida e fim de beco. CHUTES: meca e corrija.
-  float velMmS = 250.0f;                 // velocidade real andando reto com velReto
-  float becoMm = 168.0f;                 // comprimento do beco depois do ultimo cruzamento (medido na imagem do mapa)
-  float toleranciaBecoPct = 0.4f;        // quanto o tempo de andar o beco pode variar e ainda contar como beco
+  float velMmS = 160.0f;                 // velocidade real andando reto com velReto (medida no simulador e no carro: ~160 mm/s; o robo a recalibra pela distancia entre cruzamentos)
+  float becoMm = kBecoMm;                // comprimento do beco depois do ultimo cruzamento (medido na imagem do mapa)
+  float toleranciaBecoMm = 50.0f;        // quanto a distancia andada ate a linha sumir pode variar e ainda contar como beco (erro de odometria/velocidade, nao proporcional ao beco)
 };
 
 struct MemoriaCruzamento {
@@ -64,14 +65,15 @@ namespace seguidor {
 // cruzamento) ou perdida de verdade. O fim de beco e evidencia de borda para a localizacao.
 enum class Perda { Nenhuma, Lacuna, FimDeBeco, Perdida };
 
-inline Perda classificarPerda(unsigned long perdidoHaMs, unsigned long desdeCruzamentoMs, unsigned long lacunaMs, const AjustesCruzamento& aj) {
+// `andadoMm` = quanto o carro ANDOU (so enquanto avancava: sem paradas e giros) desde que saiu do cruzamento. A linha sumiu ha `perdidoHaMs`, entao sumiu em andadoMm - perdidoHa x vel;
+// no fim de um beco isso e ~becoMm (a barra fica a frente do eixo, que para antes do centro: os dois erros quase se cancelam). Medir por DISTANCIA andada e nao pelo tempo desde o
+// cruzamento: esse tempo inclui a parada e o giro de 90 graus, que variam muito mais que o beco.
+inline Perda classificarPerda(unsigned long perdidoHaMs, float andadoMm, unsigned long lacunaMs, const AjustesCruzamento& aj) {
   if (perdidoHaMs == 0) return Perda::Nenhuma;
   if (perdidoHaMs < lacunaMs) return Perda::Lacuna;
-  if (desdeCruzamentoMs < perdidoHaMs) return Perda::Perdida;
-  const float becoMs = aj.becoMm / aj.velMmS * 1000.0f;
-  const float quandoSumiu = static_cast<float>(desdeCruzamentoMs - perdidoHaMs);   // tempo andado desde o cruzamento ate a linha sumir
-  const float erro = quandoSumiu > becoMs ? quandoSumiu - becoMs : becoMs - quandoSumiu;
-  return erro <= becoMs * aj.toleranciaBecoPct ? Perda::FimDeBeco : Perda::Perdida;
+  const float quandoSumiuMm = andadoMm - static_cast<float>(perdidoHaMs) / 1000.0f * aj.velMmS;
+  const float erro = quandoSumiuMm > aj.becoMm ? quandoSumiuMm - aj.becoMm : aj.becoMm - quandoSumiuMm;
+  return erro <= aj.toleranciaBecoMm ? Perda::FimDeBeco : Perda::Perdida;
 }
 
 }  // namespace seguidor

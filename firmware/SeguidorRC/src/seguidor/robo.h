@@ -65,7 +65,7 @@ struct ConfigRobo {
   double tauMs = 50.0;        // atraso de primeira ordem das rodas (o giro ainda anda isto depois do comando de parar)
   bool encoder = false;       // STS3215: odometria das rodas, malha fechada no servo
   bool autoCalBitola = false;     // cada giro na linha corrige a bitola efetiva (o meio da faixa tem ~5% de vies: piora o caso ja calibrado)
-  double gestoGraus = 45.0;       // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado (0 = varredura de 90, < 0 = passa direto)
+  double gestoGraus = 45.0;       // modo encoder: no cruzamento esperado (odometro ~kPasso, pose segura) so da uma rodadinha deste angulo para UM lado (0 = varredura de 90, < 0 = passa direto)
   Ajustes ajustes;
   AjustesCruzamento cruzamento;   // velMmS e o resto do que a logica supoe do carro (no carro e no simulador: perfil_carro.h)
 };
@@ -121,7 +121,7 @@ struct Navegador {
   // Depois de cada reset o robo se ALINHA com uma rua pela referencia vermelha (sabe a linha de verdade): no portao a coluna e 0 e a linha e a escolhida, sem precisar achar a
   // borda vermelha para descobrir. E mede + varre os 5 primeiros cruzamentos em linha reta (calibracao): velocidade, rumo e as ruas dessa linha entram na memoria.
   void aoPortao() {
-    // coluna 0; a linha: se entrou alinhado com uma rua conhecida (volta do ecoponto: as linhas ficam a 400 mm, entao um erro de dezenas de mm ainda escolhe a certa) ja sabe; senao
+    // coluna 0; a linha: se entrou alinhado com uma rua conhecida (volta do ecoponto: as linhas ficam a kPasso (300 mm), entao um erro de dezenas de mm ainda escolhe a certa) ja sabe; senao
     // descobre indo ate a linha vermelha de um dos lados e contando os cruzamentos que viu
     if (linhaEntrada >= 0 && linhaEntrada < core::kMapRows) core::onOwnBlueAtRow(loc, linhaEntrada, 0.9f);
     else {
@@ -254,7 +254,7 @@ struct Navegador {
     if (!ancorando) ancorarBloq = 0;
     if (!carregando && !rowSure) {
       // Depois de um reset ele nao sabe a linha: vai ate a linha VERMELHA de um dos lados (a mais perto da linha de entrada) CONTANDO os cruzamentos que viu; ao chegar, o localizador
-      // sabe a linha (cruzamentos contados + vermelho) e a velocidade sai de cada trecho de 400 mm. Nao varre: so anda reto.
+      // sabe a linha (cruzamentos contados + vermelho) e a velocidade sai de cada trecho de kPasso. Nao varre: so anda reto.
       const int qAtual = ((static_cast<int>(lroundf(rumoGraus / 90.0f)) % 4) + 4) % 4;   // 0 = leste, 1 = norte, 2 = oeste, 3 = sul
       int qAlvo = (qAtual == 1 || qAtual == 3) ? qAtual : 1;                             // segue na vertical em que ja esta; se estava na horizontal, sobe
       // Cubos nos dois sentidos da coluna (sobe e desce voltavam ao mesmo cruzamento para sempre): anda UMA coluna para o leste e tenta a vertical de la.
@@ -421,7 +421,7 @@ struct Robo {
   float ecoLembradoMm = -1.0f, ecoLembradoAndadoMm = 0.0f;   // ultimo eco de cubo perto (tratarCubo) e quanto da rua ja tinha andado quando o viu
   bool precisaAlinhar = false, velRetaMedida = false, inicioFeito = false;   // acabou de ser reposicionado no verde
   unsigned long semReacaoAte = 0;
-  // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao 400 mm.
+  // Calibracao da velocidade pela DISTANCIA entre cruzamentos: o carro sem encoder nao sabe quanto andou; mas de um cruzamento ao proximo em linha reta sao kPasso (300 mm).
   unsigned long tSaidaMs = 0;
   float odoCruz(const Carro& c) const { return cfg.encoder ? static_cast<float>(c.odoMm()) : -1.0f; }   // odometro para o debounce do cruzamento (sem encoder: so o tempo)
   double minMovMm() const { return cfg.encoder ? 4.0 : 20.0; }   // menor deslocamento que vale a pena andar para corrigir o y (sem encoder a partida come ~20 mm)
@@ -588,7 +588,7 @@ struct Robo {
           // Em frente ate sair da faixa azul E achar a rua (algum sensor preto sem azul sob o TCS), no maximo ~1,3 s: se a entrada errou uns 40 mm de y a rua nao esta sob a barra, e
           // a busca achava a faixa azul ATRAS (a mais perto) e a seguia como rua.
           const unsigned long t0 = c.agoraMs();
-          andarMm(c, 400.0, [&] {
+          andarMm(c, kPasso, [&] {
             const unsigned long dt = c.agoraMs() - t0;
             bool pp[kSensores];
             lerBarra(c, pp);
@@ -610,13 +610,13 @@ struct Robo {
     ROBO_DBG("    PARADA[andado %.0f restante0 %.0f pularProx %d th %.0f] t=%.1fs pos (%.0f,%.0f) cor=%d acao=%d portaoPend=%d inGreen=%d\n", andadoDesdeSaida(c, c.agoraMs()), trechoRestante0, (int)nav.pularProximo, c.estado().th * 57.3, c.agoraMs() / 1000.0, c.estado().x, c.estado().y, static_cast<int>(corAgora), static_cast<int>(acao), portaoPendente, nav.loc.inGreen);
     // Com o odometro, uma faixa de cruzamento a mais de 150 mm do ponto onde o proximo DEVIA estar nao e a chegada: e o cruzamento de onde saiu (o carro recuou ou balancou por cima
     // dele, por exemplo ao pegar um cubo logo na saida da curva). Contar como chegada avancava a pose uma rua sem o carro sair do lugar e dai em diante tudo ficava deslocado.
-    // Chegada CEDO = limite do tabuleiro (mapa oficial): entre dois cruzamentos sao 400 mm, mas a borda (vermelha em cima/embaixo, azul dos lados) fica a so ~168 mm do ultimo cruzamento. Uma faixa
-    // que fecha a barra depois de ~168 mm numa rua de 400 mm e a borda, qualquer que seja a cor lida (o branco sombreado ja foi lido como vermelho e como amarelo). A cor so diz QUAL borda quando a
+    // Chegada CEDO = limite do tabuleiro (mapa oficial): entre dois cruzamentos sao kPasso (300 mm), mas a borda (vermelha em cima/embaixo, azul dos lados) fica a so kBeco (127 mm) do ultimo cruzamento. Uma faixa
+    // que fecha a barra depois de ~kBeco numa rua de kPasso e a borda, qualquer que seja a cor lida (o branco sombreado ja foi lido como vermelho e como amarelo). A cor so diz QUAL borda quando a
     // distancia nao decide; o eixo da pose diz (andando em +c a borda e a azul do outro lado, senao a vermelha). Abaixo de ~108 mm e o cruzamento de onde saiu (tratado logo abaixo).
     CorLinha corBorda = corAgora;
-    if (cfg.encoder && nav.ativo && !nav.loc.inGreen && !nav.loc.atGate && !portaoPendente && !indoParaOeste() && acao == AcaoCruzamento::Cruzamento && trechoRestante0 >= 300.0) {
+    if (cfg.encoder && nav.ativo && !nav.loc.inGreen && !nav.loc.atGate && !portaoPendente && !indoParaOeste() && acao == AcaoCruzamento::Cruzamento && trechoRestante0 >= kPasso - 50.0) {
       const double andadoAteAqui = andadoDesdeSaida(c, c.agoraMs());
-      if (andadoAteAqui >= kBeco - 60.0 && andadoAteAqui < trechoRestante0 - 150.0) {
+      if (andadoAteAqui >= kBeco - 60.0 && andadoAteAqui < kBeco + 60.0) {
         corBorda = core::estimate(nav.loc).pose.dc > 0 ? CorLinha::Azul : CorLinha::Vermelho;
         acao = acaoNaPonta(corBorda, nav.carregando, false);
         c.evento(fmt("chegou CEDO (%.0f mm de %.0f): limite do tabuleiro", andadoAteAqui, trechoRestante0));
@@ -648,8 +648,8 @@ struct Robo {
       tUltimoCruzamento = c.agoraMs();
       return;
     }
-    // Chegou a um cruzamento depois de sair do ANTERIOR em linha reta (sem virar): a distancia e de 400 mm (o eixo para sempre no mesmo ponto antes do centro), entao
-    // 400 mm / tempo andando = velocidade REAL. Media movel; vira a velocidade usada para tempos de perda de linha, fim de beco e deslocamentos fora da cidade.
+    // Chegou a um cruzamento depois de sair do ANTERIOR em linha reta (sem virar): a distancia e kPasso (300 mm) (o eixo para sempre no mesmo ponto antes do centro), entao
+    // kPasso / tempo andando = velocidade REAL. Media movel; vira a velocidade usada para tempos de perda de linha, fim de beco e deslocamentos fora da cidade.
     if (medindoVel && !cfg.encoder && tSaidaMs != 0 && !nav.loc.inGreen) {   // com encoder a velocidade e lida das rodas: nao precisa medir por tempo entre cruzamentos
       const float dtS = static_cast<float>(c.agoraMs() - tSaidaMs) / 1000.0f;
       const float v = static_cast<float>(kPasso) / dtS;
@@ -668,7 +668,7 @@ struct Robo {
     const double th0 = c.estado().th;   // angulo verdadeiro medido a partir de como chegou
     const float rumo0 = rumo;
     // Girar 90 graus no cruzamento VARRE o corpo do carro (~130 mm de raio) por cima das ruas do lado, e um cubo a 112-140 mm do centro seria atingido. Com a pose SEGURA e o
-    // cruzamento ESPERADO (andou ~400 mm desde o anterior) nao se gira: S1+S8 e a cor bastam. As ruas do lado entram na memoria pelo eco ao longe e ao passar. Varre so
+    // cruzamento ESPERADO (andou ~kPasso desde o anterior) nao se gira: S1+S8 e a cor bastam. As ruas do lado entram na memoria pelo eco ao longe e ao passar. Varre so
     // perdido, em duvida, quando o cruzamento nao era esperado, e na calibracao pos-reset.
     bool pularVarredura = false;
     int soLadoMedir = 0;   // +1 = so a esquerda, -1 = so a direita, 0 = os dois
@@ -695,7 +695,7 @@ struct Robo {
         }
       }
     }
-    // ANCORAR (linha desconhecida, indo reto pela coluna ate a moldura vermelha): a coluna e conhecida e o cruzamento chegou a ~400 mm do anterior, entao e o proximo no da coluna, nao uma
+    // ANCORAR (linha desconhecida, indo reto pela coluna ate a moldura vermelha): a coluna e conhecida e o cruzamento chegou a ~kPasso do anterior, entao e o proximo no da coluna, nao uma
     // falsa faixa; o giro de varredura (~4 s por no) so olha as ruas laterais, e na entrada o que importa e chegar a moldura. Passa direto, como com a pose segura.
     if (!pularVarredura && ancorarSemVarrer && nav.ativo && nav.ancorando && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo && !nav.loc.atGate) {
       const core::Estimate es = core::estimate(nav.loc);
@@ -770,7 +770,7 @@ struct Robo {
         if (saindo) portaoPendente = true;   // vai sair pelo nosso portao de proposito: a azul nao e borda
         c.evento(fmt("plano: %s | seguir '%c' (pose %s, coluna %.0f%%, linha %.0f%%)", nav.ultimoPlano.c_str(), a, nav.loc.inGreen ? "no verde" : fmt("(%d,%d)", core::estimate(nav.loc).pose.at.c, core::estimate(nav.loc).pose.at.r).c_str(), nav.loc.inGreen ? 0.0 : 100.0 * core::columnMass(nav.loc, core::estimate(nav.loc).pose.at.c), nav.loc.inGreen ? 0.0 : 100.0 * core::rowMass(nav.loc, core::estimate(nav.loc).pose.at.r)));
       }
-      medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a 400 mm
+      medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a kPasso
       {
         Fatia giroF(*this, c, Fase::Vira);
         if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
@@ -1617,7 +1617,7 @@ struct Robo {
     if (memoria.perdeuEm) ticksPerdido++;
     if (estaBuscando(memoria, agora, ajustes)) ticksBuscando++;
     if (!fimDeBecoAvisado && tUltimoCruzamento &&
-        classificarPerda(perdidoHa, agora - tUltimoCruzamento, ajustes.lacunaMs, ajC) == Perda::FimDeBeco) {
+        classificarPerda(perdidoHa, andadoRuaMm, ajustes.lacunaMs, ajC) == Perda::FimDeBeco) {
       fimDeBecoAvisado = true;
       fimDeBeco = true;
     }

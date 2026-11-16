@@ -759,8 +759,8 @@ struct Cena {
     a.nome = "nos"; b.nome = "oponente";
     a.pista = b.pista = &pista;
     a.mundo.seed = 4242;
-    a.carro = std::make_unique<Carro>(pista, Estado{-270.0 + a.mundo.rnd() * 230.0, 60.0 + a.mundo.rnd() * (kAlt - 120.0), 0.0});   // posicao aleatoria do verde, olhando para as ruas
-    b.carro = std::make_unique<Carro>(pista, Estado{-270.0 + a.mundo.rnd() * 230.0, 60.0 + a.mundo.rnd() * (kAlt - 120.0), 0.0});   // o outro: no referencial dele tambem
+    a.carro = std::make_unique<Carro>(pista, Estado{kPartidaX0 + a.mundo.rnd() * kPartidaDX, 60.0 + a.mundo.rnd() * (kAlt - 120.0), 0.0});   // posicao aleatoria do verde, olhando para as ruas
+    b.carro = std::make_unique<Carro>(pista, Estado{kPartidaX0 + a.mundo.rnd() * kPartidaDX, 60.0 + a.mundo.rnd() * (kAlt - 120.0), 0.0});   // o outro: no referencial dele tambem
     a.fw = std::make_unique<Firmware>();
     configurarMissao(a.mundo, *a.fw, *a.carro, ncubos, false, ruido);
     if (!dois) { vivoMundo.assign(a.mundo.cubos.size(), 1); a.iniciar(); return; }
@@ -811,7 +811,7 @@ struct Cena {
   }
 
   void reiniciarNoVerde(Agente& g, const char* motivo, int penalidade = 10) {
-    g.carro->colocarEm({-270.0 + g.mundo.rnd() * 230.0, 60.0 + g.mundo.rnd() * (kAlt - 120.0), 0.0});   // posicao ALEATORIA do verde, olhando para as ruas
+    g.carro->colocarEm({kPartidaX0 + g.mundo.rnd() * kPartidaDX, 60.0 + g.mundo.rnd() * (kAlt - 120.0), 0.0});   // posicao ALEATORIA do verde, olhando para as ruas
     g.carro->parar();
     g.fw->nav.reposicionado();
     g.fw->precisaAlinhar = true;
@@ -1020,12 +1020,12 @@ static Resultado cenarioBorda(int cor, bool cubo) {
 
 
 // ---- O tabuleiro inteiro (docs/2026-10-28_mapa-comparacao-e-localizacao.md): 6 colunas x 5 linhas de cruzamentos a 400 mm, becos de 127 mm ate a borda,
-// linha azul nos lados (x = 0 e kLarg), vermelha em cima e embaixo (y = 0 e kAlt) e em volta, verde (371 mm) e amarelo (291 mm) nas pontas, cubos nos quarteiroes.
+// linha azul nos lados (x = 0 e kLarg), vermelha em cima e embaixo (y = 0 e kAlt) e em volta, verde (280 mm) e amarelo (220 mm) nas pontas, cubos nos quarteiroes.
 
 static Pista tabuleiro() {
   Pista p;
-  p.decor.push_back({-662, 0, -371, kAlt, 1});             // amarelo (ecoponto)
-  p.decor.push_back({-371, 0, 0, kAlt, 0});                // verde
+  p.decor.push_back({kEcopontoBordaX - kEcopontoLarg, 0, kEcopontoBordaX, kAlt, 1});             // amarelo (ecoponto)
+  p.decor.push_back({kEcopontoBordaX, 0, 0, kAlt, 0});                // verde
   p.decor.push_back({kLarg, 0, kLarg + 371, kAlt, 0});
   p.decor.push_back({kLarg + 371, 0, kLarg + 662, kAlt, 1});
   for (int c = 0; c < 5; c++)
@@ -1180,7 +1180,7 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   Mundo m;
   gSemente = semente;
   m.rnd();   // (o mundo e semeado por configurarMissao; aqui so sorteia a partida)
-  Carro c(p, {-270.0 + 230.0 * ((semente * 37 % 100) / 100.0), 60.0 + (kAlt - 120.0) * ((semente * 61 % 100) / 100.0), 0.0});   // posicao ALEATORIA do verde (deterministica pela semente), de frente para a cidade: a partida real e depois de cada reposicionamento
+  Carro c(p, {kPartidaX0 + kPartidaDX * ((semente * 37 % 100) / 100.0), 60.0 + (kAlt - 120.0) * ((semente * 61 % 100) / 100.0), 0.0});   // posicao ALEATORIA do verde (deterministica pela semente), de frente para a cidade: a partida real e depois de cada reposicionamento
   Firmware fw;
   configurarMissao(m, fw, c, 0, false, false);
   fw.nav.verdade = &m;
@@ -1196,7 +1196,7 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
     fw.passo(c);
     if (fw.esperandoAjuda) {   // o humano pega o carro parado e apitando e o poe no verde, num ponto aleatorio, depois de 8 s
       if (!pedidoEm) pedidoEm = c.agoraMs();
-      else if (c.agoraMs() - pedidoEm > 8000) { c.colocarEm({-270.0 + m.rnd() * 230.0, 60.0 + m.rnd() * (kAlt - 120.0), 0.0}); pedidoEm = 0; ajudas++; }
+      else if (c.agoraMs() - pedidoEm > 8000) { c.colocarEm({kPartidaX0 + m.rnd() * kPartidaDX, 60.0 + m.rnd() * (kAlt - 120.0), 0.0}); pedidoEm = 0; ajudas++; }
     }
     while (static_cast<int>(entregas.size()) < fw.nav.entregues) entregas.push_back(c.agoraMs() / 1000.0);
   }
@@ -1621,7 +1621,7 @@ static int servir(int porta) {
       if (ac == "soltar") {   // SEMPRE em posicao aleatoria do verde, olhando para as ruas (o rumo volta a 0)
         Estado e = s.carro->estado();
         e.th = s.frenteGraus * M_PI / 180.0;
-        if (s.cena) { e.x = -270.0 + s.mundo->rnd() * 230.0; e.y = 60.0 + s.mundo->rnd() * (kAlt - 120.0); e.th = 0.0; s.fw->rumo = 0.0f; s.fw->nav.reposicionado(); s.fw->precisaAlinhar = true; s.fw->portaoPendente = true; s.fw->memoria = Memoria{}; s.fw->cruz = MemoriaCruzamento{}; s.mundo->carga0 = s.mundo->carga1 = 0; }
+        if (s.cena) { e.x = kPartidaX0 + s.mundo->rnd() * kPartidaDX; e.y = 60.0 + s.mundo->rnd() * (kAlt - 120.0); e.th = 0.0; s.fw->rumo = 0.0f; s.fw->nav.reposicionado(); s.fw->precisaAlinhar = true; s.fw->portaoPendente = true; s.fw->memoria = Memoria{}; s.fw->cruz = MemoriaCruzamento{}; s.mundo->carga0 = s.mundo->carga1 = 0; }
         s.carro->colocarEm(e);
       }   // SEMPRE de frente
       else if (ac == "ruido" && s.mundo) { s.mundo->ruidoLigado = valor(q, "on") == "1"; s.mundo->evento(s.carro->agoraMs(), s.mundo->ruidoLigado ? "RUIDO LIGADO: manchas, patinagem e atraso de sensores aleatorios (cada evento e avisado aqui)" : "ruido desligado"); }

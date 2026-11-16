@@ -10,7 +10,7 @@ int main() {
   assert(ruaTemCubo(100.0f) && ruaTemCubo(200.0f) && !ruaTemCubo(327.0f) && !ruaTemCubo(500.0f) && !ruaTemCubo(-1.0f) && !ruaTemCubo(0.0f));   // 327 mm = cubo da rua DEPOIS da esquina
   // o eco diz EM QUAL rua da linha reta esta o cubo (ate ~3 ruas a frente)
   assert(ruaDoEco(60.0f, 0.0f) == 0);                      // cubo na rua logo a frente
-  // Os numeros saem do passo da rua (kPassoMm, 400 mm): o cubo da rua k fica de kCuboMinMm a kCuboMaxMm depois do cruzamento k, e o eco = distancia ate ele menos a ponta do sensor.
+  // Os numeros saem do passo da rua (kPassoMm, 300 mm): o cubo da rua k fica de kCuboMinMm a kCuboMaxMm depois do cruzamento k, e o eco = distancia ate ele menos a ponta do sensor.
   const float ecoRua1 = kPassoMm + 150.0f - kPontaMaisMeioCuboMenosEixoMm, ecoRua2 = 2 * kPassoMm + 150.0f - kPontaMaisMeioCuboMenosEixoMm;
   assert(ruaDoEco(ecoRua1, 0.0f) == 1 && ruaDoEco(ecoRua1 + 30.0f, 0.0f) == 1);   // alem do proximo cruzamento: a rua seguinte
   assert(ruaDoEco(ecoRua2, 0.0f) == 2 && ruaDoEco(ecoRua2 - 30.0f, 0.0f) == 2);   // duas ruas a frente
@@ -18,7 +18,7 @@ int main() {
   assert(ruaDoEco(250.0f, 0.0f) == -1);                    // perto do cruzamento: ambiguo, nao e cubo de rua
   assert(ruaDoEco(-1.0f, 0.0f) == -1);
   assert(ruaDoEco(ecoRua1 - 150.0f, 150.0f) == 1);         // andando: a mesma rua 150 mm depois, o eco e 150 mm menor
-  assert(ultimaRuaVistaVazia(0.0f, 900.0f) == 1);          // sem eco ate 900 mm: as ruas 0 e 1 (que cabem inteiras no alcance) estao vazias
+  assert(ultimaRuaVistaVazia(0.0f, 900.0f) == 2);          // sem eco ate 900 mm: as ruas 0, 1 e 2 (que cabem inteiras no alcance, passo de 300 mm) estao vazias
   assert(ultimaRuaVistaVazia(0.0f, 150.0f) == -1 || ultimaRuaVistaVazia(0.0f, 150.0f) == 0);
   assert(primeiraRuaAindaAFrente(0.0f) == 0 && primeiraRuaAindaAFrente(250.0f) >= 1);
   // cubo parado: andando 100 mm/s para ele, em 500 ms a distancia cai 50 mm
