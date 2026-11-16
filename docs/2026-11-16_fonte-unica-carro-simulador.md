@@ -204,3 +204,7 @@ do meio da barra, que na entrada pelo beco e justamente a coluna 0 (rua cruzando
 cruzamento nunca era confirmado: o carro passava a coluna 0, contava a coluna 1 como a primeira, e a pose ficava 1 coluna (e depois 1,5 passo de y nas plataformas)
 errada pelo resto da partida (ecos "de certeza vazia" errados, leitura de plataforma em y inexistente, ate sair da arena). Agora, se a barra termina a travessia
 com as 2 pontas pretas, o detector e zerado e o cruzamento vale (`zerarSaindoNoFim`). Sementes ruins (13,22,38,58): 4 -> 14; sementes 0-4: 22 -> 22; testes ok.
+
+Entrada no meio do quarteirao (semente 14), tentativa descartada: sondar 70 mm adiante apos o 1o contato (linha adiante = no; sem linha = meio do quarteirao,
+engolido) e voltar. A semente 14 voltou a 6/6 e 30/36 tambem, mas o total de 20 sementes caiu para 79 (101 sem a sonda, 94 sem o `zerarSaindoNoFim`):
+a sonda erra a classificacao em outras entradas (y perto da borda, rua a 40-60 mm). Revertida; `zerarSaindoNoFim` (101) fica. A entrada no meio do quarteirao segue sem tratamento proprio.
