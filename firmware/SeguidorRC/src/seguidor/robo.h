@@ -362,6 +362,7 @@ struct Robo {
   bool esperandoAjuda = false;
   int pedidosDeAjuda = 0, marcoMetas = 0;
   unsigned long ultimaMetaMs = 0;
+  bool tentarLados = true;
   bool portaoSoMeio = true;
   bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
   bool ancorarSemRepetir = true;
@@ -1096,6 +1097,18 @@ struct Robo {
         yAtual = yt;
         nav.yOlhados.push_back(yt);
         vista = olharSlotOeste(c, true);
+        // O eco parado ja viu plataforma por aqui, mas a posicao dele (e a conta de distancia) erra ate ~70 mm: antes de dar a marca por vazia, tenta 55 mm para cada lado.
+        bool ecoAqui = false;
+        for (const double o : nav.platPresentes) if (fabs(o - yt) < 80.0) ecoAqui = true;
+        if (vista == seguidor::CorCubo::Nenhuma && ecoAqui && tentarLados) {
+          for (const double passoLado : {-55.0, 110.0}) {
+            girarPara(c, passoLado > 0 ? 90.0 : -90.0);
+            andarMm(c, fabs(passoLado), [] { return false; });
+            yAtual += passoLado;
+            vista = olharSlotOeste(c, true);
+            if (vista != seguidor::CorCubo::Nenhuma) break;
+          }
+        }
         deFrente = vista != seguidor::CorCubo::Nenhuma;
       }
       if (vista != seguidor::CorCubo::Nenhuma) {

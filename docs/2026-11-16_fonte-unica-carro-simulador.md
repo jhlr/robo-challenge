@@ -182,3 +182,10 @@ Causa: a travessia do portao terminava com preto em S3..S6; com a entrada 22 mm 
 lia "linha 2 sensores a esquerda" e girava no eixo (a barra, a 15 mm do eixo, nao leva a linha ao centro girando) ate 65 graus, depois
 "chegou CEDO". Agora a travessia so acaba com preto nos 2 sensores do centro (S4/S5), ou 1,3 s, e segue reto ate a rua (ou o 1o cruzamento).
 Sementes ruins (2,8,10,12,18,19): 15 -> 21; sementes 0-4: 20 -> 23; testes ok.
+
+### Semente 8: plataformas existentes lidas como "vazia"
+
+A semente 8 so entregava 2 de 6 mas nao estava parada: os 3 cubos seguintes eram de cores COM plataforma (azul/amarela/preta, slots entre as marcas), e a busca
+dava "vazia" em y=1147/1391/611 (reais 1098/1358/578): o eco parado erra +20..+50 mm no y (bordas cortadas na varredura) e a conta de distancia soma ~20 mm, entao
+o carro lia a 50-70 mm do centro e nao via a plataforma. Agora, se o eco ja tinha visto plataforma a menos de 80 mm da marca, antes de dar "vazia" tenta 55 mm para
+cada lado (`tentarLados`). Sementes ruins (7,8,13,22,30,38): 10 -> 13 (semente 8: 2 -> 5); sementes 0-4: 23 -> 23; testes ok.
