@@ -572,6 +572,7 @@ struct Robo {
       portoes++;
       portaoPendente = false;
       semReacaoAte = c.agoraMs() + 1500;   // ainda esta em cima da faixa azul do portao: nao e para reagir
+      rumo -= remainderf(rumo, 90.0f);   // o portao fica NO EIXO de uma rua (barra centrada nela): o rumo e multiplo de 90. O rumo dos encoders chegou a errar 32 graus no trecho curto cruzamento->portao (beco de kBecoMm, menos que kRetoParaReancorarMm)
       c.evento(fmt("PORTAO azul em (%.0f,%.0f) rumo %.0f%s", c.estado().x, c.estado().y, rumo, nav.carregando ? " saindo com cubo" : ""));
       esquecerCor(memCor);
       esquecerUltimoComando(memoria);
@@ -767,7 +768,7 @@ struct Robo {
           const int rc = static_cast<int>(lround((rx - kBeco) / kPasso)), rr = static_cast<int>(lround((ry - kBeco) / kPasso));
           const core::Estimate es = core::estimate(nav.loc);
           const int th90 = static_cast<int>(lround(paradaEm.th * 2.0 / M_PI)) & 3, thEst = es.pose.dc == 1 ? 0 : es.pose.dr == 1 ? 1 : es.pose.dc == -1 ? 2 : 3;
-          fprintf(stderr, "    POSE t=%.0fs estimada (%d,%d) rumo %d | real (%d,%d) rumo %d %s\n", c.agoraMs() / 1000.0, es.pose.at.c, es.pose.at.r, thEst, rc, rr, th90, (rc == es.pose.at.c && rr == es.pose.at.r && th90 == thEst) ? "" : "<<< ERRADA");
+          fprintf(stderr, "    POSE t=%.0fs desvio de rumo %+.0f graus; estimada (%d,%d) rumo %d | real (%d,%d) rumo %d %s\n", c.agoraMs() / 1000.0, std::remainder(paradaEm.th * 57.29578, 90.0), es.pose.at.c, es.pose.at.r, thEst, rc, rr, th90, (rc == es.pose.at.c && rr == es.pose.at.r && th90 == thEst) ? "" : "<<< ERRADA");
         }
         if (saindo) portaoPendente = true;   // vai sair pelo nosso portao de proposito: a azul nao e borda
         c.evento(fmt("plano: %s | seguir '%c' (pose %s, coluna %.0f%%, linha %.0f%%)", nav.ultimoPlano.c_str(), a, nav.loc.inGreen ? "no verde" : fmt("(%d,%d)", core::estimate(nav.loc).pose.at.c, core::estimate(nav.loc).pose.at.r).c_str(), nav.loc.inGreen ? 0.0 : 100.0 * core::columnMass(nav.loc, core::estimate(nav.loc).pose.at.c), nav.loc.inGreen ? 0.0 : 100.0 * core::rowMass(nav.loc, core::estimate(nav.loc).pose.at.r)));
@@ -1226,6 +1227,7 @@ struct Robo {
     const bool sabeLinha = core::rowMass(nav.loc, esPortao.pose.at.r) >= core::kMinCoordBelief && core::inMap(esPortao.pose.at.c, esPortao.pose.at.r);
     const double yPortao = yDoCruzamento(esPortao.pose.at.r);
     double yAtual = yPortao;
+    bool yMedido = false;   // true so depois de medir o y numa plataforma (yPeloGiro) e sem andar mais nada sem medir: senao o y da volta e so conta de passos (erra ate uma rua inteira)
     if ((!velRetaMedida && !cfg.encoder) || !sabeLinha) {   // com encoder nao precisa subir ate a moldura para medir a velocidade
       girarPara(c, 90.0);
       const unsigned long tSubida0 = c.agoraMs();
@@ -1253,6 +1255,7 @@ struct Robo {
       girarPara(c, kAlt / 2.0 > yAtual ? 90.0 : -90.0);
       andarMm(c, fabs(kAlt / 2.0 - yAtual), [] { return false; });
       yAtual = kAlt / 2.0;
+      ROBO_DBG("    MEIO: y estimado %.0f, y real %.0f (th real %.0f)\n", yAtual, c.estado().y, c.estado().th * 57.3);
     }
     if (falta && !nav.mapeado && !nav.plataformasObservadas) mapearDeLonge(c, yAtual);
     if (nav.observando) {   // viagem so de olhar: le as cores de todas as plataformas (procurarPlataforma sem cor-alvo olha todas) e fixa o que se pode coletar
@@ -1270,6 +1273,7 @@ struct Robo {
         if (c.plataformaNaFrente(70.0) != seguidor::CorCubo::Nenhuma) { rumo = static_cast<float>(180.0 + 360.0 * lround((rumo - 180.0) / 360.0)); yAtual = yPeloGiro(c, yRef); }
         else yAtual = std::nan("");
       } else yAtual = std::nan("");
+      yMedido = !std::isnan(yAtual);
       girarPara(c, 0.0);                // de costas para a plataforma: volta para o verde
       andarMm(c, 120.0, [] { return false; });
       girarPara(c, 180.0);
@@ -1280,7 +1284,7 @@ struct Robo {
       const Plataforma* pl = nullptr;
       for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) { plLocal.y = pv.first; pl = &plLocal; }   // so onde VIU a plataforma no inicio
       if (!pl && !nav.plataformasObservadas && procurarPlataforma(c, cor, yAtual)) for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) { plLocal.y = pv.first; pl = &plLocal; }
-      if (!pl) { nav.pontos -= 10; nav.perdidos++; c.evento("cubo sem plataforma da cor: perdido"); continue; }
+      if (!pl) { nav.pontos -= 10; nav.perdidos++; yMedido = false; c.evento("cubo sem plataforma da cor: perdido"); continue; }
       nav.alvoX = pl->x; nav.alvoY = pl->y;
       // 3) vai ate a altura ESPERADA da plataforma (os slots sao retangulos fixos na arena; a cor e que muda), 4) vira para o oeste e olha; como a conta de distancia por tempo
       //    erra algumas dezenas de mm e a plataforma tem so 50 mm de altura, 5) varre para cima e para baixo de 60 em 60 mm ate ver a plataforma da cor do cubo.
@@ -1317,11 +1321,13 @@ struct Robo {
         c.evento(fmt("ENTREGOU cubo na plataforma da cor %d (+100, total %d pontos)", static_cast<int>(cor), nav.pontos));
         const unsigned long tAchou = c.agoraMs();
         if (cfg.encoder) yAtual = yPeloGiro(c, pl->y);   // reentra pelo y medido, nao pelo y 'vi a plataforma'
+        yMedido = true;
         ROBO_DBG("    TEMPO-ENTREGA ate o y %.1f s, achar a plataforma %.1f s, yPeloGiro %.1f s (inicio %.0f s)\n", (tChegouY - tIni) / 1000.0, (tAchou - tChegouY) / 1000.0, (c.agoraMs() - tAchou) / 1000.0, tIni / 1000.0);
 
       } else {
         nav.pontos -= 10;
         nav.perdidos++;
+        yMedido = false;   // nao confirmou a plataforma: o y pode estar errado por uma rua inteira
         c.evento(vista == cor ? fmt("plataforma certa (cor %d) mas nao largou o cubo: cubo perdido (-10)", static_cast<int>(cor))
                               : fmt("plataforma ERRADA (vi cor %d, o cubo e cor %d): cubo perdido (-10)", static_cast<int>(vista), static_cast<int>(cor)));
       }
@@ -1335,7 +1341,7 @@ struct Robo {
     c.limparCarga();
     // 6) volta de frente para a cidade: alinha com uma rua a partir do y da plataforma
     c.limparCarga();
-    entrarNaCidade(c, yAtual);   // a velocidade reta foi medida entre as molduras e o y vem da plataforma que acabou de ver: nao precisa subir ate o vermelho de novo
+    entrarNaCidade(c, yMedido ? yAtual : std::nan(""));   // sem y medido reentra contando os cruzamentos ate o vermelho (como na partida). A velocidade reta foi medida entre as molduras e o y vem da plataforma que acabou de ver: nao precisa subir ate o vermelho de novo
     nav.alvoX = nav.alvoY = -1;
     nav.entregando = false;
   }
