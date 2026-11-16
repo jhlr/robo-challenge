@@ -327,7 +327,17 @@ class Carro {
     return c;
   }
   // Ultrassom a frente: distancia (mm) ate o alvo mais proximo dentro do cone (cubos vivos r = 25, oponente r = 95), ou -1.
+  // O HC-SR04 do carro real: uma leitura nova a cada kPeriodoSonarMs (30 ms, carro_real.h); entre elas devolve a ultima. Sem isso o firmware simulado tinha ~5x mais leituras por passagem.
   double us() {
+    if (!mundo_ || !mundo_->cfg.us) return -1.0;
+    const double agora = static_cast<double>(agoraMs());
+    if (usCacheValido_ && agora - usCacheMs_ < kPeriodoSonarSimMs) return usCache_;
+    usCache_ = usReal();
+    usCacheMs_ = agora;
+    usCacheValido_ = true;
+    return usCache_;
+  }
+  double usReal() {
     if (!mundo_ || !mundo_->cfg.us) return -1.0;
     if (usFalsoAte_ > t_) return usFalsoMm_;   // eco falso ou perda de eco (ruido)
     const Mundo& m = *mundo_;
@@ -507,6 +517,9 @@ class Carro {
   unsigned long presoAte_[8] = {};
   int presoValor_[8] = {};
   unsigned long usFalsoAte_ = 0;
+  static constexpr double kPeriodoSonarSimMs = 30.0;   // = kPeriodoSonarMs do carro real
+  double usCache_ = -1.0, usCacheMs_ = 0.0;
+  bool usCacheValido_ = false;
   int atrasoTicks_ = 0;
   uint8_t ring_[32] = {};
   int ringI_ = 0, ringN_ = 0;
