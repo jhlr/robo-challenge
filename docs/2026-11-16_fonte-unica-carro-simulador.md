@@ -160,3 +160,8 @@ perde a linha, gira no eixo (120 graus, ~8 s de busca no lugar) e fica 50 mm for
 (3 bordas, 150 s) ate pedir ajuda. Dos 5 outros starts ruins, so a 14 tem isso (chegar de lado numa rua no meio do quarteirao).
 Proximo passo: descobrir por que a faixa preta de lado nao vira cruzamento (cruzamentoConfirmado / tratarCubo / parada de eco em x~150).
 Depuracao: BELIEF agora mostra direcao e massa de linha/coluna.
+
+Causa achada (semente 14): em ANCORAR `trechoRestante0 = -1` desligava a guarda "faixa do cruzamento de onde saiu", e o mesmo cruzamento era
+contado duas vezes (PARADA com andado 5 mm), deslocando o localizador em uma linha. Agora, ancorando, um stop a menos de 60 mm do ultimo
+cruzamento nao e chegada (`ancorarSemRepetir`). Com 108 mm (o minimo teorico antes da borda) pegava tambem o 1o cruzamento depois do portao
+(~130 mm) e piorava as sementes 0-4 (21 -> 17); com 60 mm ficam 21. Sementes ruins (1,8,19,22,29,30): 10 -> 12; semente 14: 3 -> 4.
