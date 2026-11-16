@@ -35,3 +35,19 @@ Data: 2026-11-16. Estado de partida: `19acdfb` (17/20 completas, media 460 s). S
 3. Passo 3 (mudanca minima), 20 sementes.
 4. Passo 4.3 so se o 4.2 nao bastar.
 Cada passo: um commit, doc com numeros, medicao com binario recompilado (`g++ -std=c++17 -O2 -Isrc -I../src -I../include -pthread test/simulador.cpp src/seguidor/decisao.cpp`).
+
+## Resultado do passo 3 (medido)
+
+Verdade do simulador por bloqueio (semente 4, instrumentacao em copia descartavel, repo intocado):
+- 18 bloqueios por cubo sem plataforma: rua percorrida VAZIA e geometria COM cubo em 12; ambas com cubo em 2; so a percorrida com cubo em 1; geometria vazia em 3 bloqueios "outro robo" (ambas vazias).
+
+Experimentos (20 sementes, 18 cubos):
+| variante | completas | media completas |
+|---|---|---|
+| base 19acdfb / 87b2d8e | 17/20 | 460 s |
+| geometria em todo bloqueio | 15/20 | 544 s |
+| geometria so no bloqueio por cubo (outro robo: percorrida) | 15/20 | 544 s (identico) |
+
+Leitura: o acerto de 12 de 18 na semente 4 nao se traduz no conjunto. Sementes 2, 6 e 11 caem para 2-3 entregas. O resultado identico nas duas variantes mostra que o regresso vem do bloqueio por cubo na geometria. Hipotese nao testada: zerar a crenca da rua geometrica (cubo real) faz o planejador deixar de ir la, e o cubo nao e entregue; a rua percorrida zerada era vazia de qualquer forma.
+
+Decisao: revertido (repo em 87b2d8e). Passo 3 com geometria NAO entra. Proximo: testar so a parte de bloqueio sem zerar a crenca (bloq = true, crenca intacta) antes de descartar a geometria.
