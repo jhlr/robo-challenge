@@ -430,6 +430,8 @@ struct Robo {
   double andadoDesdeSaida(const Carro& c, unsigned long agora) const {
     return cfg.encoder ? c.odoMm() - odoSaida : (agora - tSaidaMs) / 1000.0 * (velLivreMmS > 0 ? velLivreMmS : ajC.velMmS);
   }
+  int ecosNaoCuboSeguidos = 0;   // leituras seguidas de eco perto que NAO era cubo (para nao esperar para sempre diante de uma parede ou moldura)
+  static constexpr int kMaxEcosNaoCubo = 4;
   float andadoRuaMm = 0.0f;   // quanto ANDOU (velocidade x tempo so enquanto avanca, sem as paradas e giros) desde que saiu do cruzamento para a rua atual
   double trechoRestante0 = -1.0;   // quanto faltava para o proximo cruzamento ao sair (mm); -1 = nao sei (meia-volta no meio da rua)
   bool medindoVel = false;
@@ -1427,8 +1429,18 @@ struct Robo {
         ultimoUsMs = 0; usAnt = -1.0f;
         return true;
       }
-      ecoLembradoMm = -1.0f; ecoRealinhado = false; esperaAte = agora + 500; return true;   // eco que nao e cubo
+      ecoLembradoMm = -1.0f; ecoRealinhado = false;
+      if (++ecosNaoCuboSeguidos > kMaxEcosNaoCubo) {   // o mesmo eco perto sem cubo (parede, moldura, o outro robo, cor ilegivel) por ~2 s: esperar mais nao muda nada, trata como rua bloqueada e busca outra rota
+        ecosNaoCuboSeguidos = 0;
+        nav.aoBloquearTemporario();
+        trechoRestante0 = -1.0;
+        c.evento(fmt("eco a %.0f mm que nao e cubo (cor %d) por %d leituras: rua bloqueada por enquanto, volta e busca outra rota", d, static_cast<int>(cor), kMaxEcosNaoCubo));
+        voltarDoCubo(c);
+        return true;
+      }
+      esperaAte = agora + 500; return true;   // eco que nao e cubo
     }   // eco que nao e cubo (outro robo parado?) ou cor ilegivel: espera e tenta de novo
+    ecosNaoCuboSeguidos = 0;   // chegou um cubo de verdade: recomeca a conta
     if (cheio) {   // cubo no caminho de quem ja esta carregando: para, lembra dele (para pegar depois da entrega) e volta por outro caminho
       nav.aoBloquearTemporario();
       trechoRestante0 = -1.0;
