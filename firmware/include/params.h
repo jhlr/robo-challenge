@@ -57,8 +57,8 @@ constexpr float kAxleToSensorMm = 15.0f;  // QRE8D ahead of the wheel axle, meas
 
 // QRE8D polarity: set true if a channel reads HIGH over the black line.
 constexpr bool kLineIsHigh = false;
-// Sensors the bar cannot read (bit i = S(i+1)): S7/S8 sit on the input-only GPIO35/34 and an RC bar needs an output-capable pin to charge its capacitor. 0 once they move to GPIO13/4.
-constexpr uint8_t kLineDeadMask = 0b11000000;
+// Sensors the bar cannot read (bit i = S(i+1)). 0 since the bar moved to output-capable GPIOs (pins.h, 2026-11-16): an RC bar needs to drive the pin to charge its capacitor, which GPIO34-39 of a classic ESP32 cannot.
+constexpr uint8_t kLineDeadMask = 0;
 
 // ONE SOURCE for the robo car and its simulator (test/simulador.cpp reads these, not its own copies).
 constexpr float kLoopDtMs = 5.0f;          // one read + decide cycle

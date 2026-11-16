@@ -32,7 +32,7 @@ hal::Ultrasonic sonar;
 hal::ColorSensor corChao, corFrente;
 hal::Claw garra;
 uint8_t pinosBarra[seguidor::kSensores];
-// S7 e S8 estao em GPIO35 e GPIO34, so de entrada: o modo RC nao carrega o pino e eles leem 2500 us em qualquer chao (2026-11-09); ver pins.h e BarraRC::mortos.
+// Sensores da barra que nao leem (params::kLineDeadMask): hoje nenhum (a barra esta em GPIOs com saida desde 2026-11-16; ver pins.h e BarraRC::mortos).
 // Uma constante so para a barra (copia o vizinho) e para a decisao (nao conta a copia como leitura).
 constexpr uint8_t kBarraMortos = params::kLineDeadMask;
 
