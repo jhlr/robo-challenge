@@ -173,7 +173,7 @@ struct Navegador {
       core::Node a, b;
       if (rua(k, &a, &b)) {
         if (ruaVaziaCerta(a, b)) oponenteVisto++;   // rua que ja era vazia de certeza: o eco so pode ser o outro robo
-        else { core::observeStreet(cubos, a, b, true, bm); ecosLongeVistos++; }
+        else { ROBO_DBG("    ECO-CUBO rua (%d,%d)-(%d,%d) usMm %.0f andado %.0f\n", a.c, a.r, b.c, b.r, usMm, andadoMm); core::observeStreet(cubos, a, b, true, bm); ecosLongeVistos++; }
       }
     } else if (comSemEco) {
       // Leitura DE LADO na varredura: o carro gira em torno do eixo, que fica ~38 mm fora da linha da rua do lado, e o cone do ultrassom e estreito (+-10 graus): um cubo no meio da rua
@@ -186,9 +186,11 @@ struct Navegador {
   int oponenteVisto = 0, esperasSeguidas = 0;
   std::vector<std::pair<core::Node, core::Node>> bloqueiosTemporarios;   // ruas com cubo que NAO da para pegar agora (carregando): voltam a valer depois da entrega
   bool desviar = false;   // acabou de voltar de um cubo no caminho: na proxima esquina vai por outra linha
-  void aoBloquearTemporario() {
+  // Rua bloqueada por algo que o carro parou para olhar. So marca CUBO na crenca quando a cor confirmou um cubo (`cuboConfirmado`): um eco que nao e cubo (marrom, parede,
+  // o outro robo) bloqueia a rota agora, mas nao pode virar alvo fantasma (antes marcava 1.0 e o planejador ia la sempre: 67% dos alvos na semente 7).
+  void aoBloquearTemporario(bool cuboConfirmado) {
     desviar = true;
-    if (ruaValida()) core::setStreet(cubos, ruaDe, ruaPara, 1.0f);   // sabe que tem cubo la (para pegar depois da entrega)
+    if (cuboConfirmado && ruaValida()) core::setStreet(cubos, ruaDe, ruaPara, 1.0f);   // sabe que tem cubo la (para pegar depois da entrega)
     if (ruaValida()) { core::streetSlot(bloq, ruaDe, ruaPara) = true; bloqueiosTemporarios.push_back({ruaDe, ruaPara}); }
     ROBO_DBG("    BLOQ-TEMP rua (%d,%d)-(%d,%d) valida=%d pose (%d,%d)\n", ruaDe.c, ruaDe.r, ruaPara.c, ruaPara.r, (int)ruaValida(), core::estimate(loc).pose.at.c, core::estimate(loc).pose.at.r);
     core::onTurn(loc, 2);
@@ -1462,7 +1464,7 @@ struct Robo {
       ecoLembradoMm = -1.0f; ecoRealinhado = false;
       if (++ecosNaoCuboSeguidos > kMaxEcosNaoCubo) {   // o mesmo eco perto sem cubo (parede, moldura, o outro robo, cor ilegivel) por ~2 s: esperar mais nao muda nada, trata como rua bloqueada e busca outra rota
         ecosNaoCuboSeguidos = 0;
-        nav.aoBloquearTemporario();
+        nav.aoBloquearTemporario(false);   // eco sem cubo (marrom, parede, outro robo): bloqueia a rota, nao marca cubo
         trechoRestante0 = -1.0;
         c.evento(fmt("eco a %.0f mm que nao e cubo (cor %d) por %d leituras: rua bloqueada por enquanto, volta e busca outra rota", d, static_cast<int>(cor), kMaxEcosNaoCubo));
         voltarDoCubo(c);
@@ -1472,7 +1474,7 @@ struct Robo {
     }   // eco que nao e cubo (outro robo parado?) ou cor ilegivel: espera e tenta de novo
     ecosNaoCuboSeguidos = 0;   // chegou um cubo de verdade: recomeca a conta
     if (cheio) {   // cubo no caminho de quem ja esta carregando: para, lembra dele (para pegar depois da entrega) e volta por outro caminho
-      nav.aoBloquearTemporario();
+      nav.aoBloquearTemporario(true);
       trechoRestante0 = -1.0;
       c.evento(fmt("cubo cor %d no caminho de quem ja carrega: nao passa por cima, lembra dele e volta por outra rua", static_cast<int>(cor)));
       voltarDoCubo(c);
@@ -1480,7 +1482,7 @@ struct Robo {
     }
     if (podeColetar(cor, nav.coleta)) {
       if (!c.coletar(idx)) {   // nao conseguiu pegar: o cubo continua la, como cubo no caminho (lembra dele e volta por outra rua, sem ficar tentando para sempre)
-        nav.aoBloquearTemporario();
+        nav.aoBloquearTemporario(true);
         trechoRestante0 = -1.0;
         c.evento(fmt("nao conseguiu pegar o cubo cor %d: lembra dele e volta por outra rua", static_cast<int>(cor)));
         voltarDoCubo(c);

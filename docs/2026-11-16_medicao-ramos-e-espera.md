@@ -67,3 +67,14 @@ Semente 7 (`--coleta 6`), 61 alvos escolhidos:
 - Conclusao: a crenca de cubos mantem ruas ocupadas que nao tem cubo. A fonte mais provavel e a atribuicao de eco lateral (varredura/`observarRaio` com `deLado`) ou o eco de marrom, nao o eixo da rua.
 - Ainda NAO separado: quanto do fantasma vem de marrom (cor 7 no TCS, eco lateral) e quanto de atribuicao de rua errada. Proximo passo do diagnostico: contar, para cada alvo fantasma, a origem da crenca (eco de cubo, eco de marrom, eco lateral).
 Consequencia para o plano: a etapa 2 (limpar crenca fantasma) passa a ser prioridade, e tem que tratar o marrom como caso explicito (o TCS le cor 7, nao cubo).
+
+## Etapa 2: crenca fantasma (semente 7)
+Escritores da crenca de cubo (`cubos`):
+- `observarRaio` com eco longe (`ECO-CUBO`): 90 eventos; quase todos em ruas com cubo real. Nao e a fonte dos fantasmas.
+- `aoBloquearTemporario` (`setStreet 1.0`): ERA a fonte de um caminho errado. Chamado tambem quando um eco repetido NAO era cubo (4 leituras sem cor de cubo: marrom, parede, outro robo). Marcava a rua como cubo sem confirmacao.
+
+Correcao (sem mudar o caso de cubo confirmado): `aoBloquearTemporario(bool cuboConfirmado)`. O eco sem cubo bloqueia a ROTA, mas nao marca cubo. Os tres sitios de chamada passaram o flag: eco sem cubo = false; cubo no caminho e falha ao coletar = true.
+
+Resultado: 114/120 contra 115 (semente 2: 5 -> 4; demais iguais). Neutro nos numeros, mas removeu um escritor de cubo falso.
+
+Fantasma que sobra (semente 7): rua (2,0)-(3,0) com 14 alvos e rua (0,0)-(1,0) com 6. Nao vem de eco longe nem de eco sem cubo. A hipotese: cubo confirmado pela cor no cruzamento (2,0) atribuido a rua por onde o carro passava, quando o cubo real esta na rua perpendicular (2,0)-(2,1). Proximo passo (etapa 2b): registrar, para cada escritor com cubo confirmado, a rua atribuida contra a rua real do cubo mais proximo.
