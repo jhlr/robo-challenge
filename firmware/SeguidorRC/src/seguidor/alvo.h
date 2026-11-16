@@ -24,8 +24,6 @@ struct AjustesAlvo {
 // eixo, o cubo tem 25 de meia largura e fica de 112 a 190 depois do cruzamento onde a rua comeca. `s` = distancia do CENTRO do cruzamento de onde a rua 0 comeca ate o centro do cubo.
 // Passo das ruas (medido pelo usuario em 2026-11-16: 30 cm entre cruzamentos; linha de 2 cm) e beco depois do ultimo cruzamento (127 mm medidos na imagem do mapa a ~300 mm): dono unico.
 constexpr float kPassoMm = 300.0f, kBecoMm = 127.0f, kCuboMinMm = 112.0f, kCuboMaxMm = 190.0f, kPontaMaisMeioCuboMenosEixoMm = 100.0f + 25.0f - 38.0f;
-// Eco de cubo so conta ate a rua seguinte (kPassoMm + kBecoMm): mais longe o cubo e indistinguivel de marrom/outro objeto e nao e evidencia de cubo (o TCS so le cor a ~5 cm).
-constexpr float kEcoCuboAteMm = kPassoMm + kBecoMm;
 
 // Em qual rua da linha reta a frente (0 = a primeira, que sai do cruzamento de partida) esta o cubo que deu este eco? `andadoMm` = quanto o eixo ja andou desde a parada no cruzamento
 // (0 na varredura, parado). -1 se o eco cai perto de um cruzamento (ambiguo: nao e cubo de rua).

@@ -172,8 +172,7 @@ struct Navegador {
       core::Node a, b;
       if (rua(k, &a, &b)) {
         if (ruaVaziaCerta(a, b)) oponenteVisto++;   // rua que ja era vazia de certeza: o eco so pode ser o outro robo
-        else if (usMm <= seguidor::kEcoCuboAteMm) { ROBO_DBG("    ECO-CUBO rua (%d,%d)-(%d,%d) usMm %.0f andado %.0f\n", a.c, a.r, b.c, b.r, usMm, andadoMm); core::observeStreet(cubos, a, b, true, bm); ecosLongeVistos++; }
-        else { ROBO_DBG("    ECO-LONGE-SEM-CUBO rua (%d,%d)-(%d,%d) usMm %.0f andado %.0f\n", a.c, a.r, b.c, b.r, usMm, andadoMm); }   // eco alem da rua seguinte: nao e cubo
+        else { ROBO_DBG("    ECO-CUBO rua (%d,%d)-(%d,%d) usMm %.0f andado %.0f\n", a.c, a.r, b.c, b.r, usMm, andadoMm); core::observeStreet(cubos, a, b, true, bm); ecosLongeVistos++; }   // suspeita de cubo: o carro vai la e so a cor na frente confirma (ou apaga)
       }
     } else if (comSemEco) {
       // Leitura DE LADO na varredura: o carro gira em torno do eixo, que fica ~38 mm fora da linha da rua do lado, e o cone do ultrassom e estreito (+-10 graus): um cubo no meio da rua
@@ -1470,6 +1469,8 @@ struct Robo {
         ultimoUsMs = 0; usAnt = -1.0f;
         return true;
       }
+      // Sem cubo na frente: a rua que o eco indicou nao tem cubo (o carro chegou la e viu). Apaga a suspeita.
+      { core::Node ca{}, cb{}; if (nav.ruaDoCuboVisto(static_cast<float>(d), static_cast<float>(andadoDesdeSaida(c, c.agoraMs())), &ca, &cb)) core::observeStreet(nav.cubos, ca, cb, false, nav.bm); }
       ecoLembradoMm = -1.0f; ecoRealinhado = false;
       if (++ecosNaoCuboSeguidos > kMaxEcosNaoCubo) {   // o mesmo eco perto sem cubo (parede, moldura, o outro robo, cor ilegivel) por ~2 s: esperar mais nao muda nada, trata como rua bloqueada e busca outra rota
         ecosNaoCuboSeguidos = 0;
