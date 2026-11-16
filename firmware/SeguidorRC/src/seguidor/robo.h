@@ -372,6 +372,7 @@ struct Robo {
   bool tentarLados = true;
   bool portaoAteAzulAcabar = true;   // a travessia do portao so termina quando o TCS deixou o azul (antes: branco numa ponta + qualquer preto da propria faixa ja bastava)
   bool zerarSaindoNoFim = true;
+  bool ancorarSemVarrer = true;
   bool portaoSoMeio = true;
   bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
   bool ancorarSemRepetir = true;
@@ -690,6 +691,13 @@ struct Robo {
           else if (esq != dir) soLadoMedir = esq ? 1 : -1;
         }
       }
+    }
+    // ANCORAR (linha desconhecida, indo reto pela coluna ate a moldura vermelha): a coluna e conhecida e o cruzamento chegou a ~400 mm do anterior, entao e o proximo no da coluna, nao uma
+    // falsa faixa; o giro de varredura (~4 s por no) so olha as ruas laterais, e na entrada o que importa e chegar a moldura. Passa direto, como com a pose segura.
+    if (!pularVarredura && ancorarSemVarrer && nav.ativo && nav.ancorando && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo && !nav.loc.atGate) {
+      const core::Estimate es = core::estimate(nav.loc);
+      const double andado = andadoDesdeSaida(c, c.agoraMs());
+      if (core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && fabs(andado - kPasso) < 40.0) { pularVarredura = true; gesto = false; }
     }
     float estimado = 0.0f;   // angulo girado pelos encoders desde o inicio da varredura
     if (pularVarredura) {

@@ -221,3 +221,8 @@ uniforme; se a borda vermelha vem antes de qualquer no contado, a meia-volta nao
 Resultado em 20 partidas aleatorias: pose errada no instante "linha segura" 1 -> 0; tempo medio 29,5 s -> 34,7 s (a semente 15 pega um cubo no caminho e leva 108 s; as outras
 ~31 s); entregas em 20 sementes 101 -> 99 (ruido). Tentativa anterior descartada: sonda de 70 mm adiante (79 entregas).
 Pendente na entrada: ~30 s ate a linha segura (anda ate a moldura vermelha); da para encurtar escolhendo a moldura mais perto.
+
+Entrada, 2a medida: em ANCORAR (linha desconhecida, indo reto pela coluna 0 ate a moldura) cada no gastava ~4 s no giro de varredura so para olhar as ruas laterais. Agora, com a coluna
+conhecida e o cruzamento a ~400 mm do anterior (+-40), passa direto (`ancorarSemVarrer`; param do simulador `ancsemvarrer=0` volta ao antigo). Entrada em 20 partidas aleatorias: linha segura
+em 29,0 s em media (antes 34,7; tipicos 41 s -> 25 s), pose errada 0 de 20; entregas em 20 sementes 99 -> 98 (ruido). Uma moldura mais perto nao da para escolher: o carro nao sabe o y de partida
+e o ultrassom nao ve a fita vermelha.
