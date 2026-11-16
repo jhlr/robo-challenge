@@ -14,7 +14,6 @@
 #include "params.h"
 #include "hal/sensors.h"
 #include "hal/shoulder.h"
-#include "params.h"
 #include "pins.h"
 
 namespace robo {

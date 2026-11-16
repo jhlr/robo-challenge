@@ -126,7 +126,6 @@ int main() {
       if (c.esq == -aj.velCorrecaoForte && c.dir == aj.velCorrecaoForte) giro++;
       else if (c.esq == static_cast<int>(aj.velReto * aj.fatorAvancoCorrecao) && c.dir == c.esq) avanco++;
       else assert(false);
-      assert(!c.estranho || true);
     }
     assert(avanco > 0 && giro > 0);                       // so a ponta enxerga a linha: girar no lugar nao a traz (fora do alcance da barra), entao avanca boa parte do ciclo
     assert(std::fabs(static_cast<float>(giro) / aj.periodoCorrecaoMs - aj.fracaoGiroPonta) < 0.05f);

@@ -18,7 +18,6 @@ struct AjustesAlvo {
   float ruaMm = 230.0f;
   float ecoMovelToleranciaMm = 25.0f;   // diferenca entre a variacao esperada (parado) e a medida que ja conta como alvo que se mexe
   float cuboParaDePertoMm = 60.0f;      // distancia em que o robo para e olha a cor do cubo
-  float velMinimaMmS = 20.0f;           // abaixo disto o robo conta como parado
 };
 
 inline bool ruaTemCubo(float usMm, const AjustesAlvo& aj = {}) { return usMm > 0.0f && usMm < aj.ruaMm; }

@@ -19,7 +19,7 @@ int main() {
   assert(ruaDoEco(-1.0f, 0.0f) == -1);
   assert(ruaDoEco(ecoRua1 - 150.0f, 150.0f) == 1);         // andando: a mesma rua 150 mm depois, o eco e 150 mm menor
   assert(ultimaRuaVistaVazia(0.0f, 900.0f) == 2);          // sem eco ate 900 mm: as ruas 0, 1 e 2 (que cabem inteiras no alcance, passo de 300 mm) estao vazias
-  assert(ultimaRuaVistaVazia(0.0f, 150.0f) == -1 || ultimaRuaVistaVazia(0.0f, 150.0f) == 0);
+  assert(ultimaRuaVistaVazia(0.0f, 150.0f) == 0);
   assert(primeiraRuaAindaAFrente(0.0f) == 0 && primeiraRuaAindaAFrente(250.0f) >= 1);
   // cubo parado: andando 100 mm/s para ele, em 500 ms a distancia cai 50 mm
   assert(!ecoMovel(300.0f, 250.0f, 500.0f, 100.0f));

@@ -3,7 +3,6 @@
 // Input v[i] in 0..1, 1 = sensor sees the line. Index 0 is leftmost.
 namespace core {
 
-constexpr int kMaxSensors = 8;
 
 struct LineState {
   float pos;       // -1 (line far left) .. +1 (line far right)
