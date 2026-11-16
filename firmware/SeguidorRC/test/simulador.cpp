@@ -1184,6 +1184,32 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   return entregas;
 }
 
+// Antes do primeiro cubo o carro vai ao ecoponto ver as plataformas (so se pega cor com plataforma): ao fim da observacao `coletavel` so tem as cores vistas, e nenhum cubo foi coletado antes.
+static Resultado cenarioObservaPlataformas() {
+  using seguidor::CorCubo;
+  Pista p = tabuleiro();
+  Mundo m;
+  Carro c(p, {-140, yDoCruzamento(2), 0.0});
+  Firmware fw;
+  gSemente = 0;
+  configurarMissao(m, fw, c, 0, false, false);
+  fw.nav.verdade = &m;
+  const CorCubo cores[4] = {CorCubo::Azul, CorCubo::Vermelho, CorCubo::Amarelo, CorCubo::Preto};
+  std::vector<CorCubo> lista;
+  for (int i = 0; i < 6; i++) lista.push_back(cores[i % 4]);
+  m.semearCubos(6, lista);
+  int coletadosAoObservar = -1;
+  while (c.agoraMs() < 300000 && !fw.nav.plataformasObservadas) fw.passo(c);
+  if (fw.nav.plataformasObservadas) coletadosAoObservar = fw.nav.coletados;
+  int cores_ok = 0, vistas = static_cast<int>(fw.nav.plataformasVistas.size());
+  for (const auto& pv : fw.nav.plataformasVistas) cores_ok += fw.nav.coleta.coletavel[static_cast<int>(pv.second)] ? 1 : 0;
+  int coletaveis = 0;
+  for (int i = 0; i < seguidor::kNumCoresCubo; i++) coletaveis += fw.nav.coleta.coletavel[i] ? 1 : 0;
+  const bool ok = fw.nav.plataformasObservadas && coletadosAoObservar == 0 && vistas > 0 && cores_ok == vistas && coletaveis <= vistas;
+  return {"observa as plataformas antes do primeiro cubo", ok,
+          fmt("%s em %.0f s | plataformas vistas %d, cores coletaveis %d, cubos coletados antes %d", fw.nav.plataformasObservadas ? "observou" : "NAO observou", c.agoraMs() / 1000.0, vistas, coletaveis, coletadosAoObservar)};
+}
+
 // Dois robos IGUAIS na mesma arena (regras): cada um com o mesmo firmware; colisao leva -10 e volta ao ponto de partida (regras 7.1). Roda ate os dois terem entregue `meta`
 // cubos (ou o teto de seguranca).
 static Resultado cenarioDuasEquipes(bool ruido, int meta) {
@@ -1800,6 +1826,7 @@ int main(int argc, char** argv) {
   rs.push_back(cenarioAtravessa());
   rs.push_back(cenarioVermelhoDeLado());
   rs.push_back(cenarioTabuleiro());
+  rs.push_back(cenarioObservaPlataformas());
   rs.push_back(cenarioMissao(false, 2));
   rs.back().informativo = true;   // a localizacao ainda deriva depois de colisoes e curvas nao verificadas (veja o README): mostra, nao derruba
   rs.push_back(cenarioMissao(true, 2));

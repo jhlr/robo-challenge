@@ -85,6 +85,8 @@ struct Navegador {
   std::vector<size_t> identificados;       // cubos brancos/sem plataforma ja sinalizados (so pontua uma vez por cubo)
   std::vector<std::pair<double, seguidor::CorCubo>> plataformasVistas;   // o que OBSERVOU no ecoponto no inicio: (y do slot, cor); so entrega onde viu
   bool plataformasObservadas = false;
+  bool observando = false;      // viagem ao ecoponto SEM cubo para ver as plataformas antes de coletar (so uma vez): usa o fluxo de entrega, com a carga vazia
+  bool tentouObservar = false;
   double alvoX = -1, alvoY = -1;           // para onde esta indo (para mostrar a trajetoria)
   std::string log;
   core::Node ruaDe{0, 0}, ruaPara{0, 0};   // a rua por onde anda: do ultimo cruzamento ao proximo
@@ -104,6 +106,7 @@ struct Navegador {
   // Reiniciado pelo juiz (levantado e posto no verde) ou verde inesperado: a pose some, o mapa de cubos FICA, o cubo na garra volta ao juiz.
   void reposicionado() {
     core::initInGreen(loc);
+    if (observando) { observando = false; carregando = false; }   // o juiz levou o carro de volta: a viagem de observar perdeu o sentido (tentouObservar fica: nao repete)
     naRua = false; pularProximo = false; entregando = false;
     if (carregando) { cuboPerdidoNaReposicao += static_cast<int>(carga.size()); pontos -= 10 * static_cast<int>(carga.size()); perdidos += static_cast<int>(carga.size()); }   // cubo na garra: o juiz o devolve ao lugar, conta como perdido
     carga.clear();
@@ -247,6 +250,9 @@ struct Navegador {
       ruaUsada = core::inMap(ruaPara.c, ruaPara.r);
       return dq == 0 ? 'S' : dq == 1 ? 'L' : dq == 3 ? 'R' : 'U';
     }
+    // Antes do PRIMEIRO cubo, com a linha ja conhecida: vai ao ecoponto ver quais cores tem plataforma (so se pega cor com plataforma: coletar uma sem destino custa ~85 s de busca e -10).
+    // Reusa a entrega (anda para o oeste, sai pelo portao): a diferenca e a carga vazia, e `entregarNaPlataforma` so observa.
+    if (!carregando && !tentouObservar && !plataformasObservadas && colSure && rowSure) { tentouObservar = true; observando = true; carregando = true; }
     // Capacidade 2 (regras): com 1 cubo so continua coletando se ha cubo provavel; com 2 vai entregar. Entregar e obrigatorio antes de coletar de novo.
     core::Plan plano = core::planAtCrossing(loc, cubos, core::kMinCoordBelief, &visitas, &bloq);
     if (carregando) {
@@ -339,6 +345,8 @@ struct Robo {
     }
     return t;
   }
+  static constexpr double kMaxVerdeSemLinhaMm = 700.0;
+  double semLinhaNoVerdeMm = -1.0;   // odometro quando comecou a andar no verde sem ver linha (-1 = nao esta nisso)
   const char* ultimaAcao = "";   // o que a decisao mandou no ultimo ciclo (telemetria e rastro do simulador)
   bool ultimaBarra[kSensores] = {};
   MemoriaCruzamento cruz;
@@ -1155,6 +1163,26 @@ struct Robo {
     bool falta = false;
     for (const seguidor::CorCubo cor : nav.carga) { bool sabe = false; for (const auto& pv : nav.plataformasVistas) if (pv.second == cor) sabe = true; if (!sabe) falta = true; }
     if (falta && !nav.mapeado && !nav.plataformasObservadas) mapearDeLonge(c, yAtual);
+    if (nav.observando) {   // viagem so de olhar: le as cores de todas as plataformas (procurarPlataforma sem cor-alvo olha todas) e fixa o que se pode coletar
+      if (!nav.mapeado && !nav.plataformasObservadas) mapearDeLonge(c, yAtual);
+      if (!nav.plataformasObservadas) procurarPlataforma(c, seguidor::CorCubo::Nenhuma, yAtual);
+      c.evento(fmt("PLATAFORMAS vistas no inicio: %zu, coletaveis atualizados", nav.plataformasVistas.size()));
+      // A varredura acumulou dezenas de mm de erro de y (a barra de 75 mm perde a rua se entrar assim). As plataformas ficam numa grade conhecida: volta de frente para a MAIS PERTO e
+      // mede o y por ela (yPeloGiro), como depois de uma entrega. Sem plataforma a vista, reentra sem y (como na partida).
+      double yRef = std::nan("");
+      for (const auto& pv : nav.plataformasVistas) if (std::isnan(yRef) || fabs(pv.first - yAtual) < fabs(yRef - yAtual)) yRef = pv.first;
+      if (!std::isnan(yRef)) {
+        if (fabs(yRef - yAtual) > minMovMm()) { girarPara(c, yRef > yAtual ? 90.0 : -90.0); andarMm(c, fabs(yRef - yAtual), [] { return false; }); }
+        girarPara(c, 180.0);
+        andarMm(c, 330.0, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma || c.piso() == kPisoVermelho; });
+        if (c.plataformaNaFrente(70.0) != seguidor::CorCubo::Nenhuma) { rumo = static_cast<float>(180.0 + 360.0 * lround((rumo - 180.0) / 360.0)); yAtual = yPeloGiro(c, yRef); }
+        else yAtual = std::nan("");
+      } else yAtual = std::nan("");
+      girarPara(c, 0.0);                // de costas para a plataforma: volta para o verde
+      andarMm(c, 120.0, [] { return false; });
+      girarPara(c, 180.0);
+      nav.observando = false;
+    }
     for (const seguidor::CorCubo cor : std::vector<seguidor::CorCubo>(nav.carga)) {
       Plataforma plLocal{kPlatX, 0.0, cor};
       const Plataforma* pl = nullptr;
@@ -1432,7 +1460,12 @@ struct Robo {
     }
     if (nav.ativo && nav.loc.inGreen && c.missao() && !inicioFeito) { inicioFeito = true; entrarNaCidade(c, NAN); return; }
     if (nav.ativo && nav.loc.inGreen && precisaAlinhar) { alinharNaRua(c); return; }
-    if (nav.ativo && nav.loc.inGreen && !(p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7])) {   // no verde: sem linha, anda reto para o portao
+    const bool semLinha = !(p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7]);
+    if (!(nav.ativo && nav.loc.inGreen && semLinha)) semLinhaNoVerdeMm = -1.0;
+    else if (semLinhaNoVerdeMm < 0.0) semLinhaNoVerdeMm = c.odoMm();
+    // O verde tem ~370 mm ate o portao: andar mais que kMaxVerdeSemLinhaMm sem ver NENHUMA linha e pose errada (o carro 'reposicionado' fora do nosso verde), nao verde. Sem este limite ele
+    // seguia reto para sempre (15 km em 8 min no simulador); passado o limite cai na busca normal.
+    if (nav.ativo && nav.loc.inGreen && semLinha && fabs(c.odoMm() - semLinhaNoVerdeMm) <= kMaxVerdeSemLinhaMm) {   // no verde: sem linha, anda reto para o portao
       Comando cmd{};
       cmd.parar = false;
       cmd.acao = "no verde: de frente para a cidade e reto ate o portao";

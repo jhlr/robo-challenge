@@ -24,6 +24,7 @@ namespace robo {
 constexpr float kAlcanceCorFrenteMm = 110.0f;   // o TCS da frente so vale quando o sonar ve algo mais perto que isto (senao ele leria o chao ou a parede ao fundo)
 constexpr uint32_t kSonarTimeoutUs = 8000;      // ~1,4 m: a varredura de plataformas olha ate ~900 mm; sem eco nao trava o ciclo por 25 ms
 constexpr unsigned long kPeriodoTcsMs = 30;     // o TCS integra em 24 ms: uma leitura nova a cada 30 ms (a leitura em si e rapida). Eram 60 ms: com o carro a ~230 mm/s a faixa azul do portao (~120 ms sob o sensor) dava uma so leitura e o portao nao era registrado
+constexpr unsigned long kPeriodoSonarMs = 30;   // intervalo minimo entre duas leituras reais do sonar em us() (o resto do tempo devolve a ultima)
 constexpr unsigned long kPeriodoMaoMs = 60;     // de quanto em quanto tempo a guarda da mao le o sonar (core/handguard.h)
 constexpr float kRecuoVel = 0.3f;               // fracao do comando das rodas no recuo
 
@@ -124,9 +125,15 @@ class CarroReal {
   double odoEMm() const { return odoE_; }
   double odoDMm() const { return odoD_; }
   double odoMm() const { return (odoE_ + odoD_) / 2.0; }
-  double us() {   // mm ate o que esta a frente, ou -1
+  double us() {   // mm ate o que esta a frente, ou -1. A logica chama a cada ciclo (5 ms) na varredura do cruzamento, mas cada leitura bloqueia ate kSonarTimeoutUs (8 ms sem eco) e o
+                  // HC-SR04 nao tem leitura nova util em menos de ~30 ms: entre duas leituras devolve a ultima (a 99 graus/s, 30 ms sao 3 graus).
+    const unsigned long agora = millis();
+    if (usValido_ && agora - ultimoUsMs_ < kPeriodoSonarMs) return ultimoUs_;
     const uint16_t mm = sonar_.readMm(kSonarTimeoutUs);
-    return mm == 0xFFFF ? -1.0 : mm;
+    ultimoUs_ = mm == 0xFFFF ? -1.0 : mm;
+    ultimoUsMs_ = millis();
+    usValido_ = true;
+    return ultimoUs_;
   }
   seguidor::Piso piso() {
     switch (corDoChao()) {
@@ -230,6 +237,9 @@ class CarroReal {
   seguidor::CorCubo corAlvo_ = seguidor::CorCubo::Nenhuma;   // cor do cubo que se esta largando
   float dtMs_;
   Print* saida_ = &Serial;
+  double ultimoUs_ = -1.0;
+  unsigned long ultimoUsMs_ = 0;
+  bool usValido_ = false;
   uint32_t cicloMaxUs_ = 0, cicloAtrasados_ = 0, cicloN_ = 0;
   uint64_t cicloSomaUs_ = 0;
   uint32_t ultimoCicloUs_ = 0;
