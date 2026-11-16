@@ -45,3 +45,23 @@ Conjunto de 40 casos (`--busca-lote`: 5 distancias da linha x 8 rumos). Antes: 1
 ## MPU removido (2026-11-16)
 O carro nao tem MPU: saiu todo o codigo dele (`inercial.h` com levantado/colisao/tracao/ancora na grade, `assimetria.h`, `calibracao.h`, a leitura do giroscopio em `robo.h`, o modelo de MPU do simulador e os cenarios so de MPU).
 O rumo vem sempre dos encoders; `segurarRumoNaLacuna` ficou em `segurar_rumo.h`. `Robo::ligarImu` sumiu: o rumo se inicia no primeiro `tick`. Antes ela tambem esticava `lacunaMs` para 450; agora vale o do `ajustesDoCarro()`.
+
+## Revisao de tempo e gargalos (2026-11-16, noite)
+Medido com o cronometro novo (`Robo::resumoFases`, `SIM_FASES=1 ... --coleta 6 3`; no carro, a linha `tempo:` da telemetria a cada 500 ms) e com `SIM_TRACE`/`SIM_TRACE2=ini-fim`.
+
+**1. A missao no simulador com a fisica do carro quase nao entrega.** `--coleta 6 5`: 0 a 1 cubo de 6 em 12 min (3 entregas em 5 sementes). No simulador antigo (254 mm/s, barra a 30 mm) o mesmo codigo entregava os 6 em ~550 s: parte da "velocidade" era do simulador. A 160 mm/s a rua de 400 mm custa 2,5 s e o piso do deslocamento fica ~12 s por 5 ruas; o resto e overhead.
+
+**2. Onde o tempo vai (por fase, sementes 0-2, antes dos ultimos ajustes):** borda 44-50% (laco de meia-volta no vermelho depois de errar a pose), cruzamento 51% numa semente, reto 23-40%, plataforma 4-11%. Cada cruzamento custa ~4 s (parar + TCS 3x + varredura de +-90 graus + virar) contra 2,5 s para andar a rua.
+
+**3. Causas achadas (todas no simulador, com o numero):**
+- Barra a 15 mm: o giro "fecha na linha" (`girarNaLinha`) nao funciona, a barra ainda cobre a rua de onde veio a 90 graus. `virarParaRua` agora gira pelos encoders (a grade e de multiplos de 90; o seguimento corrige o resto). Se a patinagem real for grande, a rua nova pode cair fora da barra: conferir na pista.
+- `virarParaRua` decidia "rua cruzada saiu da barra" por S1/S8 apagados; com S8 morto (copia o S6) a linha por onde veio mantinha S8 aceso e o carro andava 88 mm antes de girar. Agora usa padrao estreito (<= 3 acesos).
+- Depois de errar a pose (cubo perdido, `VERDE inesperado`, portao do outro lado) o carro anda ate sair da arena: 15 km em 8 min a 160 mm/s com a decisao dizendo "gira direita". Falta um limite global (odometro desde o ultimo cruzamento/borda vista > ~1,2 rua = perdido: parar e buscar).
+- A partida nao observa as plataformas antes de coletar: coleta um cubo de cor sem plataforma, gasta ~85 s procurando e o perde (-10). `entrarNaCidade` poderia chamar `mapearDeLonge` uma vez no verde (~20-30 s) antes do primeiro cubo.
+
+**4. Gargalos de tempo no laco do carro real (por leitura do codigo; agora medidos pela telemetria `tempo:`):**
+- `CarroReal::avancar`: por ciclo leitura RC da barra (ate ~2 ms com limiar adaptativo), 2 leituras de encoder STS e 2 escritas de velocidade STS (cada uma e uma transacao serial), mais `vigiar()` (BLE + OTA + comandos). Se a media passar de 5 ms o `dtMs` que a logica supoe nao e o real.
+- `Ultrasonic::readMm` usa `pulseIn` com timeout de 8 ms: bloqueia o ciclo ate 8 ms sem eco. Na varredura do cruzamento ele e chamado a CADA ciclo; o HC-SR04 nao da leitura util a menos de ~60 ms. Ler a 30-60 ms e interpolar.
+- `guardaDaMao` le o sonar a cada 60 ms quando a garra esta levantada (outros 8 ms bloqueados).
+- Parada no cruzamento: freada (~50 ms de tau) + 3 leituras do TCS paradas (90 ms) + varredura de 360 graus de giro a 99 graus/s (3,6 s). Sugestao: varrer so quando a pose nao e segura (ja e assim com `varrerSoQuandoPrecisa`) e usar o gesto de 45 graus (0,9 s) ou nenhum giro quando as duas ruas ja foram medidas.
+- Velocidade: reta a 110 PWM = 160 mm/s de um maximo de 174 (`kStsFullSpeedMmS`): so ha 8% de folga; ganhar tempo em reta so com roda maior ou relacao de engrenagem.

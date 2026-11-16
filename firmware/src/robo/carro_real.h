@@ -35,11 +35,25 @@ class CarroReal {
   // ---- tempo e ciclo: espera o proximo ciclo de dtMs, le a barra e as rodas
   unsigned long agoraMs() const { return millis(); }
   void avancar() {
+    const uint32_t trabalhoUs = micros() - ultimoCicloUs_;   // quanto o ciclo anterior gastou (leitura da barra, STS, BLE, sonar...) ANTES de esperar o proximo
+    cicloSomaUs_ += trabalhoUs;
+    cicloN_++;
+    if (trabalhoUs > cicloMaxUs_) cicloMaxUs_ = trabalhoUs;
+    if (static_cast<float>(trabalhoUs) > dtMs_ * 1000.0f) cicloAtrasados_++;   // estourou o ciclo: o tempo que a logica supoe (dtMs) nao e o real
     while (static_cast<float>(micros() - ultimoCicloUs_) < dtMs_ * 1000.0f) {}
     ultimoCicloUs_ = micros();
     seguidor::ler(barra_);
     odoE_ = drive_.leftMm();
     odoD_ = drive_.rightMm();
+  }
+
+  // Gargalo de tempo do laco: media e pior ciclo (us) e quantos estouraram dtMs desde a ultima chamada (zera ao ler). Se a media chega perto de dtMs, a barra a 5 ms nao se sustenta.
+  std::string cicloTexto() {
+    char t[110];
+    snprintf(t, sizeof t, "ciclo medio %lu us, pior %lu us, estouraram %lu de %lu (dt %.0f us)", static_cast<unsigned long>(cicloN_ ? cicloSomaUs_ / cicloN_ : 0), static_cast<unsigned long>(cicloMaxUs_),
+             static_cast<unsigned long>(cicloAtrasados_), static_cast<unsigned long>(cicloN_), dtMs_ * 1000.0f);
+    cicloSomaUs_ = cicloMaxUs_ = cicloAtrasados_ = cicloN_ = 0;
+    return t;
   }
 
   // ---- atuadores
@@ -216,6 +230,8 @@ class CarroReal {
   seguidor::CorCubo corAlvo_ = seguidor::CorCubo::Nenhuma;   // cor do cubo que se esta largando
   float dtMs_;
   Print* saida_ = &Serial;
+  uint32_t cicloMaxUs_ = 0, cicloAtrasados_ = 0, cicloN_ = 0;
+  uint64_t cicloSomaUs_ = 0;
   uint32_t ultimoCicloUs_ = 0;
   double odoE_ = 0.0, odoD_ = 0.0;
   int alvoE_ = 0, alvoD_ = 0;

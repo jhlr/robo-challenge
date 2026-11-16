@@ -316,6 +316,29 @@ struct Robo {
   AjustesCruzamento ajC = cfg.cruzamento;
   AjustesGiroCruzamento ajG;
   Memoria memoria;
+  // Para onde vai o tempo: cada ciclo (tick) e cobrado da fase em curso (exclusivo: o tempo de uma fase aninhada nao conta na de fora). Mede, nao decide.
+  enum class Fase : uint8_t { Seguir, Corrigir, Buscar, Cruzamento, Giro, Cubo, Plataforma, Entrada, Borda, kNum };
+  static constexpr const char* kNomesFase[static_cast<int>(Fase::kNum)] = {"reto", "corrige", "busca", "cruzamento", "giro-cruz", "cubo", "plataforma", "entrada", "borda"};
+  unsigned long msFase[static_cast<int>(Fase::kNum)] = {};
+  Fase fase = Fase::Seguir;
+  unsigned long marcaFase = 0;
+  void cobrar(unsigned long agora) { if (marcaFase) msFase[static_cast<int>(fase)] += agora - marcaFase; marcaFase = agora; }
+  struct Fatia {   // na entrada de uma rotina bloqueante: tudo o que ela gasta vai para `f`, e a fase de fora volta ao sair
+    Robo& r; Carro& c; Fase ant;
+    Fatia(Robo& r_, Carro& c_, Fase f) : r(r_), c(c_), ant(r_.fase) { r.cobrar(c.agoraMs()); r.fase = f; }
+    ~Fatia() { r.cobrar(c.agoraMs()); r.fase = ant; }
+  };
+  std::string resumoFases() const {
+    unsigned long total = 0;
+    for (const unsigned long ms : msFase) total += ms;
+    std::string t;
+    for (int k = 0; k < static_cast<int>(Fase::kNum); k++) {
+      char b[48];
+      snprintf(b, sizeof b, "%s%s %.0f%%", k ? " | " : "", kNomesFase[k], total ? 100.0 * msFase[k] / total : 0.0);
+      t += b;
+    }
+    return t;
+  }
   const char* ultimaAcao = "";   // o que a decisao mandou no ultimo ciclo (telemetria e rastro do simulador)
   bool ultimaBarra[kSensores] = {};
   MemoriaCruzamento cruz;
@@ -381,6 +404,7 @@ struct Robo {
   // Avanca um ciclo e atualiza o rumo pelos encoders (o primeiro ciclo so guarda os odometros de partida).
   void tick(Carro& c) {
     c.avancar();
+    cobrar(c.agoraMs());
     if (!rumoIniciado) { odoEAnt = c.odoEMm(); odoDAnt = c.odoDMm(); rumoIniciado = true; }
     const double dE = c.odoEMm() - odoEAnt, dD = c.odoDMm() - odoDAnt;
     odoEAnt = c.odoEMm(); odoDAnt = c.odoDMm();
@@ -488,6 +512,7 @@ struct Robo {
   }
 
   void pararNoCruzamento(Carro& c, bool preto[kSensores]) {
+    Fatia fatia(*this, c, Fase::Cruzamento);
     c.parar();
     paradaEm = c.estado();
     esquecerCor(memCor);
@@ -623,7 +648,7 @@ struct Robo {
       varr.resultado = Oito::Cruzamento;
       varr.fase = Varredura::Pronta;
       semVarreduras++;
-      if (gesto) { const float r0 = rumo; girarPara(c, r0 + lado * static_cast<float>(cfg.gestoGraus)); girarPara(c, r0); }   // rodadinha para o lado menos explorado e volta reto
+      if (gesto) { Fatia giroF(*this, c, Fase::Giro); const float r0 = rumo; girarPara(c, r0 + lado * static_cast<float>(cfg.gestoGraus)); girarPara(c, r0); }   // rodadinha para o lado menos explorado e volta reto
     } else {
       // Entregando (carregando, indo para o oeste) ele so precisa CONFIRMAR o cruzamento e se virar para a rua do oeste: gira uma vez, para o lado do oeste (uma rua ali ja e cruzamento).
       // Completa (os dois lados) quando precisa VER as ruas (ultrassom) ou escolher uma.
@@ -636,6 +661,7 @@ struct Robo {
       if (!soUmLado && soLadoMedir != 0) { soUmLado = true; ladoVarredura = soLadoMedir; }
       iniciarVarredura(varr, ladoVarredura, vinhaSeguindo, soUmLado);
       AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto), static_cast<float>(c.us())};
+      Fatia giroF(*this, c, Fase::Giro);   // a varredura gira nos dois lados: e tempo de giro, nao de parada
       for (int i = 0; i < 4000; i++) {   // 20 s no maximo
         const ComandoVarredura k = passoVarredura(varr, leitura, c.agoraMs(), ajustes.velBuscaExterna, ajG, bufVarr, kBufVarr);
         c.comandar(k.esq, k.dir);
@@ -681,9 +707,12 @@ struct Robo {
         c.evento(fmt("plano: %s | seguir '%c' (pose %s, coluna %.0f%%, linha %.0f%%)", nav.ultimoPlano.c_str(), a, nav.loc.inGreen ? "no verde" : fmt("(%d,%d)", core::estimate(nav.loc).pose.at.c, core::estimate(nav.loc).pose.at.r).c_str(), nav.loc.inGreen ? 0.0 : 100.0 * core::columnMass(nav.loc, core::estimate(nav.loc).pose.at.c), nav.loc.inGreen ? 0.0 : 100.0 * core::rowMass(nav.loc, core::estimate(nav.loc).pose.at.r)));
       }
       medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a 400 mm
-      if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
-      else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo, true); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
-      if ((a == 'L' || a == 'R') && !nav.loc.inGreen) olharAdiante(c, a == 'L' ? 1 : -1);
+      {
+        Fatia giroF(*this, c, Fase::Giro);
+        if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
+        else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo, true); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
+        if ((a == 'L' || a == 'R') && !nav.loc.inGreen) olharAdiante(c, a == 'L' ? 1 : -1);
+      }
       usAnt = -1.0f; ecoLembradoMm = -1.0f; ecoRealinhado = false; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
       tSaidaMs = c.agoraMs(); odoSaida = c.odoMm();                          // daqui em diante conta o caminho andado na rua nova
       andadoRuaMm = 0.0f;
@@ -709,13 +738,14 @@ struct Robo {
   // fora da barra. Entao avanca ate as duas pontas apagarem (a barra atravessou a rua, sem depender da largura da linha) e so entao gira 90 graus.
   void virarParaRua(Carro& c, bool esquerda) {
     c.comandar(ajustes.velReto, ajustes.velReto);
-    double odoApagou = c.odoMm();
+    const double odoIni = c.odoMm();
+    double odoApagou = odoIni;
     for (int i = 0; i < 120; i++) {   // ate 600 ms
       tick(c);
       bool p[kSensores];
       lerBarra(c, p);
       odoApagou = c.odoMm();
-      if (!p[0] && !p[7]) break;
+      if (padraoEstreito(acesos(p), ajG) || acesos(p) == 0) break;   // a rua que cruza saiu da barra (so sobra a linha por onde veio). NAO por S1/S8 apagados: com S8 morto ele copia o S6, e a linha por onde veio sob a direita da barra o mantinha aceso
     }
     c.parar();
     esperarParar(c);
@@ -724,9 +754,12 @@ struct Robo {
     // de re. Com a barra a 15 mm o braco do giro e curto (~16 mm): 7 mm fora do centro ja deslocam a faixa da rua em ~25 graus e o giro nao fecha.
     const double frenou = c.odoMm() - odoApagou;
     const double falta = ajustes.barraAFrenteMm - 12.5 - frenou;
+    ROBO_DBG("    VIRAR-RUA: apagou apos %.1f mm (freada %.1f), falta %.1f mm, eixo (%.0f,%.0f) th %.0f\n", odoApagou - odoIni, frenou, falta, c.estado().x, c.estado().y, c.estado().th * 57.3);
     if (fabs(falta) > 1.0) andarMm(c, falta, [] { return false; });
     std::vector<AmostraGiro> est, ver;
-    girarAte(c, 0.0f, esquerda ? 90.0f : -90.0f, est, ver, c.estado().th, rumo, true);
+    const float rumo0 = rumo;
+    girarAte(c, 0.0f, esquerda ? 90.0f : -90.0f, est, ver, c.estado().th, rumo, false);   // pelos encoders: com a barra a 15 mm ela ainda cobre a rua de origem a 90 graus, e fechar na linha nao acha a rua nova
+    rumo = 90.0f * roundf(rumo0 / 90.0f) + (esquerda ? 90.0f : -90.0f);   // a grade e de multiplos de 90: o seguimento corrige o resto
     esquecerUltimoComando(memoria);
     memoria.perdeuEm = 0;
   }
@@ -780,6 +813,7 @@ struct Robo {
   // ---- inicio da partida e depois de cada reposicionamento: ele esta em posicao ALEATORIA do verde, olhando para a cidade (de frente = rumo 0)
   // Anda ate achar o chao amarelo ou uma plataforma a ~6 cm olhando para o oeste e volta para x ~ -150 (a mesma distancia das duas formas): isso da o x. Devolve a cor da plataforma vista.
   seguidor::CorCubo olharSlotOeste(Carro& c, bool ficar = false) {   // ficar: se ha plataforma, fica parado de frente para ela (olhando oeste) em vez de voltar
+    Fatia fatia(*this, c, Fase::Plataforma);
     girarPara(c, 180.0);
     bool amarelo = false;
     const double andou = andarMm(c, 330.0, [&] {
@@ -799,6 +833,7 @@ struct Robo {
   // Anda ate a linha VERMELHA na direcao atual (TCS do chao). Duas leituras seguidas (como no sketch): uma leitura errada isolada do TCS nao pode contar como a moldura,
   // senao o y e a velocidade medidos saem errados.
   void irAteVermelhoAndando(Carro& c) {
+    Fatia fatia(*this, c, Fase::Entrada);
     int seguidas = 0;
     andarMm(c, 2000.0, [&] { seguidas = c.piso() == kPisoVermelho ? seguidas + 1 : 0; return seguidas >= 2; });
   }
@@ -815,6 +850,7 @@ struct Robo {
   // cada trecho dos dois lados por igual, entao o meio nao tem vies, desde que a abertura do cone na face (distancia x tan 10) fique abaixo de meio vao (50 mm): por isso primeiro
   // chega a ~170 mm da face (fase 1 acha a distancia, anda, fase 2 varre fino). So le a COR de perto depois. Guarda onde ha plataforma e esvazia as marcas cobertas sem eco.
   void mapearDeLonge(Carro& c, double yAtual) {
+    Fatia fatia(*this, c, Fase::Plataforma);
     constexpr double kRad = M_PI / 180.0, kDistVarreduraMm = 170.0, kAlcanceMaxMm = 700.0;
     auto alcance = [&](double phi) {   // phi > 0 = para o norte, a partir do oeste; distancia do EIXO (a ponta fica 100 mm a frente)
       girarPara(c, 180.0 - phi);
@@ -952,6 +988,7 @@ struct Robo {
   // ou antes), desce do alto do ecoponto olhando as marcas ate achar a da cor do cubo (o que vir no caminho fica guardado em platConhecidas). Quando as 5 foram olhadas, sabe
   // quais cores tem plataforma e so passa a coletar essas. `yAtual` e atualizado.
   bool procurarPlataforma(Carro& c, seguidor::CorCubo cor, double& yAtual) {
+    Fatia fatia(*this, c, Fase::Plataforma);
     // De frente para uma plataforma o carro aponta para o oeste (a face e uma parede): reancora o rumo, que anda com tantas curvas de 90 graus.
     auto reancorarOeste = [&] { rumo = static_cast<float>(180.0 + 360.0 * lround((rumo - 180.0) / 360.0)); };
     constexpr double kFolga = 60.0;   // a ponta para a ~60 mm da face da plataforma ao ler a cor
@@ -1041,6 +1078,7 @@ struct Robo {
   // quem descobre a linha de verdade e CONTAR os cruzamentos ate a linha vermelha (Navegador::aoCruzamento). `usarAlinhamento = false` entra reto (primeira rua vertical, de lado).
   bool usarAlinhamento = true;
   void entrarNaCidade(Carro& c, double yAtual) {
+    Fatia fatia(*this, c, Fase::Entrada);
     ROBO_DBG("    ENTRAR t=%.1f rumo %.0f real th %.0f pos (%.0f,%.0f) yAtual %.0f\n", c.agoraMs() / 1000.0, rumo, c.estado().th * 57.3, c.estado().x, c.estado().y, yAtual);
     // Entra por uma linha do MEIO (1 a 3): nas das pontas a rua fica a 127 mm da moldura vermelha e a faixa azul do portao encontra a vermelha no canto (ele subia pela azul como se fosse rua).
     int melhor = 1;
@@ -1070,12 +1108,14 @@ struct Robo {
 
   // Depois de um reset (colocado em posicao aleatoria do verde, olhando para a cidade: o rumo volta a 0): entra direto (sem percurso no verde): o y vem de contar os cruzamentos ate o vermelho.
   void alinharNaRua(Carro& c) {   // depois de um reset (posicao aleatoria do verde, de frente para a cidade, rumo = 0): sobe ate o vermelho para saber o y e alinha com uma rua
+    Fatia fatia(*this, c, Fase::Entrada);
     entrarNaCidade(c, NAN);
   }
 
   // Saiu pelo nosso portao levando 1 ou 2 cubos: vai ao ecoponto, acha a plataforma de cada cor (TCS da frente), deixa o cubo nela e volta de frente para a cidade.
   // Cubo na plataforma errada ou fora dela = cubo perdido (-10). (A garra ainda nao e simulada: o cubo "e solto" quando o carro para diante da plataforma.)
   void entregarNaPlataforma(Carro& c) {
+    Fatia fatia(*this, c, Fase::Plataforma);
     nav.entregando = true;
     const unsigned long tIni = c.agoraMs();
     ROBO_DBG("    ENTREGAR t=%.0fs: rumo %.0f, real th %.0f, pos (%.0f,%.0f)\n", c.agoraMs() / 1000.0, rumo, c.estado().th * 57.3, c.estado().x, c.estado().y);
@@ -1199,6 +1239,7 @@ struct Robo {
   //   cor que tem plataforma e ainda ha vaga (maximo 2) -> coleta; branco ou cor sem plataforma -> identifica, SINALIZA (som/luz, +50 uma vez por cubo), nao mexe e bloqueia a rua.
   // Eco que se MEXE = oponente: espera. true = tomou o controle neste ciclo.
   bool tratarCubo(Carro& c) {
+    Fatia fatia(*this, c, Fase::Cubo);
     if (!c.missao() || !c.usAtivo() || !nav.naRua || nav.loc.inGreen) return false;
     const bool cheio = static_cast<int>(nav.carga.size()) >= nav.coleta.capacidade;   // carregando: NAO pega outro, mas tambem NAO pode passar por cima: desvia
     const unsigned long agora = c.agoraMs();
@@ -1304,6 +1345,7 @@ struct Robo {
 
   // Linha proibida (vermelha, ou azul fora do portao) sob o sensor: para na hora e da meia-volta para dentro da cidade (ou do verde). Nao segue como se fosse uma rua.
   void reagirAProibida(Carro& c) {
+    Fatia fatia(*this, c, Fase::Borda);
     const bool azul = c.tcsChao() == CorLinha::Azul;
     c.parar();
     bordas++;
@@ -1437,6 +1479,7 @@ struct Robo {
       andadoRuaMm += velMmSAtual * 0.005f;
     }
     odoAnt = c.odoMm();
+    fase = estaBuscando(memoria, agora, ajustes) ? Fase::Buscar : (cmd.esq == cmd.dir && cmd.esq > 0 ? Fase::Seguir : Fase::Corrigir);
     tick(c);
   }
 };

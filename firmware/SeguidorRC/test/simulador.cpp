@@ -437,6 +437,18 @@ class Carro {
 
   // Passa um ciclo (dtMs) com o comando atual.
   void avancar() {
+    static const char* janelaTrace = getenv("SIM_TRACE2");   // SIM_TRACE2=ini_ms-fim_ms: uma linha a cada 50 ms dentro da janela, a CADA ciclo (inclui giros e freadas, que o SIM_TRACE nao ve)
+    if (janelaTrace && t_ % 50 == 0) {
+      unsigned long a = 0, b = 0;
+      if (sscanf(janelaTrace, "%lu-%lu", &a, &b) == 2 && t_ >= a && t_ <= b) {
+        bool q[kSensores];
+        lerReal(q);
+        char txt[kSensores + 1];
+        for (int k = 0; k < kSensores; k++) txt[k] = q[k] ? '#' : '.';
+        txt[kSensores] = 0;
+        fprintf(stderr, "  T %6lu (%5.0f,%5.0f) th %4.0f %s\n", static_cast<unsigned long>(t_), e_.x, e_.y, e_.th * 57.3, txt);
+      }
+    }
     const double dt = f_.dtMs / 1000.0, k = 1.0 - exp(-f_.dtMs / f_.tauMs);
     vE_ += (alvoE_ - vE_) * k;
     vD_ += (alvoD_ - vD_) * k;
@@ -671,7 +683,7 @@ struct Firmware : Robo<Carro> {
       char b[kSensores + 1];
       for (int i = 0; i < kSensores; i++) b[i] = ultimaBarra[i] ? '#' : '.';
       b[kSensores] = 0;
-      fprintf(stderr, "%6lu eixo (%5.0f,%5.0f) th %4.0f  %s  %s\n", c.agoraMs(), e.x, e.y, e.th * 57.3, b, ultimaAcao);
+      fprintf(stderr, "%6lu eixo (%5.0f,%5.0f) th %4.0f  %s  rodas %4.0f %4.0f  %s\n", c.agoraMs(), e.x, e.y, e.th * 57.3, b, c.roda(true), c.roda(false), ultimaAcao);
     }
   }
 };
@@ -1167,6 +1179,7 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
     fw.passo(c);
     while (static_cast<int>(entregas.size()) < fw.nav.entregues) entregas.push_back(c.agoraMs() / 1000.0);
   }
+  if (getenv("SIM_FASES")) fprintf(stderr, "    semente %lu, entregou %d em %.0f s | tempo: %s\n", semente, fw.nav.entregues, c.agoraMs() / 1000.0, fw.resumoFases().c_str());
   if (getenv("SIM_DEBUG")) { for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str()); const Estado e = c.estado(); fprintf(stderr, "    FIM coleta: robo (%.0f,%.0f) th %.0f carregando %d entregues %d coletados %d\n", e.x, e.y, e.th * 57.3, fw.nav.carregando, fw.nav.entregues, fw.nav.coletados); }
   return entregas;
 }
