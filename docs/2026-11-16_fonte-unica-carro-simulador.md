@@ -136,3 +136,10 @@ antes disso o eco e usado como esta. A fase real da arena (marcas ou entre elas)
 Metodo de teste: sementes RUINS (`ruins.sh` acha ate N com <=2 entregas de 6; `avalia.sh` mede so elas; boas sao descartadas).
 Sementes ruins 0,1,2,4,9: 7 -> 18 entregas. Novo conjunto ruim: 1, 8, 14, 15, 16, 17.
 Depuracao nova: `MAPEAR inicio/fim/eco` em SIM_DEBUG.
+
+Limite de busca de plataforma 525 -> 560 mm do meio (uma marca extrema com erro de y de ~10 mm ficava de fora).
+Falhas que restam nas sementes ruins (1, 8, 14, 15, 16, 17), ainda nao corrigidas:
+1. Partida (semente 14): ANCORAR roda a coluna da borda esquerda por 150 s (meias-voltas na borda vermelha) ate pedir ajuda.
+2. Pos-entrega (sementes 14, 16): depois de "VERDE inesperado" o carro fica indo e voltando sobre a faixa azul do portao ("atravessado" / "AZUL do outro lado" em laco),
+   ou atravessa a arena ate o lado do oponente (x ~ 2900).
+3. Cubo de cor sem plataforma na 1a viagem (semente 16): ~50 s de busca e -10; so a observacao inicial evita, e ela e pior no total.

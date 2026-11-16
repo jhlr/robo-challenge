@@ -1041,7 +1041,7 @@ struct Robo {
     // Onde ainda pode haver plataforma: sem nenhuma conhecida, nas 5 marcas (260 mm); achada uma, o passo e o das plataformas (260 mm) a partir dela.
     auto candidatos = [&] {
       std::vector<double> v;
-      auto poe = [&](double y) { if (fabs(y - kAlt / 2.0) <= 525.0 && !jaOlhou(y)) { for (const double o : v) if (fabs(o - y) < 40.0) return; v.push_back(y); } };
+      auto poe = [&](double y) { if (fabs(y - kAlt / 2.0) <= 560.0 && !jaOlhou(y)) { for (const double o : v) if (fabs(o - y) < 40.0) return; v.push_back(y); } };
       for (const double y : nav.platPresentes) poe(y);   // o ultrassom parado ja viu eco ali: le a cor dessas primeiro
       if (!v.empty()) return v;
       std::vector<double> ancoras = nav.platPresentes;
