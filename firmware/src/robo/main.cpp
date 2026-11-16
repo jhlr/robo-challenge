@@ -11,7 +11,7 @@
 #include <Wire.h>
 #include <seguidor/depuracao_ble.h>
 #include <seguidor/ota_ble.h>
-#include <seguidor/perfil_carro.h>
+#include <seguidor/config_carro.h>
 
 #include "carro_real.h"
 #include "core/arm.h"
@@ -205,13 +205,7 @@ void vigiar() {
 }
 
 void preparar() {
-  seguidor::ConfigRobo cfg;
-  cfg.dtMs = kDtMs;
-  cfg.tauMs = 50.0;
-  cfg.encoder = true;
-  cfg.rumoPeloEncoder = true;
-  cfg.ajustes = seguidor::normalizar(seguidor::ajustesDoCarro());   // a mesma fonte do simulador (params.h)
-  cfg.cruzamento = seguidor::cruzamentoDoCarro(cfg.ajustes);
+  const seguidor::ConfigRobo cfg = seguidor::configDoCarro();   // a mesma do simulador (params.h)
   fw = new seguidor::Robo<robo::CarroReal>(cfg);
   fw->ceder = vigiar;
   fw->ligarImu(carro);   // sem MPU: so zera o rumo e liga o ciclo por encoder

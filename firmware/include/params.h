@@ -62,6 +62,7 @@ constexpr uint8_t kLineDeadMask = 0b11000000;
 
 // ONE SOURCE for the robo car and its simulator (test/simulador.cpp reads these, not its own copies).
 constexpr float kLoopDtMs = 5.0f;          // one read + decide cycle
+constexpr float kWheelTauMs = 50.0f;       // first-order lag between a wheel command and the wheel speed (the spin still runs this long after a stop command)
 constexpr float kPwmFullSts = 120.0f;      // firmware PWM that maps to 100% of the STS command (speeds above it saturate)
 constexpr float kSkidFactor = 0.8f;        // fraction of the ideal spin rate left with 4 wheels skidding: effective track = physical track * this
 constexpr float kStsFullSpeedMmS = kStsMaxSteps / 4096.0f * (kWheelDiaMm * 3.14159265f) / kGearRatio;   // wheel speed at 100% command (~174 mm/s)
