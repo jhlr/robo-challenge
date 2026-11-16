@@ -105,6 +105,7 @@ struct ParamsFisicos {
 // pode assentar a ate meio passo (5,4 mm) + a folga do eixo ao lado da linha sem que isso seja defeito da decisao.
 constexpr double kErroFinalMm = 8.0;
 
+static bool gObservar = false;   // param observar=1: liga a viagem de observacao das plataformas no inicio (desligada: piorou a entrega)
 Ajustes gAjustes = ajustesDoCarro();   // a MESMA fonte do firmware (params.h); os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
 bool gSo_Placar = false;
 double gGestoGraus = 45.0;   // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado e volta reto, em vez da varredura de 90 graus (0 = desliga e usa a varredura de antes, < 0 = passa direto sem girar)
@@ -675,7 +676,7 @@ inline ConfigRobo configDoSim() {
   return c;
 }
 struct Firmware : Robo<Carro> {
-  Firmware() : Robo<Carro>(configDoSim()) {}
+  Firmware() : Robo<Carro>(configDoSim()) { nav.observarNoInicio = gObservar; }
   void passo(Carro& c) {   // SIM_TRACE=1: uma linha a cada 50 ms (tempo, pose, barra, o que a decisao mandou)
     Robo<Carro>::passo(c);
     static const bool rastro = getenv("SIM_TRACE") != nullptr;
@@ -1202,6 +1203,7 @@ static Resultado cenarioObservaPlataformas() {
   gSemente = 0;
   configurarMissao(m, fw, c, 0, false, false);
   fw.nav.verdade = &m;
+  fw.nav.observarNoInicio = true;   // este cenario testa justamente a viagem de observacao
   const CorCubo cores[4] = {CorCubo::Azul, CorCubo::Vermelho, CorCubo::Amarelo, CorCubo::Preto};
   std::vector<CorCubo> lista;
   for (int i = 0; i < 6; i++) lista.push_back(cores[i % 4]);
@@ -1796,6 +1798,7 @@ int main(int argc, char** argv) {
     else if (k == "periodo") gAjustes.periodoCorrecaoMs = static_cast<unsigned long>(v);
     else if (k == "fl") gAjustes.fracaoGiroLeve = static_cast<float>(v);
     else if (k == "ff") gAjustes.fracaoGiroForte = static_cast<float>(v);
+    else if (k == "observar") gObservar = v != 0.0;
     else if (k == "giro") gAjustes.buscaGiroGraus = static_cast<float>(v);
     else if (k == "fp") gAjustes.fracaoGiroPonta = static_cast<float>(v);
     else if (k == "vl") gAjustes.velCorrecaoLeve = static_cast<int>(v);

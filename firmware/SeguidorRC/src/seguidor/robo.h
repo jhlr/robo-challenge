@@ -87,6 +87,7 @@ struct Navegador {
   bool plataformasObservadas = false;
   bool observando = false;      // viagem ao ecoponto SEM cubo para ver as plataformas antes de coletar (so uma vez): usa o fluxo de entrega, com a carga vazia
   bool tentouObservar = false;
+  bool observarNoInicio = false;   // viagem de observacao das plataformas antes do 1o cubo. DESLIGADA: custa ~85 s e a reentrada depois dela falhou no simulador (10 entregas em 5 sementes sem ela, 4 com ela)
   double alvoX = -1, alvoY = -1;           // para onde esta indo (para mostrar a trajetoria)
   std::string log;
   core::Node ruaDe{0, 0}, ruaPara{0, 0};   // a rua por onde anda: do ultimo cruzamento ao proximo
@@ -260,7 +261,7 @@ struct Navegador {
     }
     // Antes do PRIMEIRO cubo, com a linha ja conhecida: vai ao ecoponto ver quais cores tem plataforma (so se pega cor com plataforma: coletar uma sem destino custa ~85 s de busca e -10).
     // Reusa a entrega (anda para o oeste, sai pelo portao): a diferenca e a carga vazia, e `entregarNaPlataforma` so observa.
-    if (!carregando && !tentouObservar && !plataformasObservadas && colSure && rowSure) { tentouObservar = true; observando = true; carregando = true; }
+    if (observarNoInicio && !carregando && !tentouObservar && !plataformasObservadas && colSure && rowSure) { tentouObservar = true; observando = true; carregando = true; }
     // Capacidade 2 (regras): com 1 cubo so continua coletando se ha cubo provavel; com 2 vai entregar. Entregar e obrigatorio antes de coletar de novo.
     core::Plan plano = core::planAtCrossing(loc, cubos, core::kMinCoordBelief, &visitas, &bloq);
     if (carregando) {
@@ -359,6 +360,8 @@ struct Robo {
   bool esperandoAjuda = false;
   int pedidosDeAjuda = 0, marcoMetas = 0;
   unsigned long ultimaMetaMs = 0;
+  static constexpr double kRetoParaReancorarMm = 150.0;
+  double retoDesdeMm = -1.0;   // odometro quando comecou a andar reto sobre a linha (-1 = nao esta nisso)
   static constexpr double kMaxVerdeSemLinhaMm = 700.0;
   double semLinhaNoVerdeMm = -1.0;   // odometro quando comecou a andar no verde sem ver linha (-1 = nao esta nisso)
   const char* ultimaAcao = "";   // o que a decisao mandou no ultimo ciclo (telemetria e rastro do simulador)
@@ -914,7 +917,7 @@ struct Robo {
       }
       i = j + 1;
     }
-    const double meio = kAlt / 2.0, passo = (kPlatY_Tam + kPlatEntre) / 2.0;   // as marcas ficam numa grade de 130 mm centrada no mapa
+    const double meio = kAlt / 2.0, passo = kPlatY_Tam + kPlatEntre;   // as 5 marcas ficam numa grade de 260 mm centrada no mapa
     for (double y : centros) {
       const double grade = meio + std::round((y - meio) / passo) * passo;
       if (fabs(grade - y) < 45.0) y = grade;
@@ -1017,7 +1020,7 @@ struct Robo {
     auto reancorarOeste = [&] { rumo = static_cast<float>(180.0 + 360.0 * lround((rumo - 180.0) / 360.0)); };
     constexpr double kFolga = 60.0;   // a ponta para a ~60 mm da face da plataforma ao ler a cor
     auto jaOlhou = [&](double y) { for (const double o : nav.yOlhados) if (fabs(o - y) < 40.0) return true; return false; };
-    // Onde ainda pode haver plataforma: sem nenhuma conhecida, de 130 em 130 mm (as 5 marcas E as centradas entre elas); achada uma, o passo e o das plataformas (260 mm) a partir dela.
+    // Onde ainda pode haver plataforma: sem nenhuma conhecida, nas 5 marcas (260 mm); achada uma, o passo e o das plataformas (260 mm) a partir dela.
     auto candidatos = [&] {
       std::vector<double> v;
       auto poe = [&](double y) { if (fabs(y - kAlt / 2.0) <= 525.0 && !jaOlhou(y)) { for (const double o : v) if (fabs(o - y) < 40.0) return; v.push_back(y); } };
@@ -1025,7 +1028,7 @@ struct Robo {
       if (!v.empty()) return v;
       std::vector<double> ancoras = nav.platPresentes;
       for (const auto& pc : nav.platConhecidas) ancoras.push_back(pc.first);
-      if (ancoras.empty()) for (int i = 0; i < 9; i++) poe(kAlt / 2.0 + (i - 4) * 130.0);
+      if (ancoras.empty()) for (int i = 0; i < 5; i++) poe(kAlt / 2.0 + (i - 2) * (kPlatY_Tam + kPlatEntre));   // as 5 marcas do ecoponto (260 mm): 1 a 5 plataformas ficam nelas
       else for (const double y0 : ancoras) for (int k = -4; k <= 4; k++) poe(y0 + k * (kPlatY_Tam + kPlatEntre));
       return v;
     };
@@ -1072,9 +1075,9 @@ struct Robo {
       }
       if (vista != seguidor::CorCubo::Nenhuma) {
         reancorarOeste();
-        // De frente para uma plataforma o y do eixo e o centro dela, e as plataformas so ficam na grade de 130 mm centrada no mapa (as duas disposicoes, 4 ou 5 marcas): a conta por
+        // De frente para uma plataforma o y do eixo e o centro dela, e as plataformas so ficam nas 5 marcas, na grade de 260 mm centrada no mapa: a conta por
         // tempo (meio do mapa -> plataforma -> plataforma) erra ate ~65 mm, e esse erro fazia a volta ao portao errar a rua. Encaixa na grade.
-        yAtual = kAlt / 2.0 + std::round((yAtual - kAlt / 2.0) / 130.0) * 130.0;
+        yAtual = kAlt / 2.0 + std::round((yAtual - kAlt / 2.0) / (kPlatY_Tam + kPlatEntre)) * (kPlatY_Tam + kPlatEntre);
         yt = yAtual;
         nav.platConhecidas.push_back({yt, vista});
         nav.plataformasVistas.push_back({yt, vista});
@@ -1218,10 +1221,10 @@ struct Robo {
       const unsigned long tGirou = c.agoraMs();
       auto achou = [&] {
         const unsigned long tA = c.agoraMs();
-        const double andouA = andarMm(c, kAproximacaoMm, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma; });   // para ao ver a plataforma: o limite so cobre o caso de partir do portao (x ~ -125, ponta a ~340 mm da face)
+        const double andouA = andarMm(c, kAproximacaoMm, [&] { return c.plataformaNaFrente(60.0) != seguidor::CorCubo::Nenhuma || c.piso() == kPisoVermelho; });   // a moldura vermelha do ecoponto tambem para   // para ao ver a plataforma: o limite so cobre o caso de partir do portao (x ~ -125, ponta a ~340 mm da face)
         ROBO_DBG("    ACHOU? giro %.1f s, andou %.0f mm em %.1f s | real (%.0f,%.0f) th %.0f | plataforma y %.0f vista %d\n", (tA - tGirou) / 1000.0, andouA, (c.agoraMs() - tA) / 1000.0, c.estado().x, c.estado().y, c.estado().th * 57.3, pl->y, static_cast<int>(c.plataformaNaFrente(70.0)));
         const bool ok = c.plataformaNaFrente(70.0) == cor;
-        if (!ok) { girarPara(c, 0.0); andarMm(c, 90.0, [] { return false; }); girarPara(c, 180.0); }   // nao e ela: recua para o verde para varrer sem bater
+        if (!ok) { girarPara(c, 0.0); andarMm(c, andouA, [] { return false; }); girarPara(c, 180.0); }   // volta EXATAMENTE o que andou: com 90 fixos ele derivava ~170 mm para o oeste a cada tentativa e saia da arena   // nao e ela: recua para o verde para varrer sem bater
         return ok;
       };
       bool encontrou = achou();
@@ -1522,6 +1525,17 @@ struct Robo {
     const bool vinhaSeguindo = memoria.ultimoEsq != 0 || memoria.ultimoDir != 0;   // so segura o rumo se vinha andando: perdido sem nunca ter seguido, nao anda cego
     Comando cmd = decidir(p, agora, ajustes, memoria);
     ultimaAcao = cmd.acao;
+    // As ruas da arena sao eixos: seguindo reto (barra centrada na linha) por kRetoParaReancorarMm o carro esta alinhado com a rua, e o rumo dos encoders (que deriva com cada giro da
+    // linha e da busca: 20 graus no portao no simulador) volta ao multiplo de 90 mais perto. Sem isto a entrega virava para o oeste 20 graus torta e perdia a marca da plataforma.
+    if (cmd.esq == cmd.dir && cmd.esq > 0 && !cmd.parar && !estaBuscando(memoria, agora, ajustes)) {
+      if (retoDesdeMm < 0.0) retoDesdeMm = c.odoMm();
+      else if (c.odoMm() - retoDesdeMm >= kRetoParaReancorarMm) {
+        const float e = remainderf(rumo, 90.0f);
+        if (fabsf(e) < 30.0f) rumo -= e;
+      }
+    } else {
+      retoDesdeMm = -1.0;
+    }
     for (int i = 0; i < kSensores; i++) ultimaBarra[i] = p[i];
     const unsigned long perdidoHa = memoria.perdeuEm ? agora - memoria.perdeuEm : 0;
     if (memoria.perdeuEm) ticksPerdido++;
