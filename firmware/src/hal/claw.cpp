@@ -25,6 +25,6 @@ bool Claw::close() {
   return true;
 }
 
-bool Claw::holding() const { return true; }   // no feedback on the SG90: see the header
+bool Claw::holding() const { return kPegadaAssumida; }   // sem retorno do SG90: a pegada nao e medida (ver claw.h)
 
 }  // namespace hal

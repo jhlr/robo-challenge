@@ -65,12 +65,12 @@ class CarroReal {
   void parar() { comandar(0, 0); }
   double roda(bool esquerda) const { return esquerda ? alvoE_ : alvoD_; }
   // Pegar e largar o cubo: a maquina de core/pickplace.h sobre o ombro real (hal/shoulder), o recuo por encoders, o sonar e o TCS da frente.
-  // A garra (hal/claw) e STUB por enquanto: abrir/fechar so registram e a pegada sempre "confere". O ombro e o recuo se mexem de verdade.
+  // A garra (hal/claw) nao tem retorno: a pegada e SUPOSTA (hal::Claw::kPegadaAssumida) e o log diz isso. O ombro e o recuo se mexem de verdade.
   bool coletar(int) {
     Manipulador io{*this};
     auto pp = core::PickPlace::pick();
     pp.run(io);
-    evento(pp.done() ? "COLETAR: sequencia completa (garra stub)" : "COLETAR falhou na etapa " + std::to_string(static_cast<int>(pp.state)) + ", motivo " + std::to_string(static_cast<int>(pp.fail)));
+    evento(pp.done() ? "COLETAR: sequencia completa, PEGADA NAO VERIFICADA (garra sem retorno)" : "COLETAR falhou na etapa " + std::to_string(static_cast<int>(pp.state)) + ", motivo " + std::to_string(static_cast<int>(pp.fail)));
     return pp.done();
   }
   bool soltar(seguidor::CorCubo cor) {
@@ -78,7 +78,7 @@ class CarroReal {
     Manipulador io{*this};
     auto pp = core::PickPlace::place();
     pp.run(io);
-    evento(pp.done() ? "SOLTAR: sequencia completa (garra stub)" : "SOLTAR falhou, motivo " + std::to_string(static_cast<int>(pp.fail)));
+    evento(pp.done() ? "SOLTAR: sequencia completa" : "SOLTAR falhou, motivo " + std::to_string(static_cast<int>(pp.fail)));
     return pp.done();
   }
 
@@ -181,7 +181,8 @@ class CarroReal {
     bool clawClose() { return c.garra_.close(); }
     bool shoulderTo(core::Level l) { return shoulderGoTo(l == core::Level::Up ? ShoulderLevel::Up : l == core::Level::Place ? ShoulderLevel::Place : ShoulderLevel::Pick); }
     bool holding() { return c.garra_.holding(); }
-    bool reposition() { c.evento("[reposicionar PENDENTE] sem reapontar pelo sonar"); return true; }   // TODO: reapontar para o cubo e acertar a distancia
+    // Reapontar ao cubo pelo sonar e acertar a distancia: NAO IMPLEMENTADO. Falso = a sequencia para na etapa de reposicionar (sem chutar que deu certo).
+    bool reposition() { c.evento("[reposicionar] NAO IMPLEMENTADO: sequencia para"); return false; }
     bool frontClear() { return !c.algoPerto(kAlcanceCorFrenteMm); }   // ombro no topo: a garra nao esta na frente do sonar
     bool platformPositionOk() { return c.algoPerto(kAlcanceCorFrenteMm); }
     bool platformColorOk() { return c.plataformaNaFrente(kAlcanceCorFrenteMm) == c.corAlvo_; }

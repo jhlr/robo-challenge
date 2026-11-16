@@ -11,10 +11,12 @@ Verificacao final: `test_core` (Unity, 85 testes) passa, 8 `teste_*` passam, 20 
 - **Testes**: assert tautologico removido; `ultimaRuaVistaVazia` com assert exato; teste de classes de cor antigo removido (coberto por `test_color_table_*`).
 - **Telemetria** do laco (500 ms, dirigindo) atras de `SEG_TELEMETRIA` (`include/params.h`), padrao 1 = comportamento igual. Pode ser desligada com `-DSEG_TELEMETRIA=0`.
 
-## Bloqueado: precisa da sua decisao ou de hardware
-1. **Garra sem retorno (`claw.holding()` sempre true)**: o SG90 nao tem feedback de forca nem posicao. Hoje `coletar()` registra cubo carregado sem como verificar. Opcoes: (a) falhar fechado: o carro so pega com sensor de garra; (b) manter a suposicao, documentada e medida na pontuacao. Nao escolhi.
-2. **`reposition()` nao implementado** (`PENDENTE` no `carro_real.h`): precisa do sonar para reapontar ao cubo. Implementavel, mas so da para validar no carro.
-3. **`missao()`, `usAtivo()`, `consumirToques()`** no carro sao constantes (`true`, `0`). Sao o que o carro sabe de fato (o juiz nao sinaliza). Mantidos.
+## Garra e reposicionamento (resolvidos como suposicao explicita)
+1. **Garra sem retorno**: `hal::Claw::holding()` agora devolve a constante nomeada `kPegadaAssumida` (true), com comentario dizendo que e suposicao, nao leitura. O log de cada coleta diz `PEGADA NAO VERIFICADA (garra sem retorno)`. Escolhi NAO falhar fechado: sem sensor, isso faria o carro nunca entregar. Quando houver sensor de garra, troca-se a constante pela leitura.
+2. **`reposition()`**: agora retorna falso com o log `NAO IMPLEMENTADO`. Nao muda o comportamento atual: a etapa so roda depois de uma pegada falha, e a pegada assumida nunca falha. Implementar o reapontamento pelo sonar continua pendente e so da para validar no carro.
+
+## Mantidos como estao
+- `missao()`, `usAtivo()`, `consumirToques()` no carro: constantes que refletem o que o carro sabe (o juiz nao sinaliza toques).
 
 ## Nao mexi (decisao sua ou fora do carro)
 - `rapido/` tem ganhos proprios (baseSpeed 0.30, kp 1.0) diferentes de `params.h` (kBaseSpeed 0.45, kKp 0.9). Mudar muda a bancada desse sketch.

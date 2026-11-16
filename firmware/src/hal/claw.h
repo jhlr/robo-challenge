@@ -11,7 +11,9 @@ class Claw {
   void begin(int pin);          // pin < 0: stub mode
   bool open();                  // true when the command was sent (waits params::kClawMoveMs)
   bool close();
-  bool holding() const;         // STUB: always true; replace with a real check before trusting a grip
+  // Sem sensor de pegada: devolve a SUPOSICAO kPegadaAssumida (nao uma leitura). Quem chama deve registrar que nao foi verificada.
+  bool holding() const;
+  static constexpr bool kPegadaAssumida = true;
   bool isStub() const { return pin_ < 0; }
 
  private:
