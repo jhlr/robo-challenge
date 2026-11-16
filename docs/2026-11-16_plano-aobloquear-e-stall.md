@@ -51,3 +51,17 @@ Experimentos (20 sementes, 18 cubos):
 Leitura: o acerto de 12 de 18 na semente 4 nao se traduz no conjunto. Sementes 2, 6 e 11 caem para 2-3 entregas. O resultado identico nas duas variantes mostra que o regresso vem do bloqueio por cubo na geometria. Hipotese nao testada: zerar a crenca da rua geometrica (cubo real) faz o planejador deixar de ir la, e o cubo nao e entregue; a rua percorrida zerada era vazia de qualquer forma.
 
 Decisao: revertido (repo em 87b2d8e). Passo 3 com geometria NAO entra. Proximo: testar so a parte de bloqueio sem zerar a crenca (bloq = true, crenca intacta) antes de descartar a geometria.
+
+## Passo 3, revisado: bloquear nao e esvaziar
+
+Hipotese do usuario: a regra "rua sem cubo nao vale revisitar" ficou forte demais. Confirmado no codigo: `aoBloquear` zerava a crenca da rua. Crenca 0 cai em `kEmptyBelow` (0,1), e `kKnownEmpty` tira essa rua de qualquer destino (`navigator.h`), alem de pesar a rota (`routesFrom`, penalidade de rua vazia). Ou seja: um bloqueio temporario por cubo ou outro robo virava "vazia para sempre".
+
+Mudanca: `aoBloquear` so marca o bloqueio (`bloq`), sem zerar a crenca. Rua bloqueada continua fora das rotas; so deixa de ser descartada como vazia.
+
+| variante | completas | media completas |
+|---|---|---|
+| base 87b2d8e | 17/20 | 460 s |
+| geometria no bloqueio (acccea7, revertida) | 15/20 | 544 s |
+| so bloqueio, sem zerar crenca | 17/20 | 452 s |
+
+Sementes 1, 4 e 11 continuam sem completar (seed 1: 3 entregas em 288 s, depois para). Ganho de tempo pequeno; mantido porque remove a regra errada e nao piora nenhuma semente completa em mais de ~20 s.

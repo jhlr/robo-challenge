@@ -145,7 +145,7 @@ struct Navegador {
   bool ruaValida() const { return core::inMap(ruaDe.c, ruaDe.r) && core::inMap(ruaPara.c, ruaPara.r) && (abs(ruaDe.c - ruaPara.c) + abs(ruaDe.r - ruaPara.r)) == 1; }
   bool ancorando = false;   // o ultimo cruzamento foi decidido no modo ANCORAR (linha desconhecida)
   int ancorarBloq = 0;      // cubos que fecharam o caminho ate a vermelha sem a linha ter sido achada
-  void aoBloquear() { if (ancorando) ancorarBloq++; if (ruaValida()) { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); core::streetSlot(bloq, ruaDe, ruaPara) = true; } bloqueios++; core::onTurn(loc, 2); pularProximo = true; }
+  void aoBloquear() { if (ancorando) ancorarBloq++; if (ruaValida()) { core::streetSlot(bloq, ruaDe, ruaPara) = true; } bloqueios++; core::onTurn(loc, 2); pularProximo = true; }   // so bloqueia: nao e rua vazia (cubo ou outro robo pode estar la)
   bool ruaAtualNaoMedida() const { return !ruaValida() || fabsf(core::streetSlot(cubos, ruaDe, ruaPara) - bm.prior) < 0.08f; }   // a rua para onde virou ainda tem so a crenca inicial: vale olhar adiante
   void aoColetar(seguidor::CorCubo cor) { if (ruaValida()) core::setStreet(cubos, ruaDe, ruaPara, 0.0f); carga.push_back(cor); carregando = true; coletados++; }
 
