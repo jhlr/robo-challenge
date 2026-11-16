@@ -115,3 +115,11 @@ Varredura de 60 sementes (6 cubos, 12 min), entregas totais:
 Diferenca entre configs (+-5) esta no ruido: ajustar parametros nao move o resultado. O ganho
 estrutural restante esta em (1) busca de plataforma na 1a entrega (~84 s, e o 1o cubo de cor sem
 plataforma conhecida se perde) e (2) partida ANCORAR (~30 s). Observacao inicial segue desligada.
+
+### Busca de plataforma: duas ideias testadas e descartadas (5 sementes, 6 cubos)
+
+Na semente 7 o eco parado dava plataformas em y=828 e 1108 mm, mas as reais estao nas marcas 708 e 1228
+(compressao ~0,54 em torno do y do carro: o y do eco nao e confiavel). Entregas, baseline 9:
+- encaixar o eco na marca mais proxima: 0 (ler a cor na marca "certa" falha, o resto da navegacao compensa o vies);
+- ignorar ecos fora da grade de 260 mm como alvo: 4.
+Revertido. Antes de mexer na ordem da busca, corrigir a causa: por que o y estimado pelo eco sai comprimido (angulo da varredura parada / D2).
