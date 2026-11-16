@@ -374,6 +374,7 @@ struct Robo {
   bool zerarSaindoNoFim = true;
   bool ancorarSemVarrer = true;
   bool corNaSaidaParaTudo = true;
+  bool sinteticoLimpaPular = true;
   bool portaoSoMeio = true;
   bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
   bool ancorarSemRepetir = true;
@@ -554,7 +555,7 @@ struct Robo {
     return rumo - rumoRef;
   }
 
-  void pararNoCruzamento(Carro& c, bool preto[kSensores]) {
+  void pararNoCruzamento(Carro& c, bool preto[kSensores], bool sintetico = false) {
     Fatia fatia(*this, c, Fase::Cruzamento);
     c.parar();
     paradaEm = c.estado();
@@ -746,6 +747,9 @@ struct Robo {
     if (varr.resultado == Oito::Cruzamento) { cruzamentos++; registrarCruzamento(expl, rumo); }
     else if (varr.resultado == Oito::Endireitou) { endireitou++; if (nav.ativo) nav.aposVirar(varr.ladoEndireitou > 0 ? 'L' : 'R'); trechoRestante0 = -1.0; tSaidaMs = c.agoraMs(); odoSaida = c.odoMm(); andadoRuaMm = 0.0f; }
     else falsosAlarmes++;
+    // Chegada SINTETICA (meia-volta logo depois de sair do no: o carro ainda esta nele): o `pularProximo` da meia-volta e deste no. Se a varredura nao o confirmou como cruzamento
+    // (endireitou, falso alarme) ninguem o consome aqui e ele pulava o cruzamento SEGUINTE de verdade (pose uma linha atras pelo resto da partida).
+    if (sintetico && varr.resultado != Oito::Cruzamento && sinteticoLimpaPular) nav.pularProximo = false;
     esquecerUltimoComando(memoria);
     if (varr.resultado == Oito::Endireitou) memoria.perdeuEm = 0;   // estava de lado em cima da linha e agora esta alinhado: volta a seguir
     tUltimoCruzamento = c.agoraMs();
@@ -1341,7 +1345,7 @@ struct Robo {
     if (nav.ativo && !nav.loc.inGreen && tSaidaMs != 0 && andadoRuaMm < 120.0f) {
       bool noCruzamento[kSensores] = {true, false, false, true, true, false, false, true};   // S1 e S8 acesos: a premissa da varredura
       medindoVel = false;
-      pararNoCruzamento(c, noCruzamento);
+      pararNoCruzamento(c, noCruzamento, true);
     }
   }
 

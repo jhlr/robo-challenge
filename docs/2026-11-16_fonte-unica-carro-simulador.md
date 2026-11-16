@@ -234,3 +234,10 @@ eixo do sensor, o cone e de 10 (cone 20), e o eco lia a parede do fundo a 870 mm
 (depois, "so pode ser o outro robo", `pularProximo` mal usado e pose uma linha errada). Agora, nos primeiros 250 mm da rua, uma cor de cubo no TCS da frente (faixa estreita a ~90 mm, nao
 depende do angulo) vale como eco na distancia de parar (`corNaSaidaParaTudo`). Sementes ruins (14, 36, 58): 2 -> 18; sementes 0-4: 27 -> 29; 20 sementes: 98 -> 106; testes ok.
 Custo no carro real: uma leitura do TCS da frente a cada 60 ms so nos primeiros 250 mm de cada rua; medir se o laco aguenta.
+
+### Semente 10: `pularProximo` pendente apos meia-volta por cubo (carregando)
+
+Carregando, um cubo no caminho junto ao no (`aoBloquearTemporario`: `pularProximo = true` + U-turn) fazia `voltarDoCubo` chamar `pararNoCruzamento` com uma chegada
+SINTETICA (o carro ainda esta no no). Quando a varredura dava "ENDIREITOU" (nao "cruzamento") ninguem consumia o `pularProximo`, e ele pulava o cruzamento SEGUINTE de verdade:
+pose uma linha atras (est (5,3), real (5,4)) por centenas de segundos. Agora a chegada sintetica limpa o `pularProximo` quando a varredura nao confirma cruzamento (`sinteticoLimpaPular`).
+Sementes ruins (10,41,43,47,57): 8 -> 14 (semente 10: 1 -> 5); sementes 0-4: 29 -> 29; 20 sementes: 106 -> 109; testes ok.
