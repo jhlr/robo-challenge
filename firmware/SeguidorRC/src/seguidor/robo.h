@@ -139,6 +139,7 @@ struct Navegador {
   bool ancorando = false;   // o ultimo cruzamento foi decidido no modo ANCORAR (linha desconhecida)
   int ancorarBloq = 0;      // cubos que fecharam o caminho ate a vermelha sem a linha ter sido achada
   void aoBloquear() { if (ancorando) ancorarBloq++; if (ruaValida()) { core::setStreet(cubos, ruaDe, ruaPara, 0.0f); core::streetSlot(bloq, ruaDe, ruaPara) = true; } bloqueios++; core::onTurn(loc, 2); pularProximo = true; }
+  bool ruaAtualNaoMedida() const { return !ruaValida() || fabsf(core::streetSlot(cubos, ruaDe, ruaPara) - bm.prior) < 0.08f; }   // a rua para onde virou ainda tem so a crenca inicial: vale olhar adiante
   void aoColetar(seguidor::CorCubo cor) { if (ruaValida()) core::setStreet(cubos, ruaDe, ruaPara, 0.0f); carga.push_back(cor); carregando = true; coletados++; }
 
   // Rua que ja foi vista VAZIA: la nunca mais aparece cubo (ninguem poe cubo de volta), entao qualquer eco ali so pode ser o OUTRO ROBO.
@@ -332,8 +333,8 @@ struct Robo {
   AjustesGiroCruzamento ajG;
   Memoria memoria;
   // Para onde vai o tempo: cada ciclo (tick) e cobrado da fase em curso (exclusivo: o tempo de uma fase aninhada nao conta na de fora). Mede, nao decide.
-  enum class Fase : uint8_t { Seguir, Corrigir, Buscar, Cruzamento, Giro, Cubo, Plataforma, Entrada, Borda, kNum };
-  static constexpr const char* kNomesFase[static_cast<int>(Fase::kNum)] = {"reto", "corrige", "busca", "cruzamento", "giro-cruz", "cubo", "plataforma", "entrada", "borda"};
+  enum class Fase : uint8_t { Seguir, Corrigir, Buscar, Cruzamento, Varre, Gesto, Vira, Cubo, Plataforma, Entrada, Borda, kNum };
+  static constexpr const char* kNomesFase[static_cast<int>(Fase::kNum)] = {"reto", "corrige", "busca", "cruzamento", "varre", "gesto", "vira", "cubo", "plataforma", "entrada", "borda"};
   unsigned long msFase[static_cast<int>(Fase::kNum)] = {};
   Fase fase = Fase::Seguir;
   unsigned long marcaFase = 0;
@@ -360,6 +361,7 @@ struct Robo {
   bool esperandoAjuda = false;
   int pedidosDeAjuda = 0, marcoMetas = 0;
   unsigned long ultimaMetaMs = 0;
+  bool olharSoSeNaoMedida = true;   // depois de virar, o olhar de 35 graus (~1,4 s) so quando a rua nova ainda nao foi medida pelo ultrassom
   static constexpr double kRetoParaReancorarMm = 150.0;
   double retoDesdeMm = -1.0;   // odometro quando comecou a andar reto sobre a linha (-1 = nao esta nisso)
   static constexpr double kMaxVerdeSemLinhaMm = 700.0;
@@ -673,7 +675,7 @@ struct Robo {
       varr.resultado = Oito::Cruzamento;
       varr.fase = Varredura::Pronta;
       semVarreduras++;
-      if (gesto) { Fatia giroF(*this, c, Fase::Giro); const float r0 = rumo; girarPara(c, r0 + lado * static_cast<float>(cfg.gestoGraus)); girarPara(c, r0); }   // rodadinha para o lado menos explorado e volta reto
+      if (gesto) { Fatia giroF(*this, c, Fase::Gesto); const float r0 = rumo; girarPara(c, r0 + lado * static_cast<float>(cfg.gestoGraus)); girarPara(c, r0); }   // rodadinha para o lado menos explorado e volta reto
     } else {
       // Entregando (carregando, indo para o oeste) ele so precisa CONFIRMAR o cruzamento e se virar para a rua do oeste: gira uma vez, para o lado do oeste (uma rua ali ja e cruzamento).
       // Completa (os dois lados) quando precisa VER as ruas (ultrassom) ou escolher uma.
@@ -686,7 +688,7 @@ struct Robo {
       if (!soUmLado && soLadoMedir != 0) { soUmLado = true; ladoVarredura = soLadoMedir; }
       iniciarVarredura(varr, ladoVarredura, vinhaSeguindo, soUmLado);
       AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto), static_cast<float>(c.us())};
-      Fatia giroF(*this, c, Fase::Giro);   // a varredura gira nos dois lados: e tempo de giro, nao de parada
+      Fatia giroF(*this, c, Fase::Varre);   // a varredura gira nos dois lados: e tempo de giro, nao de parada
       for (int i = 0; i < 4000; i++) {   // 20 s no maximo
         const ComandoVarredura k = passoVarredura(varr, leitura, c.agoraMs(), ajustes.velBuscaExterna, ajG, bufVarr, kBufVarr);
         c.comandar(k.esq, k.dir);
@@ -733,10 +735,10 @@ struct Robo {
       }
       medindoVel = a == 'S';   // saiu em linha reta: o proximo cruzamento esta a 400 mm
       {
-        Fatia giroF(*this, c, Fase::Giro);
+        Fatia giroF(*this, c, Fase::Vira);
         if (a == 'L' || a == 'R') { virarParaRua(c, a == 'L'); if (nav.ativo) nav.aposVirar(a); }
         else if (a == 'U') { std::vector<AmostraGiro> e2, v2; girarAte(c, 0.0f, 180.0f, e2, v2, c.estado().th, rumo, true); memoria.perdeuEm = 0; if (nav.ativo) nav.aposVirar('U'); }
-        if ((a == 'L' || a == 'R') && !nav.loc.inGreen) olharAdiante(c, a == 'L' ? 1 : -1);
+        if ((a == 'L' || a == 'R') && !nav.loc.inGreen && (!olharSoSeNaoMedida || nav.ruaAtualNaoMedida())) olharAdiante(c, a == 'L' ? 1 : -1);
       }
       usAnt = -1.0f; ecoLembradoMm = -1.0f; ecoRealinhado = false; ultimoUsMs = 0;                   // depois de virar o 1o eco e lido NA HORA (um cubo no meio da rua fica a ~60 mm da ponta) e sem leitura antiga para parecer que o eco se mexe
       tSaidaMs = c.agoraMs(); odoSaida = c.odoMm();                          // daqui em diante conta o caminho andado na rua nova

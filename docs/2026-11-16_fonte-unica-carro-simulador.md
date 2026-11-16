@@ -95,3 +95,23 @@ Regra: pegar o carro e poe-lo de volta no verde e permitido (custa o reinicio). 
 - **Divergencia: passo das ruas.** O PDF da arena 2840 x 1500 com verde 280 + ecoponto 220 por lado deixa 1840 x 1460 mm de cidade; 6 x 5 cruzamentos nessa area dao passo de ~300-316 mm (a imagem mede ~302). O simulador e o firmware usam `kPasso = 400` (medida do usuario em 2026-10-29; becos de 168 e ecoponto de 291 foram escalados de 302 para 400). Com 400 mm a cidade teria 2000 mm de largura, mais que os 1840 do PDF. Se o 400 e de uma arena de teste propria, ok; se a arena da competicao e a do PDF, `kPasso`, `kBeco`, `kEcoponto*`, os limiares de `alvo.h` (kCuboMinMm/MaxMm) e o `trechoRestante0` precisam voltar a ~302.
 - **Capacidade:** as regras permitem 2 cubos por viagem; o carro usa 1 (`coleta.capacidade = 1`). Com a entrega custando 60-100 s, 2 por viagem e o maior ganho de pontos ainda aberto.
 - **Robo inativo (-10):** parar e apitar esperando o humano pode ser lido como inativo; o reinicio (-15) sai de qualquer forma.
+
+## Otimizacao de tempo a 1 cubo por viagem (medido)
+
+Capacidade fica em 1 cubo/viagem. Cronometro por fase agora separa `varre`, `gesto` e `vira`
+(antes um `giro` so). Participacao do tempo (sementes 3/7/11): reta ~25-28 %, plataforma 19-27 %,
+vira 14-17 %, varre 13-18 %, gesto 9-11 % (cruzamento ~40 % junto). Por cruzamento: ~2,5 s andando
+e ~4 s de overhead.
+
+Varredura de 60 sementes (6 cubos, 12 min), entregas totais:
+
+| config | entregas |
+|---|---|
+| olhar adiante em toda virada (antes) | 132 |
+| olhar so se a rua nova nao foi medida (novo padrao `olharSoSeNaoMedida`) | 136 |
+| idem + gesto=20 | 138 |
+| antes + gesto=20 | 135 |
+
+Diferenca entre configs (+-5) esta no ruido: ajustar parametros nao move o resultado. O ganho
+estrutural restante esta em (1) busca de plataforma na 1a entrega (~84 s, e o 1o cubo de cor sem
+plataforma conhecida se perde) e (2) partida ANCORAR (~30 s). Observacao inicial segue desligada.
