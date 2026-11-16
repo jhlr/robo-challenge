@@ -462,7 +462,7 @@ struct Robo {
       agora = rumo - rumoRef;
       est.push_back({agora, p[0], p[7], acesos(p)});
       ver.push_back({static_cast<float>((c.estado().th - thRef) * 180.0 / M_PI), p[0], p[7], acesos(p)});
-      if (fabsf(agora) < 0.5f * fabsf(alvo)) continue;   // ainda saindo da rua de onde veio
+      if (fabsf(agora) < 0.7f * fabsf(alvo)) continue;   // ainda saindo da rua de onde veio (com a barra a 15 mm ela cobre a rua de origem ate ~45 graus: 0,5 fechava nela)
       const bool centro = p[3] && p[4];
       if (!dentro && centro) { dentro = true; aEntrada = agora; }
       else if (dentro && !centro) { aSaida = agora; saiu = true; break; }
@@ -709,16 +709,22 @@ struct Robo {
   // fora da barra. Entao avanca ate as duas pontas apagarem (a barra atravessou a rua, sem depender da largura da linha) e so entao gira 90 graus.
   void virarParaRua(Carro& c, bool esquerda) {
     c.comandar(ajustes.velReto, ajustes.velReto);
+    double odoApagou = c.odoMm();
     for (int i = 0; i < 120; i++) {   // ate 600 ms
       tick(c);
       bool p[kSensores];
       lerBarra(c, p);
+      odoApagou = c.odoMm();
       if (!p[0] && !p[7]) break;
     }
     c.parar();
-    // O giro fecha na linha (girarNaLinha) e isso so da certo se o eixo gira no CENTRO do cruzamento: as pontas apagam com a barra ~12,5 mm alem do centro, ou seja,
-    // com o eixo (barraAFrenteMm - 12,5) mm antes dele (17,5 mm com a barra a 30 mm). Anda esses mm (odometro) para a rua nova ficar centrada no eixo e a faixa dela ser simetrica.
-    andarMm(c, ajustes.barraAFrenteMm - 12.5, [] { return false; });
+    esperarParar(c);
+    // O giro fecha na linha (girarNaLinha) e isso so da certo se o eixo gira no CENTRO do cruzamento: as pontas apagam com a barra ~12,5 mm alem do centro, ou seja, com o eixo
+    // (barraAFrenteMm - 12,5) mm antes dele. A freada ja andou `frenou` alem do ponto onde apagaram (a roda leva ~tauMs para parar: ~8 mm a 160 mm/s), entao falta o resto; se a freada passou, volta
+    // de re. Com a barra a 15 mm o braco do giro e curto (~16 mm): 7 mm fora do centro ja deslocam a faixa da rua em ~25 graus e o giro nao fecha.
+    const double frenou = c.odoMm() - odoApagou;
+    const double falta = ajustes.barraAFrenteMm - 12.5 - frenou;
+    if (fabs(falta) > 1.0) andarMm(c, falta, [] { return false; });
     std::vector<AmostraGiro> est, ver;
     girarAte(c, 0.0f, esquerda ? 90.0f : -90.0f, est, ver, c.estado().th, rumo, true);
     esquecerUltimoComando(memoria);
@@ -732,9 +738,17 @@ struct Robo {
     std::vector<AmostraGiro> e2, v2;
     girarAte(c, 0.0f, delta, e2, v2, c.estado().th, rumo);
   }
-  // Anda `mm` na direcao do rumo atual, segurando o rumo pelos encoders; para antes se `parar()` ficar verdadeiro.
+  // Espera as rodas pararem de verdade depois de um c.parar(): a roda leva ~tauMs para frear e o que ainda anda conta no percurso (o odometro continua somando).
+  void esperarParar(Carro& c) {
+    double antes = c.odoMm(), vNow = 1e9;
+    for (int i = 0; i < 80 && fabs(vNow) > 3.0; i++) { tick(c); vNow = (c.odoMm() - antes) / (cfg.dtMs / 1000.0); antes = c.odoMm(); }
+  }
+
+  // Anda `mm` na direcao do rumo atual (mm < 0: de re), segurando o rumo pelos encoders na ida; para antes se `parar()` ficar verdadeiro.
   template <class Parar>
-  double andarMm(Carro& c, double mm, Parar parar) {   // devolve quantos mm andou (encoder; sem encoder, tempo x velocidade): quem precisa voltar ao ponto de partida anda o mesmo
+  double andarMm(Carro& c, double mm, Parar parar) {   // devolve quantos mm andou, sempre positivo (encoder; sem encoder, tempo x velocidade): quem precisa voltar ao ponto de partida anda o mesmo
+    const double sentido = mm < 0.0 ? -1.0 : 1.0;
+    mm = fabs(mm);
     const double alvoRumo = rumo;
     const float vel = std::max(1.0f, velLivreMmS > 0.0f ? velLivreMmS : ajC.velMmS);
     const unsigned long ms = static_cast<unsigned long>(mm / vel * 1000.0);
@@ -742,10 +756,10 @@ struct Robo {
     const double odo0 = c.odoMm();
     double vNow = 0.0, antes = odo0;
     // com encoder: para pela distancia lida, e comeca a frear a tempo (a roda leva ~tauMs para parar: v x tau a mais); o tempo so entra como limite (rodas travadas: 3x o previsto)
-    while (cfg.encoder ? (c.odoMm() - odo0 + vNow * cfg.tauMs / 1000.0 < mm && c.agoraMs() - ini < 3 * ms + 500) : c.agoraMs() - ini < ms) {
+    while (cfg.encoder ? (fabs(c.odoMm() - odo0) + fabs(vNow) * cfg.tauMs / 1000.0 < mm && c.agoraMs() - ini < 3 * ms + 500) : c.agoraMs() - ini < ms) {
       Comando cmd{};
-      cmd.esq = cmd.dir = ajustes.velReto;   // a MESMA velocidade em que se mediu a velocidade (distancia entre cruzamentos / tempo): senao o tempo nao vira distancia
-      segurarRumoNaLacuna(cmd, rumo, static_cast<float>(alvoRumo), ajustes);
+      cmd.esq = cmd.dir = static_cast<int>(sentido) * ajustes.velReto;   // a MESMA velocidade em que se mediu a velocidade (distancia entre cruzamentos / tempo): senao o tempo nao vira distancia
+      if (sentido > 0.0) segurarRumoNaLacuna(cmd, rumo, static_cast<float>(alvoRumo), ajustes);
       c.comandar(cmd.esq, cmd.dir);
       tick(c);
       vNow = (c.odoMm() - antes) / (cfg.dtMs / 1000.0);
@@ -754,8 +768,8 @@ struct Robo {
     }
     c.parar();
     if (cfg.encoder) {   // espera as rodas pararem de verdade: o que ainda anda na freada conta no percurso
-      for (int i = 0; i < 80 && fabs(vNow) > 3.0; i++) { tick(c); vNow = (c.odoMm() - antes) / (cfg.dtMs / 1000.0); antes = c.odoMm(); }
-      return c.odoMm() - odo0;
+      esperarParar(c);
+      return fabs(c.odoMm() - odo0);
     }
     return (c.agoraMs() - ini) / 1000.0 * vel;
   }

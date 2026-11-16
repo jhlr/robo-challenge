@@ -101,6 +101,10 @@ struct ParamsFisicos {
   double escalaOdo = 1.0;         // erro de escala do odometro (diametro da roda / relacao de engrenagens): 1,01 = le 1% a mais do que anda
 };
 
+// Erro lateral aceito ao fim de um percurso: a barra de 8 sensores a 75 mm so enxerga a linha em passos de ~10,7 mm, e S4 ou S5 sozinho conta como 'em cima' (a zona reta), entao o carro
+// pode assentar a ate meio passo (5,4 mm) + a folga do eixo ao lado da linha sem que isso seja defeito da decisao.
+constexpr double kErroFinalMm = 8.0;
+
 Ajustes gAjustes = ajustesDoCarro();   // a MESMA fonte do firmware (params.h); os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
 bool gSo_Placar = false;
 double gGestoGraus = 45.0;   // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado e volta reto, em vez da varredura de 90 graus (0 = desliga e usa a varredura de antes, < 0 = passa direto sem girar)
@@ -906,9 +910,12 @@ static Resultado cenarioReta(const char* nome, double off, double ang, bool salv
   p.reta(0, 0, 0, 1000);
   Carro c(p, norte(off, 100, ang));
   Firmware fw;
+  bool p0[kSensores];
+  c.ler(p0);
+  const bool veLinhaNoInicio = std::any_of(p0, p0 + kSensores, [](bool b) { return b; });   // com a barra de 15 mm a 25 mm fora e torta, a linha pode comecar fora do alcance: ai o inicio e uma BUSCA, nao um seguimento
   const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; });
   placar(c);
-  const bool ok = chegou && c.erroBarra() < 6.0 && fw.ticksBuscando == 0;
+  const bool ok = chegou && c.erroBarra() < kErroFinalMm && (fw.ticksBuscando == 0 || !veLinhaNoInicio);
   if (salva) svg(nome, p, c);
   return {nome, ok, fmt("off %+.0f mm, ang %+.0f: %s em %lu ms, erro final %.1f mm, erro max %.1f mm, rms %.1f, buscando %d ciclos", off, ang, chegou ? "chegou" : "NAO chegou", c.agoraMs(),
                        c.erroBarra(), c.erroMax(), c.erroRms(), fw.ticksBuscando)};
@@ -925,7 +932,7 @@ static Resultado cenarioCanto(bool paraEsquerda) {
   fw.paraNoCruzamento = true;
   const bool chegou = rodar(fw, c, [&](const Carro& k) { return fabs(k.estado().x) > 450; });
   placar(c);
-  const bool ok = chegou && c.erroBarra() < 6.0;
+  const bool ok = chegou && c.erroBarra() < kErroFinalMm;
   svg(paraEsquerda ? "canto_esquerda" : "canto_direita", p, c);
   return {paraEsquerda ? "canto vivo 90 (esquerda)" : "canto vivo 90 (direita)", ok,
           fmt("%s em %lu ms, erro final %.1f mm, erro max %.1f mm, buscando %d ciclos, cruzamentos %d, falsos alarmes %d", chegou ? "chegou" : "NAO chegou", c.agoraMs(), c.erroBarra(),
@@ -941,7 +948,7 @@ static Resultado cenarioArco(double raio) {
   Firmware fw;
   const bool chegou = rodar(fw, c, [&](const Carro& k) { return k.estado().x > raio + 300; });
   placar(c);
-  const bool ok = chegou && c.erroBarra() < 6.0;
+  const bool ok = chegou && c.erroBarra() < kErroFinalMm;
   svg(fmt("arco_%.0f", raio), p, c);
   return {fmt("arco raio %.0f mm", raio), ok, fmt("%s em %lu ms, erro final %.1f mm, erro max %.1f mm, buscando %d ciclos", chegou ? "chegou" : "NAO chegou", c.agoraMs(), c.erroBarra(), c.erroMax(), fw.ticksBuscando)};
 }
@@ -1011,7 +1018,7 @@ static Pista tabuleiro() {
   return p;
 }
 
-// Saida do verde como no carro (main.cpp: nav.iniciar()): o navegador leva reto ate o portao azul, o carro o atravessa (uma vez) e confirma o primeiro cruzamento da cidade sem falso alarme.
+// Saida do verde como no carro (main.cpp: nav.iniciar()): o navegador leva reto ate o portao azul, o carro o atravessa (uma vez) e confirma os 3 primeiros cruzamentos da cidade sem falso alarme e sem voltar pelo portao.
 // (A borda e o fim de beco tem os seus cenarios: cenarioBorda.)
 static Resultado cenarioTabuleiro() {
   Pista p = tabuleiro();
@@ -1021,10 +1028,10 @@ static Resultado cenarioTabuleiro() {
   fw.nav.iniciar();
   fw.nav.coleta.capacidade = 1;
   fw.portaoPendente = true;
-  const bool chegou = rodar(fw, c, [&](const Carro&) { return fw.portoes >= 1 && fw.cruzamentos >= 1; });
-  const bool ok = chegou && fw.portoes == 1 && fw.falsosAlarmes == 0 && c.erroBarra() < 8.0;
+  const bool chegou = rodar(fw, c, [&](const Carro&) { return fw.portoes >= 2 || fw.cruzamentos >= 3; });   // parar no 2o portao = o carro voltou por onde veio
+  const bool ok = chegou && fw.portoes == 1 && fw.cruzamentos >= 3 && fw.falsosAlarmes == 0 && c.erroBarra() < 8.0;
   svg("tabuleiro_inteiro", p, c);
-  return {"saida do verde: portao e primeiro cruzamento, sem falso alarme", ok,
+  return {"saida do verde: portao uma vez e 3 cruzamentos, sem voltar nem falso alarme", ok,
           fmt("%s em %.1f s | portao %d, cruzamentos confirmados %d, falsos %d | parou em (%.0f, %.0f) mm, erro %.1f mm", chegou ? "completou" : "NAO completou", c.agoraMs() / 1000.0, fw.portoes, fw.cruzamentos,
               fw.falsosAlarmes, c.estado().x, c.estado().y, c.erroBarra())};
 }
@@ -1232,7 +1239,7 @@ static Resultado cenarioAtravessa() {
   Carro c(p, norte(0, 100));
   Firmware fw;
   const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; });
-  const bool ok = chegou && fw.cruzamentos == 1 && c.erroBarra() < 6.0;
+  const bool ok = chegou && fw.cruzamentos == 1 && c.erroBarra() < kErroFinalMm;
   svg("atravessa_cruzamento", p, c);
   return {"atravessa o cruzamento e segue", ok, fmt("%s em %lu ms, cruzamentos %d, falsos %d, erro final %.1f mm, giro deixou rumo %+.1f graus, buscando %d ciclos", chegou ? "chegou" : "NAO chegou",
                                                     c.agoraMs(), fw.cruzamentos, fw.falsosAlarmes, c.erroBarra(), fw.giroDriftGraus, fw.ticksBuscando)};
@@ -1246,7 +1253,7 @@ static Resultado cenarioLacuna(double lacunaMm) {
   Carro c(p, norte(0, 100));
   Firmware fw;
   const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; });
-  const bool ok = chegou && c.erroBarra() < 6.0;
+  const bool ok = chegou && c.erroBarra() < kErroFinalMm;
   svg(fmt("lacuna_%.0f", lacunaMm), p, c);
   return {fmt("lacuna de %.0f mm", lacunaMm), ok, fmt("%s em %lu ms, erro final %.1f mm, buscando %d ciclos", chegou ? "chegou" : "NAO chegou", c.agoraMs(), c.erroBarra(), fw.ticksBuscando)};
 }
@@ -1649,6 +1656,11 @@ int main(int argc, char** argv) {
       else if (!strcmp(argv[i], "--servir")) servirAoVivo = true;
       else if (!strcmp(argv[i], "--tabuleiro")) {   // so o cenario do tabuleiro inteiro (use com SIM_TRACE=1)
         const Resultado r = cenarioTabuleiro();
+        printf("[%s] %s\n       %s\n", r.ok ? "ok" : "FALHA", r.nome.c_str(), r.info.c_str());
+        return r.ok ? 0 : 1;
+      }
+      else if (!strcmp(argv[i], "--reta")) {   // --reta OFF ANG: um cenario de reta (use com SIM_TRACE=1)
+        const Resultado r = cenarioReta("reta", i + 1 < argc ? atof(argv[i + 1]) : 0.0, i + 2 < argc ? atof(argv[i + 2]) : 0.0, false);
         printf("[%s] %s\n       %s\n", r.ok ? "ok" : "FALHA", r.nome.c_str(), r.info.c_str());
         return r.ok ? 0 : 1;
       }

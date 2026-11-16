@@ -27,10 +27,15 @@ Conjunto de 40 casos (`--busca-lote`: 5 distancias da linha x 8 rumos). Antes: 1
 2. O quadrado em espiral crescia 1, 2, 3 x e depois repetia o mesmo quadrado; agora os lados crescem de dois em dois (1, 1, 2, 2, 3, 3), sem deixar faixa sem varrer.
 3. A volta inteira de 360 graus (~6 s) virou 120 graus; roda de busca a 110 PWM e lado do quadrado de 600 ms (em `ajustesDoCarro`).
 
+## Corrigido depois (barra a 15 mm: o braco do giro e curto, ~16 mm)
+- O carro atravessava o portao, virava no 1o cruzamento e voltava pelo portao (portao contado 2x). Duas causas em `robo.h`: (1) `virarParaRua` parava na hora em que as pontas apagavam e ainda andava ~8 mm na freada (tau da roda x velocidade), depois somava o avanco ate o centro: o eixo girava 7 mm fora do centro. Agora mede a freada pelo odometro e anda (ou da re) so o que falta (`andarMm` aceita distancia negativa; `esperarParar` e a unica espera de freada). (2) `girarNaLinha` fechava na rua de ONDE VEIO (a barra a 15 mm a cobre ate ~45 graus): o limite para ignorar a rua de origem passou de 0,5 para 0,7 do giro.
+- `reta off-25 ang+20`: a linha comeca fora do alcance da barra, entao o inicio e uma busca (nao seguimento), e o erro final assenta a meio passo de sensor (S4/S5 sozinho e a zona reta). O cenario so exige `ticksBuscando == 0` quando a barra ve a linha no inicio, e o erro aceito (`kErroFinalMm`, 8 mm) vem da quantizacao da barra (passo ~10,7 mm), nao de um numero ajustado ate passar.
+- `teste_alvo.cpp` estava desatualizado desde o passo de rua de 40 cm (`kPassoMm` 400): os ecos agora saem de `kPassoMm`.
+- O cenario do tabuleiro agora exige 1 portao, 3 cruzamentos, sem falso alarme e sem voltar (antes parava no 1o cruzamento).
+
 ## Em aberto
-- Cenarios do simulador que ainda falham com os numeros reais: `reta off-25 ang+20`, `perdido de lado na linha` e `tabuleiro inteiro` (a saida do verde deste ultimo foi refeita: navegador ligado, como no carro).
-- `teste_alvo.cpp` falha desde antes (`ruaDoEco(330, 0)`), sem relacao com isto.
 - S7/S8 (GPIO35/34, so de entrada) seguem mortos: a barra RC precisa de pino com saida para carregar o capacitor. Mover para GPIO13/GPIO4 e zerar `kLineDeadMask`.
+- Nada disto foi gravado no carro (sem acesso ao carro; OTA/USB pendentes).
 
 ## Como rodar
 - Simulador: `g++ -std=c++17 -O2 -Isrc -I../src -I../include -pthread test/simulador.cpp src/seguidor/decisao.cpp -o /tmp/sim && /tmp/sim [parametros]`;
