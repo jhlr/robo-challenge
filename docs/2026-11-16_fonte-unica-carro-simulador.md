@@ -123,3 +123,16 @@ Na semente 7 o eco parado dava plataformas em y=828 e 1108 mm, mas as reais esta
 - encaixar o eco na marca mais proxima: 0 (ler a cor na marca "certa" falha, o resto da navegacao compensa o vies);
 - ignorar ecos fora da grade de 260 mm como alvo: 4.
 Revertido. Antes de mexer na ordem da busca, corrigir a causa: por que o y estimado pelo eco sai comprimido (angulo da varredura parada / D2).
+
+### Y das plataformas: o eco estava certo, a grade supunha a fase errada
+
+Investigacao (semente 1/7): o eco parado dava plataformas em y=859/1137 e a busca ia ler a cor em 968/708/1228 (marcas inteiras),
+mas o cenario de coleta poe 4 plataformas ENTRE as marcas (slots 0,5..3,5 = 578, 838, 1098, 1358). Nao havia compressao: o firmware
+supunha que as plataformas ficam sempre nas 5 marcas inteiras (448..1488), e alem de ler no lugar errado ainda encaixava o y do carro
+nessa grade (erro de ate 130 mm, depois a reentrada no portao errava a rua e ele rodava a borda). Agora `Navegador::faseGrade`
+(fase da grade de 260 mm) e aprendida pela primeira plataforma lida de perto (`aprenderGrade`) e o encaixe so vale depois (`naGrade`);
+antes disso o eco e usado como esta. A fase real da arena (marcas ou entre elas) segue sendo uma duvida das regras: o codigo agora aceita as duas.
+
+Metodo de teste: sementes RUINS (`ruins.sh` acha ate N com <=2 entregas de 6; `avalia.sh` mede so elas; boas sao descartadas).
+Sementes ruins 0,1,2,4,9: 7 -> 18 entregas. Novo conjunto ruim: 1, 8, 14, 15, 16, 17.
+Depuracao nova: `MAPEAR inicio/fim/eco` em SIM_DEBUG.

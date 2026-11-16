@@ -127,6 +127,7 @@ struct Navegador {
     else core::onOwnBlue(loc);
   }
   int linhaEntrada = -1;   // a linha pela qual entrou (conhecida pela moldura vermelha); -1 = nao sabe
+  double faseGrade = std::nan("");   // as plataformas ficam numa grade de 260 mm, mas a FASE dela (nas 5 marcas ou entre elas) so se sabe depois de ver uma: desvio de (y - meio) em relacao ao passo
   std::vector<std::pair<double, seguidor::CorCubo>> platConhecidas;   // (y, cor) das plataformas ja lidas de perto
   std::vector<double> yOlhados;   // alturas do ecoponto ja olhadas (ou sem eco): nao olha de novo
   std::vector<double> platPresentes;   // alturas onde o ultrassom parado no meio do mapa achou plataforma (ainda sem ler a cor)
@@ -874,6 +875,18 @@ struct Robo {
     return c.agoraMs() - t0;
   }
 
+  // Encaixa y na grade de plataformas quando a fase ja e conhecida; senao devolve y como esta.
+  double naGrade(double y) const {
+    if (std::isnan(nav.faseGrade)) return y;
+    const double meio = kAlt / 2.0 + nav.faseGrade, passo = kPlatY_Tam + kPlatEntre;
+    return meio + std::round((y - meio) / passo) * passo;
+  }
+  void aprenderGrade(double yPlataforma) {   // uma plataforma lida de perto define a fase da grade (so a primeira)
+    if (!std::isnan(nav.faseGrade)) return;
+    const double passo = kPlatY_Tam + kPlatEntre;
+    nav.faseGrade = std::remainder(yPlataforma - kAlt / 2.0, passo);
+  }
+
   // PARADO no meio do mapa, de frente para o ecoponto: gira de -36 a +36 graus lendo o ultrassom. Cada eco e um ponto da face das plataformas (Pitagoras: distancia ate a face =
   // alcance x cos, deslocamento lateral = distancia x tan); os trechos de angulos COM eco sao as plataformas e o MEIO de cada trecho e o centro dela: o cone (+-10 graus) alarga
   // cada trecho dos dois lados por igual, entao o meio nao tem vies, desde que a abertura do cone na face (distancia x tan 10) fique abaixo de meio vao (50 mm): por isso primeiro
@@ -886,6 +899,7 @@ struct Robo {
       const double e = c.us();
       return e > 0.0 ? e + 100.0 : -1.0;
     };
+    ROBO_DBG("    MAPEAR inicio yAtual %.0f real (%.0f,%.0f) th %.0f\n", yAtual, c.estado().x, c.estado().y, c.estado().th * 57.3);
     double D = -1.0;
     for (const double phi : {0.0, 20.0, -20.0, 40.0, -40.0}) {
       const double r = alcance(phi);
@@ -897,6 +911,8 @@ struct Robo {
     std::vector<std::pair<double, double>> eco;   // (phi, alcance); alcance < 0 = sem eco
     for (int g = -36; g <= 36; g += 4) eco.push_back({static_cast<double>(g), alcance(g)});
     girarPara(c, 180.0);
+    ROBO_DBG("    MAPEAR fim da varredura real (%.0f,%.0f) th %.0f\n", c.estado().x, c.estado().y, c.estado().th * 57.3);
+    if (ROBO_DEPURANDO()) { std::string l; for (const auto& e : eco) l += fmt(" %.0f:%.0f", e.first, e.second); ROBO_DBG("    MAPEAR eco (phi:alcance)%s\n", l.c_str()); }
     std::vector<double> perp;
     for (const auto& e : eco) if (e.second > 0.0 && fabs(e.first) <= 25.0) perp.push_back(e.second * cos(e.first * kRad));
     if (perp.empty()) { c.evento("PLATAFORMAS: varredura parada sem eco: busca de perto"); return; }
@@ -921,8 +937,8 @@ struct Robo {
     }
     const double meio = kAlt / 2.0, passo = kPlatY_Tam + kPlatEntre;   // as 5 marcas ficam numa grade de 260 mm centrada no mapa
     for (double y : centros) {
-      const double grade = meio + std::round((y - meio) / passo) * passo;
-      if (fabs(grade - y) < 45.0) y = grade;
+      const double grade = naGrade(y);
+      if (!std::isnan(nav.faseGrade) && fabs(grade - y) < 45.0) y = grade;
       bool repetida = false;
       for (const double o : nav.platPresentes) if (fabs(o - y) < 40.0) repetida = true;
       if (!repetida) { nav.platPresentes.push_back(y); c.evento(fmt("PLATAFORMAS: eco de plataforma em y = %.0f mm (ainda sem cor)", y)); }
@@ -1079,7 +1095,8 @@ struct Robo {
         reancorarOeste();
         // De frente para uma plataforma o y do eixo e o centro dela, e as plataformas so ficam nas 5 marcas, na grade de 260 mm centrada no mapa: a conta por
         // tempo (meio do mapa -> plataforma -> plataforma) erra ate ~65 mm, e esse erro fazia a volta ao portao errar a rua. Encaixa na grade.
-        yAtual = kAlt / 2.0 + std::round((yAtual - kAlt / 2.0) / (kPlatY_Tam + kPlatEntre)) * (kPlatY_Tam + kPlatEntre);
+        yAtual = naGrade(yAtual);   // fase conhecida: encaixa; a 1a plataforma lida define a fase (nas marcas ou entre elas)
+        aprenderGrade(yAtual);
         yt = yAtual;
         nav.platConhecidas.push_back({yt, vista});
         nav.plataformasVistas.push_back({yt, vista});
