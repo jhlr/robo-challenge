@@ -38,4 +38,6 @@ Resultado (20 sementes, 18 cubos):
 - Media nas completas: 491 s (antes 460 s). A maioria das sementes ficou mais lenta (ex.: seed 7 669 -> 683 s, seed 9 610 -> 682 s, seed 19 419 -> 498 s).
 - Erro de atribuicao (ECO-CUBO sem cubo real): 2,9% (34 de 1175), medido sem pose.
 
-Leitura: o limiar remove a crenca falsa de cubo, mas o carro perde a evidencia de cubos a distancia que ajudava a explorar. O ganho esperado em completas nao apareceu; o custo em tempo apareceu. Mantido porque e a regra correta para o sensor real; o proximo passo e a exploracao usar a ausencia de eco longo como informacao (hoje ela nao e).
+Leitura: o limiar remove a crenca falsa de cubo, mas o carro perde a evidencia de cubos a distancia que ajudava a explorar. O ganho esperado em completas nao apareceu; o custo em tempo apareceu. Mantido porque e a regra correta para o sensor real; o proximo passo e a exploracao usar a ausencia de eco longo como informacao.
+
+Correcao (mesma data): a frase acima estava ERRADA. A ausencia de eco JA e usada: `observarRaio` com `comSemEco` marca as ruas do alcance (900 mm, ate 3 ruas) como VAZIAS. Numa rodada de debug da semente 7 (683 s) houve 144 VAZIA-SEM-ECO, 16 VAZIA-ECO-LONGE, 81 ECO-CUBO, 42 ECO-LONGE-SEM-CUBO e 43 BLOQ-TEMP. A lacuna real e outra: a rua onde cai um ECO-LONGE-SEM-CUBO fica sem informacao (nem vazia nem cubo). Qualquer uso disso precisa de hipotese propria e medicao; nao e so "usar a ausencia".
