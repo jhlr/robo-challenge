@@ -78,3 +78,15 @@ Correcao (sem mudar o caso de cubo confirmado): `aoBloquearTemporario(bool cuboC
 Resultado: 114/120 contra 115 (semente 2: 5 -> 4; demais iguais). Neutro nos numeros, mas removeu um escritor de cubo falso.
 
 Fantasma que sobra (semente 7): rua (2,0)-(3,0) com 14 alvos e rua (0,0)-(1,0) com 6. Nao vem de eco longe nem de eco sem cubo. A hipotese: cubo confirmado pela cor no cruzamento (2,0) atribuido a rua por onde o carro passava, quando o cubo real esta na rua perpendicular (2,0)-(2,1). Proximo passo (etapa 2b): registrar, para cada escritor com cubo confirmado, a rua atribuida contra a rua real do cubo mais proximo.
+
+## Etapa 2b: de qual rua e o cubo confirmado pela cor (semente 7)
+Diagnostico (`CUBO-CONF`: rua percorrida, rua atribuida, sonar `d`, odometria `andado`): o cubo lido pela cor no cruzamento era atribuido a rua que o carro percorria (ruaDe-ruaPara). Ex.: o carro a 273 mm do cruzamento (2,0), sonar a 72 mm do cubo: o cubo esta na rua seguinte (3,0)-(4,0) ou na perpendicular, conforme a geometria; a crenca marcava a rua errada.
+Correcao: a rua do cubo confirmado sai da mesma geometria dos ecos longos (`ruaDoEco(d, andado)`, offset `kPontaMaisMeioCuboMenosEixoMm` = 87 mm). Se o eco cai perto de cruzamento (ambiguo, `k<0`) nao marca cubo, so bloqueia a rota.
+Verificacao: as atribuicoes validas (7 de 7) batem com o cubo real mais proximo; os 2 casos ambiguos ficam sem marca.
+
+Resultado (semente 7, 58 alvos):
+- alvo com crenca >= 0,8 apontando para rua sem cubo real: 41 -> 3 (sobra: (0,2)-N, (1,1)-E, (5,1)-N, um caso cada).
+- alvo com crenca baixa (0,40, prior de rua nunca medida): 28. Isto e exploracao, nao erro de observacao. Registrado como item separado (custo de explorar ruas sem cubo).
+- 20 sementes: 115/120, identico ao baseline. A correcao limpa a crenca, mas nao muda as entregas: a perda de tempo nao estava no alvo fantasma. Nao e o gargalo.
+
+Conclusao da etapa 2b: o fantasma que a semente 7 mostrava (rua (2,0)-(3,0), 14 alvos) era atribuicao de cubo confirmado a rua errada. Corrigido. O que segue na semente 7 e exploracao com prior e a volta de meia-volta, nao crenca falsa.
