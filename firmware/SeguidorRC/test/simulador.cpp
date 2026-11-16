@@ -873,6 +873,7 @@ struct Resultado {
 
 static const char* gSvgDir = nullptr;
 static unsigned long long gSemente = 0;   // somada a semente do mundo: --lote varia o sorteio de cubos/ruido
+static unsigned long gSemMetaMs = 150000;
 static int gCapacidade = 1;   // cubos por viagem (param cap=; o firmware escolheu 1, as regras deixam 2)
 static struct { bool fim = false; int entregues = 0, pontos = 0, toques = 0; double tempoS = 0; } gUltimaMissao;   // resultado da ultima cenarioMissao (para --lote)
 
@@ -1113,6 +1114,7 @@ static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool 
   c.usarMundo(&m);
   fw.nav.iniciar();
   fw.nav.coleta.capacidade = gCapacidade;
+  fw.maxSemMetaMs = gSemMetaMs;
   fw.portaoPendente = true;
 }
 
@@ -1201,6 +1203,7 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
     while (static_cast<int>(entregas.size()) < fw.nav.entregues) entregas.push_back(c.agoraMs() / 1000.0);
   }
   if (getenv("SIM_FASES")) fprintf(stderr, "    semente %lu, entregou %d em %.0f s, ajudas %d | tempo: %s\n", semente, fw.nav.entregues, c.agoraMs() / 1000.0, ajudas, fw.resumoFases().c_str());
+  if (getenv("SIM_FASES")) fprintf(stderr, "    ramos: %s\n", fw.resumoRamos().c_str());
   if (getenv("SIM_DEBUG")) { for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str()); const Estado e = c.estado(); fprintf(stderr, "    FIM coleta: robo (%.0f,%.0f) th %.0f carregando %d entregues %d coletados %d\n", e.x, e.y, e.th * 57.3, fw.nav.carregando, fw.nav.entregues, fw.nav.coletados); }
   return entregas;
 }
@@ -1797,6 +1800,7 @@ int main(int argc, char** argv) {
     if (k == "tau") gFis.tauMs = v;
     else if (k == "derrap") gFis.derrapagem = v;
     else if (k == "cap") gCapacidade = static_cast<int>(v);
+    else if (k == "semmeta") gSemMetaMs = static_cast<unsigned long>(v * 1000.0);   // limite sem meta antes de pedir ajuda (s)
     else if (k == "autocal") gAutoCalBitola = v != 0.0;
     else if (k == "encoder") { gFis.encoder = v != 0.0; const int zona = gFis.encoder ? 0 : 65; gFis.zonaMortaPwm = zona; gAjustes.zonaMortaPwm = zona; }   // encoder=0: TT amarelos (zona morta 65)   // STS3215: sem zona morta, malha fechada
     else if (k == "escalaodo") gFis.escalaOdo = v;

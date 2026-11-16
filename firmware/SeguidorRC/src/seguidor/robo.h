@@ -352,6 +352,20 @@ struct Robo {
     Fatia(Robo& r_, Carro& c_, Fase f) : r(r_), c(c_), ant(r_.fase) { r.cobrar(c.agoraMs()); r.fase = f; }
     ~Fatia() { r.cobrar(c.agoraMs()); r.fase = ant; }
   };
+  // Quantas vezes cada ramo de decisao do cruzamento e da plataforma foi tomado (mede, nao decide). Lido pelo SIM_FASES.
+  enum class Ramo : uint8_t { CruzPoseSegura, CruzVizinhasMedidas, CruzGesto, CruzSoUmLado, CruzVarreCompleta, CruzAncorar, CruzNaoEsperado, kNum };
+  static constexpr const char* kNomesRamo[static_cast<int>(Ramo::kNum)] = {"pose-segura", "vizinhas-medidas", "gesto", "so-um-lado", "varre-completa", "ancorar", "nao-esperado"};
+  unsigned long contRamo[static_cast<int>(Ramo::kNum)] = {};
+  void contar(Ramo r) { contRamo[static_cast<int>(r)]++; }
+  std::string resumoRamos() const {
+    std::string t;
+    for (int k = 0; k < static_cast<int>(Ramo::kNum); k++) {
+      char b[48];
+      snprintf(b, sizeof b, "%s%s %lu", k ? " | " : "", kNomesRamo[k], contRamo[k]);
+      t += b;
+    }
+    return t;
+  }
   std::string resumoFases() const {
     unsigned long total = 0;
     for (const unsigned long ms : msFase) total += ms;
@@ -365,7 +379,7 @@ struct Robo {
   }
   // Pedir ajuda: pegar o carro e poe-lo de volta no verde e permitido (custa o reinicio), e vagar procurando custa a partida inteira (60% do tempo no simulador). Sem nenhuma META
   // (coletar, entregar, observar as plataformas, passar o portao) por kMaxSemMetaMs ele PARA e apita ate o verde aparecer sob o sensor (o `VERDE inesperado` de sempre o reposiciona).
-  static constexpr unsigned long kMaxSemMetaMs = 150000;
+  unsigned long maxSemMetaMs = 150000;   // padrao de ajustes; o simulador troca por semmeta= (segundos) para medir
   bool esperandoAjuda = false;
   int pedidosDeAjuda = 0, marcoMetas = 0;
   unsigned long ultimaMetaMs = 0;
@@ -681,8 +695,9 @@ struct Robo {
       const bool segura = core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && core::rowMass(nav.loc, es.pose.at.r) >= core::kMinCoordBelief;
       const double andado = andadoDesdeSaida(c, c.agoraMs());
       const bool esperado = segura && trechoRestante0 > 0.0 && fabs(andado - trechoRestante0) < (cfg.encoder ? 40.0 : 110.0);   // com encoder o cruzamento esperado e conferido pelo odometro
-      if (esperado && cfg.encoder && cfg.gestoGraus != 0.0) { pularVarredura = true; gesto = cfg.gestoGraus > 0.0; }   // gesto < 0: passa direto, sem girar
-      else if (esperado && pularVarreduraComPoseSegura) pularVarredura = true;
+      if (esperado && cfg.encoder && cfg.gestoGraus != 0.0) { pularVarredura = true; gesto = cfg.gestoGraus > 0.0; contar(Ramo::CruzPoseSegura); }   // gesto < 0: passa direto, sem girar
+      else if (esperado && pularVarreduraComPoseSegura) { pularVarredura = true; contar(Ramo::CruzPoseSegura); }
+      else if (!esperado) contar(Ramo::CruzNaoEsperado);
       else if (esperado) {
         // A rua do lado ja foi MEDIDA se a crenca saiu do prior (vista vazia ou com cubo) ou se nao existe (fora do mapa: o beco do portao). So essas dispensam o giro.
         const core::Node cur{static_cast<int8_t>(es.pose.at.c + es.pose.dc), static_cast<int8_t>(es.pose.at.r + es.pose.dr)};
@@ -693,8 +708,8 @@ struct Robo {
             return fabsf(core::streetSlot(nav.cubos, cur, z) - nav.bm.prior) < 0.08f;
           };
           const bool esq = precisaMedir(-es.pose.dr, es.pose.dc), dir = precisaMedir(es.pose.dr, -es.pose.dc);
-          if (!esq && !dir) pularVarredura = true;
-          else if (esq != dir) soLadoMedir = esq ? 1 : -1;
+          if (!esq && !dir) { pularVarredura = true; contar(Ramo::CruzVizinhasMedidas); }
+          else if (esq != dir) { soLadoMedir = esq ? 1 : -1; contar(Ramo::CruzSoUmLado); }
         }
       }
     }
@@ -703,7 +718,7 @@ struct Robo {
     if (!pularVarredura && ancorarSemVarrer && nav.ativo && nav.ancorando && vinhaSeguindo && !nav.loc.inGreen && !nav.pularProximo && !nav.loc.atGate) {
       const core::Estimate es = core::estimate(nav.loc);
       const double andado = andadoDesdeSaida(c, c.agoraMs());
-      if (core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && fabs(andado - kPasso) < 40.0) { pularVarredura = true; gesto = false; }
+      if (core::columnMass(nav.loc, es.pose.at.c) >= core::kMinCoordBelief && fabs(andado - kPasso) < 40.0) { pularVarredura = true; gesto = false; contar(Ramo::CruzAncorar); }
     }
     float estimado = 0.0f;   // angulo girado pelos encoders desde o inicio da varredura
     if (pularVarredura) {
@@ -724,6 +739,7 @@ struct Robo {
       }
       if (!soUmLado && soLadoMedir != 0) { soUmLado = true; ladoVarredura = soLadoMedir; }
       iniciarVarredura(varr, ladoVarredura, vinhaSeguindo, soUmLado);
+      if (!soUmLado) contar(Ramo::CruzVarreCompleta);
       AmostraGiro leitura{0.0f, preto[0], preto[7], acesos(preto), static_cast<float>(c.us())};
       Fatia giroF(*this, c, Fase::Varre);   // a varredura gira nos dois lados: e tempo de giro, nao de parada
       for (int i = 0; i < 4000; i++) {   // 20 s no maximo
@@ -1518,7 +1534,7 @@ struct Robo {
     {   // observador de metas: so conta o que e objetivo da partida
       const int metas = nav.coletados + nav.entregues + portoes + (nav.plataformasObservadas ? 1 : 0);
       if (metas != marcoMetas || ultimaMetaMs == 0) { marcoMetas = metas; ultimaMetaMs = agora; }
-      else if (nav.ativo && !esperandoAjuda && !cruzandoPortao && agora - ultimaMetaMs > kMaxSemMetaMs) {
+      else if (nav.ativo && !esperandoAjuda && !cruzandoPortao && agora - ultimaMetaMs > maxSemMetaMs) {
         esperandoAjuda = true;
         pedidosDeAjuda++;
         c.parar();
