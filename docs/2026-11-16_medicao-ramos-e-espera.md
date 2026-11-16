@@ -39,3 +39,12 @@ Causa (`core/localizer.h`): `onCrossing(loc)` sem distancia faz cada cruzamento 
 Teste: passar a distancia andada (`onCrossing(loc, mm)`, o modelo ja existia) tirou a varredura (insegura 22 -> 8 na semente 0), mas a semente 2 caiu de 5 para 1 entrega: o carro entrou num laco de meia-volta entre dois cruzamentos com crenca confiante e errada (girou 180 graus a cada cruzamento, de t=30 s em diante). Revertido. Proximo passo: fase 2b, o laco.
 
 Evento de fim de beco: `core::onLineEnd` era chamado so nos testes; agora e chamado quando `classificarPerda` decide FimDeBeco. Efeito medido: nenhum (115/120 igual ao baseline, mesma entrega por semente). Mantido por ser a evidencia correta e nao mudar o resultado.
+
+## Sementes 2, 5, 7, 14 (nao completam 6 cubos): causa e testes
+Causa medida nos logs (`SIM_DEBUG`): a massa da coluna da crenca decai a cada cruzamento (modelo sem distancia), cai para ~78%, abaixo de `kMinCoordBelief` (0,8), e o planejador troca para "ancorar a linha": o carro vai a borda azul, a crenca volta a ~99%, mas o caminho de volta a faz decair de novo. Cada volta custa 60 a 150 s; o fim do ciclo e o pedido de ajuda (153 s sem meta). Em 4 de 4 sementes ha de 6 a 25 trocas para ancorar.
+
+Testes (20 sementes, 6 cubos; baseline 115/120):
+- Distancia andada no localizador (`onCrossing(loc, mm)`): 106/120. Menos varredura (insegura 312 -> 101) mas mais poses erradas (seed 0: 2 -> 10) e mais meias-voltas (20 -> 44). A odometria entre cruzamentos nao e confiavel o bastante para o localizador usar sem erro. Revertido.
+- Limite de coluna 0,7 em vez de 0,8: 110/120 (sementes 0, 5, 8, 9, 11, 12, 18 pioram; so a 14 melhora). Revertido.
+
+Conclusao: nenhuma das duas alavancas melhora. A causa que sobra e a odometria entre cruzamentos (erro de distancia por rua) e o planejador ancorar com a crenca na faixa 0,75-0,80. Proximo passo: medir o erro de distancia entre cruzamentos no simulador (rumo e odometria) antes de mexer no localizador.
