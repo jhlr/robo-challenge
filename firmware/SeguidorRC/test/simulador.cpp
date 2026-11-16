@@ -763,6 +763,7 @@ struct Cena {
     b.carro = std::make_unique<Carro>(pista, Estado{kPartidaX0 + a.mundo.rnd() * kPartidaDX, 60.0 + a.mundo.rnd() * (kAlt - 120.0), 0.0});   // o outro: no referencial dele tambem
     a.fw = std::make_unique<Firmware>();
     configurarMissao(a.mundo, *a.fw, *a.carro, ncubos, false, ruido);
+    if (getenv("SIM_DEBUG")) for (const Cubo& q : a.mundo.cubos) fprintf(stderr, "CUBO-INI %s (%d,%d)%s cor %d x %.0f y %.0f\n", q.obstaculo ? "MARROM" : "rua", q.c, q.r, q.obstaculo ? "" : (q.leste ? "-E" : "-N"), static_cast<int>(q.cor), q.x, q.y);
     if (!dois) { vivoMundo.assign(a.mundo.cubos.size(), 1); a.iniciar(); return; }
     b.fw = std::make_unique<Firmware>();
     // o oponente tem as proprias plataformas (cores diferentes) e os MESMOS cubos, espelhados
@@ -1190,6 +1191,7 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   std::vector<CorCubo> lista;
   for (int i = 0; i < n; i++) lista.push_back(cores[i % 4]);
   m.semearCubos(n, lista);
+  if (getenv("SIM_DEBUG")) for (const Cubo& q : m.cubos) fprintf(stderr, "CUBO-INI %s (%d,%d)%s cor %d x %.0f y %.0f\n", q.obstaculo ? "MARROM" : "rua", q.c, q.r, q.obstaculo ? "" : (q.leste ? "-E" : "-N"), static_cast<int>(q.cor), q.x, q.y);
   std::vector<double> entregas;
   constexpr unsigned long kPartidaMs = 720000;   // 12 min (regras)
   unsigned long pedidoEm = 0;
@@ -1204,6 +1206,7 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   }
   if (getenv("SIM_FASES")) fprintf(stderr, "    semente %lu, entregou %d em %.0f s, ajudas %d | tempo: %s\n", semente, fw.nav.entregues, c.agoraMs() / 1000.0, ajudas, fw.resumoFases().c_str());
   if (getenv("SIM_FASES")) fprintf(stderr, "    ramos: %s\n", fw.resumoRamos().c_str());
+  if (getenv("SIM_DEBUG")) { for (const Cubo& q : m.cubos) if (q.vivo && !q.obstaculo) fprintf(stderr, "    CUBO-REAL rua (%d,%d)-%s cor %d\n", q.c, q.r, q.leste ? "E" : "N", static_cast<int>(q.cor)); }
   if (getenv("SIM_DEBUG")) { for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str()); const Estado e = c.estado(); fprintf(stderr, "    FIM coleta: robo (%.0f,%.0f) th %.0f carregando %d entregues %d coletados %d\n", e.x, e.y, e.th * 57.3, fw.nav.carregando, fw.nav.entregues, fw.nav.coletados); }
   return entregas;
 }

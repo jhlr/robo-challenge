@@ -317,11 +317,13 @@ struct Navegador {
     }
     {
       d = plano.move;
+      const unsigned long nav_t_ms = agoraMs;
       ultimoPlano = plano.mode == core::Mode::Collect ? (d.toCube ? "coletar" : "explorar (regiao menos visitada)") : (plano.mode == core::Mode::Anchor ? "ancorar a linha" : "achar o portao");
       if (plano.mode == core::Mode::Collect && d.toCube) {
         core::Node tmp{}, ga{}, gz{};
         if (!core::nextTowardBestCube(p, cubos, &tmp, core::kKnownCube, &bloq, &ga, &gz)) core::nextTowardBestCube(p, cubos, &tmp, core::kMinBelief, &bloq, &ga, &gz);   // o mesmo alvo que decideAtCrossing escolheu (guloso: cubo visto primeiro)
         alvoX = (xDoCruzamento(ga.c) + xDoCruzamento(gz.c)) / 2; alvoY = (yDoCruzamento(ga.r) + yDoCruzamento(gz.r)) / 2;
+        ROBO_DBG("    ALVO-CUBO t=%.1fs rua (%d,%d)-(%d,%d) crenca %.2f pose (%d,%d)\n", nav_t_ms / 1000.0, ga.c, ga.r, gz.c, gz.r, core::streetSlot(cubos, ga, gz), p.at.c, p.at.r);
       } else if (d.next.c >= 0 && core::inMap(d.next.c, d.next.r)) { alvoX = xDoCruzamento(d.next.c); alvoY = yDoCruzamento(d.next.r); }
     }
     ruaDe = p.at;

@@ -58,3 +58,12 @@ Reanalise: o problema observado (coluna em 78%, ancorar, borda) e uma consequenc
 - seed 2, com distancia (confianca 100%/97%): entre (0,3) e (1,3) o carro faz 'coletar, seguir U' por ~60 s, sem nenhum evento de cubo. O alvo guloso (`decideAtCrossing`, `kKnownCube`) e refeito a cada cruzamento e aponta para o lado oposto ao que acabou de tomar.
 - seed 7, sem distancia: em row 2, colunas 2 a 5, o mesmo padrao 'coletar U / ancorar' por 150 s.
 Hipotese de trabalho (nao verificada ainda): o alvo nao tem compromisso (nao e mantido ate ser alcancado ou confirmado vazio) e o planejador nao verifica se o cubo mapeado ainda esta la quando passa pela rua. Proximo passo: identificar o cubo-alvo em cada volta (SIM_TRACE do alvo) e confirmar se ele existe na simulacao.
+
+## Etapa 0 do plano de alvo: o alvo do cruzamento e fantasma (semente 7)
+Instrumentacao (so SIM_DEBUG): `ALVO-CUBO` (rua que o planejador quer, crenca), `CUBO-INI` (disposicao real: ruas e cubos marrons).
+Semente 7 (`--coleta 6`), 61 alvos escolhidos:
+- 41 de 61 (67%) apontam para uma rua SEM cubo real. Ex.: (2,0)-(3,0) em 14 alvos, sem cubo nessa rua; o cubo real vizinho esta em (2,0)-(2,1).
+- Cubos marrons (obstaculos, no centro dos quarteiroes): (0,0), (1,1), (0,2). O alvo (0,2)-(0,3) e vizinho de um marrom; o cubo marrom fica a 150 mm do eixo da rua, dentro do alcance lateral do sonar.
+- Conclusao: a crenca de cubos mantem ruas ocupadas que nao tem cubo. A fonte mais provavel e a atribuicao de eco lateral (varredura/`observarRaio` com `deLado`) ou o eco de marrom, nao o eixo da rua.
+- Ainda NAO separado: quanto do fantasma vem de marrom (cor 7 no TCS, eco lateral) e quanto de atribuicao de rua errada. Proximo passo do diagnostico: contar, para cada alvo fantasma, a origem da crenca (eco de cubo, eco de marrom, eco lateral).
+Consequencia para o plano: a etapa 2 (limpar crenca fantasma) passa a ser prioridade, e tem que tratar o marrom como caso explicito (o TCS le cor 7, nao cubo).
