@@ -602,7 +602,7 @@ struct Robo {
       }
     }
     // Ancorando (trecho desconhecido) o limite e o menor trecho que nao e o mesmo cruzamento: ~60 mm (o 1o cruzamento depois do portao fica a ~130 mm); sem isso a faixa do cruzamento que acabou de deixar contava duas vezes.
-    const double minAndado = trechoRestante0 > 0.0 ? trechoRestante0 - 150.0 : (ancorarSemRepetir ? 60.0 : -1.0);
+    const double minAndado = trechoRestante0 > 0.0 ? trechoRestante0 - 150.0 : (ancorarSemRepetir && !nav.pularProximo ? 60.0 : -1.0);
     if (cfg.encoder && nav.ativo && !nav.loc.inGreen && acao == AcaoCruzamento::Cruzamento && andadoDesdeSaida(c, c.agoraMs()) < minAndado) {
       ROBO_DBG("    (faixa do cruzamento de onde saiu, andado %.0f de %.0f: nao e chegada)\n", andadoDesdeSaida(c, c.agoraMs()), trechoRestante0);
       comecarASair(cruz, c.agoraMs(), odoCruz(c));

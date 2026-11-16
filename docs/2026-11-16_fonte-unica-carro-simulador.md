@@ -165,3 +165,7 @@ Causa achada (semente 14): em ANCORAR `trechoRestante0 = -1` desligava a guarda 
 contado duas vezes (PARADA com andado 5 mm), deslocando o localizador em uma linha. Agora, ancorando, um stop a menos de 60 mm do ultimo
 cruzamento nao e chegada (`ancorarSemRepetir`). Com 108 mm (o minimo teorico antes da borda) pegava tambem o 1o cruzamento depois do portao
 (~130 mm) e piorava as sementes 0-4 (21 -> 17); com 60 mm ficam 21. Sementes ruins (1,8,19,22,29,30): 10 -> 12; semente 14: 3 -> 4.
+
+Semente 10: a guarda de 60 mm (acima) tambem engolia a faixa a ~30 mm DEPOIS de uma meia-volta por cubo na frente, que e o cruzamento a que ele
+volta e quem consome `pularProximo`; a flag ficava pendente e pulava o proximo cruzamento de verdade (pose uma coluna atras, ~150 s perdido com
+cubo, ate pedir ajuda). A guarda agora so vale com `!pularProximo`. Sementes ruins (2,8,10,12,18,19): 11 -> 15; sementes 0-4: 20 (era 21, ruido).
