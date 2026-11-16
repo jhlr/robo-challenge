@@ -1,7 +1,7 @@
 // Simulador do carrinho seguidor no PC: cinematica diferencial + barra de 8 sensores sobre uma pista de linhas, rodando a logica REAL da biblioteca
 // (decidir, cruzamentoConfirmado, giro de 90 graus, classificarPerda). Nao testa eletronica: testa se as REGRAS levam o carro onde deviam.
 //
-//   g++ -std=c++17 -O2 -Wall -Isrc -I../src -pthread test/simulador.cpp src/seguidor/decisao.cpp -o /tmp/simulador && /tmp/simulador [pasta_para_svg]
+//   g++ -std=c++17 -O2 -Wall -Isrc -I../src -I../include -pthread test/simulador.cpp src/seguidor/decisao.cpp -o /tmp/simulador && /tmp/simulador [pasta_para_svg]
 //
 // Modelo (tudo CHUTE ate medir na pista; os numeros ficam em ParamsFisicos):
 //   - carro 170 x 200 mm, eixo no meio, barra de 75 mm a 30 mm a frente do eixo, linha de 20 mm, sensor = ponto;
@@ -25,6 +25,7 @@
 #include <vector>
 
 #define ROBO_SIMULADOR   // a logica do carro (seguidor/robo.h) imprime depuracao e le SIM_* so aqui
+#include "seguidor/perfil_carro.h"
 #include "seguidor/robo.h"
 
 using namespace seguidor;
@@ -87,21 +88,22 @@ struct Pista {
 // ---------------------------------------------------------------- carro
 
 struct ParamsFisicos {
-  double bitolaMm = 150.0;        // distancia real entre as rodas (a decisao supoe 140: erro de proposito)
-  double mmSPorPwm = 2.31;        // velocidade de cada roda = isto x PWM (110 -> ~254 mm/s, igual ao chute velMmS)
-  double zonaMortaPwm = 65.0;     // abaixo disto a roda nao anda
-  double derrapagem = 0.8;        // fracao da velocidade angular ideal que sobra com as 4 rodas derrapando
+  double bitolaMm = params::kTrackMm * params::kSkidFactor;   // distancia FISICA entre as rodas: a efetiva do params.h (a que o firmware supoe) menos a derrapagem
+  double mmSPorPwm = params::kStsFullSpeedMmS / params::kPwmFullSts;   // velocidade de cada roda = isto x PWM (o mesmo mapa PWM -> comando do carro real, params.h)
+  double zonaMortaPwm = 0.0;      // STS3215: sem zona morta (encoder=0 volta aos TT: 65)
+  double derrapagem = params::kSkidFactor;        // fracao da velocidade angular ideal que sobra com as 4 rodas derrapando
   double tauMs = 50.0;            // atraso de primeira ordem das rodas
-  double barraAFrenteMm = 30.0;   // barra a frente do eixo
+  double barraAFrenteMm = params::kAxleToSensorMm;   // barra a frente do eixo (params.h)
   double barraMm = 75.0;
-  double dtMs = 5.0;              // um ciclo de leitura+decisao
+  uint8_t barraMortos = params::kLineDeadMask;   // sensores que a barra real nao le (copia do vizinho): o mesmo do carro
+  double dtMs = params::kLoopDtMs;              // um ciclo de leitura+decisao
   double viesGzGrauS = 1.2;       // vies REAL do giroscopio (o firmware mede um estimado parado no inicio)
   double derivaViesGrauS = 0.0;   // quanto o vies anda depois da calibracao inicial (temperatura)
-  bool encoder = false;           // STS3215: encoder de cada roda + velocidade em malha fechada (sem zona morta nem assimetria fixa entre os lados); a distancia vem das rodas, nao de tempo x velocidade
+  bool encoder = true;           // STS3215: encoder de cada roda + velocidade em malha fechada (sem zona morta nem assimetria fixa entre os lados); a distancia vem das rodas, nao de tempo x velocidade
   double escalaOdo = 1.0;         // erro de escala do odometro (diametro da roda / relacao de engrenagens): 1,01 = le 1% a mais do que anda
 };
 
-Ajustes gAjustes;   // os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
+Ajustes gAjustes = ajustesDoCarro();   // a MESMA fonte do firmware (params.h); os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
 bool gSo_Placar = false;
 double gGestoGraus = 45.0;   // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado e volta reto, em vez da varredura de 90 graus (0 = desliga e usa a varredura de antes, < 0 = passa direto sem girar)
 static bool gAutoCalBitola = false;   // param autocal=1: cada giro na linha corrige a bitola efetiva (o meio da faixa tem ~5% de vies: piora o caso ja calibrado)
@@ -323,9 +325,10 @@ class Carro {
     if (atrasoTicks_ > 0 && ringN_ > atrasoTicks_) {   // sensores atrasados (ruido): devolve a leitura de alguns ciclos atras
       const uint8_t b = ring_[(ringI_ - 1 - atrasoTicks_ + 64) & 31];
       for (int i = 0; i < kSensores; i++) preto[i] = (b >> i) & 1;
-      return;
+    } else {
+      lerReal(preto);
     }
-    lerReal(preto);
+    preencherMortos(preto, f_.barraMortos);   // a barra do carro nao le estes sensores: copia do vizinho, igual ao firmware
   }
 
   // ---- sensores novos (configuraveis em Mundo::cfg): TCS do chao, ultrassom, TCS da frente
@@ -696,10 +699,22 @@ inline ConfigRobo configDoSim() {
   c.autoCalBitola = gAutoCalBitola;
   c.gestoGraus = gGestoGraus;
   c.ajustes = gAjustes;
+  c.cruzamento = cruzamentoDoCarro(gAjustes);
   return c;
 }
 struct Firmware : Robo<Carro> {
   Firmware() : Robo<Carro>(configDoSim()) {}
+  void passo(Carro& c) {   // SIM_TRACE=1: uma linha a cada 50 ms (tempo, pose, barra, o que a decisao mandou)
+    Robo<Carro>::passo(c);
+    static const bool rastro = getenv("SIM_TRACE") != nullptr;
+    if (rastro && c.agoraMs() % 50 == 0) {
+      const Estado e = c.estado();
+      char b[kSensores + 1];
+      for (int i = 0; i < kSensores; i++) b[i] = ultimaBarra[i] ? '#' : '.';
+      b[kSensores] = 0;
+      fprintf(stderr, "%6lu eixo (%5.0f,%5.0f) th %4.0f  %s  %s\n", c.agoraMs(), e.x, e.y, e.th * 57.3, b, ultimaAcao);
+    }
+  }
 };
 
 // ---------------------------------------------------------------- DOIS ROBOS IGUAIS na mesma arena (o oponente e outro robo com o MESMO firmware)
@@ -1918,7 +1933,7 @@ int main(int argc, char** argv) {
     else if (k == "cap") gCapacidade = static_cast<int>(v);
     else if (k == "rumoenc") gRumoPeloEncoder = v != 0.0;
     else if (k == "autocal") gAutoCalBitola = v != 0.0;
-    else if (k == "encoder") { gFis.encoder = v != 0.0; if (gFis.encoder) { gFis.zonaMortaPwm = 0; gAjustes.zonaMortaPwm = 0; } }   // STS3215: sem zona morta, malha fechada
+    else if (k == "encoder") { gFis.encoder = v != 0.0; const int zona = gFis.encoder ? 0 : 65; gFis.zonaMortaPwm = zona; gAjustes.zonaMortaPwm = zona; }   // encoder=0: TT amarelos (zona morta 65)   // STS3215: sem zona morta, malha fechada
     else if (k == "escalaodo") gFis.escalaOdo = v;
     else if (k == "gesto") gGestoGraus = v;
     else if (k == "bitola") gFis.bitolaMm = v;
@@ -1926,7 +1941,7 @@ int main(int argc, char** argv) {
     else if (k == "zona") { gFis.zonaMortaPwm = v; gAjustes.zonaMortaPwm = static_cast<int>(v); }   // zona CALIBRADA: a decisao sabe
     else if (k == "zonaaj") gAjustes.zonaMortaPwm = static_cast<int>(v);   // so a decisao (calibracao errada)
     else if (k == "ganho") gFis.mmSPorPwm = v;
-    else if (k == "barra") gFis.barraAFrenteMm = v;
+    else if (k == "barra") { gFis.barraAFrenteMm = v; gAjustes.barraAFrenteMm = static_cast<float>(v); }   // a barra fisica E a que o firmware supoe
     else if (k == "periodo") gAjustes.periodoCorrecaoMs = static_cast<unsigned long>(v);
     else if (k == "fl") gAjustes.fracaoGiroLeve = static_cast<float>(v);
     else if (k == "ff") gAjustes.fracaoGiroForte = static_cast<float>(v);
@@ -1944,6 +1959,7 @@ int main(int argc, char** argv) {
     else if (k == "lacuna") gAjustes.lacunaMs = static_cast<unsigned long>(v);
     else if (k == "velbusca") gAjustes.velBuscaExterna = static_cast<int>(v);
     else if (k == "velreto") gAjustes.velReto = static_cast<int>(v);
+    else if (k == "mortos") { gFis.barraMortos = static_cast<uint8_t>(v); gAjustes.sensoresMortos = gFis.barraMortos; }   // mortos=0: barra saudavel
     else { fprintf(stderr, "parametro desconhecido: %s\n", k.c_str()); return 2; }
   }
   if (servirAoVivo) return servir(8765);

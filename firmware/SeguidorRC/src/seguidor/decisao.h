@@ -63,6 +63,7 @@ struct Ajustes {
   int buscaAvancoMaxFator = 3;
   unsigned long buscaEspiralMs = 0;     // espiral entre o giro e o trecho reto (0 = sem). No simulador a espiral PIORA a busca: o trecho reto cresce a partir do rumo do giro, e a espiral o desvia  // depois abre em espiral por esse tempo; ai recomeca o giro
   int velBuscaExterna = 70;             // roda de fora na busca (constante). Com o MPU a calibracao a troca por uma velocidade maior (AjustesCalibracao::velMedida) e mede os graus por segundo nela
+  float barraAFrenteMm = 30.0f;         // distancia do eixo das rodas ate a barra de sensores (no carro e no simulador vem de params::kAxleToSensorMm: perfil_carro.h)
   float bitolaMm = 140.0f;              // CHUTE: distancia entre as rodas esquerda e direita; meca e corrija
   float raioMaxEspiralMm = 125.0f;      // a espiral NUNCA passa desse raio de curva (folga entre a rua e os cubos marrons dos quarteiroes)
   int velBuscaContrariaMin = 10;        // e a roda de dentro NUNCA chega a zero nem passa: fica sempre pelo menos assim para tras (sentidos opostos)
@@ -101,6 +102,20 @@ inline unsigned long buscaViradaMs(const Ajustes& aj) {
 // Quanto tempo dura o giro no eixo da busca (uma volta inteira, antes da espiral).
 inline unsigned long buscaGiroMs(const Ajustes& aj) {
   return static_cast<unsigned long>(aj.buscaGiroGraus / aj.grausPorSegundoBusca * 1000.0f + 0.5f);
+}
+
+// Sensor morto (bit i de `mortos` = S(i+1)): copia o vizinho VIVO mais perto, para a logica das pontas (cruzamento, varredura) continuar valendo. UMA funcao, usada pela barra do
+// carro (sensores_rc.cpp) e pelo simulador (Carro::ler): os dois veem a barra do mesmo jeito. `preto` ja traz o valor dos vivos.
+inline void preencherMortos(bool preto[kSensores], uint8_t mortos) {
+  bool vivo[kSensores];
+  for (int i = 0; i < kSensores; i++) vivo[i] = ((mortos >> i) & 1) == 0;
+  for (int i = 0; i < kSensores; i++) {
+    if (vivo[i]) continue;
+    for (int d = 1; d < kSensores; d++) {
+      if (i + d < kSensores && vivo[i + d]) { preto[i] = preto[i + d]; break; }
+      if (i - d >= 0 && vivo[i - d]) { preto[i] = preto[i - d]; break; }
+    }
+  }
 }
 
 // O que a decisao lembra de um ciclo para o outro. Comeca zerada.

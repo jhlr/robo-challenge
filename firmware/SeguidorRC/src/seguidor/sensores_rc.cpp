@@ -45,13 +45,9 @@ void ler(BarraRC& b) {
     if (mudou) { b.tempoLeituraUs = min(b.tempoMaxUs, maior + 100); b.qtr.setTimeout(b.tempoLeituraUs); }   // a espera cobre o maior limiar
   }
   for (int i = 0; i < kSensores; i++) b.preto[i] = b.ok[i] && b.leituras[i] > b.limiar[i];
-  for (int i = 0; i < kSensores; i++) {   // sensor morto (b.mortos): copia o vizinho vivo mais perto
-    if (!((b.mortos >> i) & 1)) continue;
-    for (int d = 1; d < kSensores; d++) {
-      if (i + d < kSensores && b.ok[i + d]) { b.preto[i] = b.preto[i + d]; break; }
-      if (i - d >= 0 && b.ok[i - d]) { b.preto[i] = b.preto[i - d]; break; }
-    }
-  }
+  uint8_t semSinal = b.mortos;   // morto declarado ou pino so de entrada (ok = false)
+  for (int i = 0; i < kSensores; i++) if (!b.ok[i]) semSinal |= static_cast<uint8_t>(1u << i);
+  preencherMortos(b.preto, semSinal);   // a mesma funcao do simulador
 }
 
 bool aplicarLimiar(BarraRC& b, Print& saida) {

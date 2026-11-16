@@ -70,6 +70,7 @@ struct ConfigRobo {
   bool autoCalBitola = false;     // cada giro na linha corrige a bitola efetiva (o meio da faixa tem ~5% de vies: piora o caso ja calibrado)
   double gestoGraus = 45.0;       // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado (0 = varredura de 90, < 0 = passa direto)
   Ajustes ajustes;
+  AjustesCruzamento cruzamento;   // velMmS e o resto do que a logica supoe do carro (no carro e no simulador: perfil_carro.h)
 };
 
 struct Navegador {
@@ -315,9 +316,11 @@ struct Robo {
   ConfigRobo cfg;
   explicit Robo(const ConfigRobo& c = ConfigRobo{}) : cfg(c) {}
   Ajustes ajustes = normalizar(cfg.ajustes);
-  AjustesCruzamento ajC;
+  AjustesCruzamento ajC = cfg.cruzamento;
   AjustesGiroCruzamento ajG;
   Memoria memoria;
+  const char* ultimaAcao = "";   // o que a decisao mandou no ultimo ciclo (telemetria e rastro do simulador)
+  bool ultimaBarra[kSensores] = {};
   MemoriaCruzamento cruz;
   int cruzamentos = 0, falsosAlarmes = 0, ticksBuscando = 0, ticksPerdido = 0;
   bool fimDeBeco = false, fimDeBecoAvisado = false;
@@ -769,9 +772,9 @@ struct Robo {
       if (!p[0] && !p[7]) break;
     }
     c.parar();
-    // Sem MPU o giro fecha na linha (girarNaLinha) e isso so da certo se o eixo gira no CENTRO do cruzamento: as pontas apagam com a barra (30 mm a frente) ~12,5 mm alem do centro, ou seja,
-    // com o eixo ~17,5 mm antes dele. Anda esses mm (odometro) para a rua nova ficar centrada no eixo e a faixa dela ser simetrica.
-    if (cfg.rumoPeloEncoder) andarMm(c, 17.5, [] { return false; });
+    // Sem MPU o giro fecha na linha (girarNaLinha) e isso so da certo se o eixo gira no CENTRO do cruzamento: as pontas apagam com a barra ~12,5 mm alem do centro, ou seja,
+    // com o eixo (barraAFrenteMm - 12,5) mm antes dele (17,5 mm com a barra a 30 mm). Anda esses mm (odometro) para a rua nova ficar centrada no eixo e a faixa dela ser simetrica.
+    if (cfg.rumoPeloEncoder) andarMm(c, ajustes.barraAFrenteMm - 12.5, [] { return false; });
     std::vector<AmostraGiro> est, ver;
     girarAte(c, 0.0f, esquerda ? 90.0f : -90.0f, est, ver, c.estado().th, rumo, true);
     esquecerUltimoComando(memoria);
@@ -1478,6 +1481,8 @@ struct Robo {
     const unsigned long perdeuAntes = memoria.perdeuEm;
     const bool vinhaSeguindo = memoria.ultimoEsq != 0 || memoria.ultimoDir != 0;   // so segura o rumo se vinha andando: perdido sem nunca ter seguido, nao anda cego
     Comando cmd = decidir(p, agora, ajustes, memoria);
+    ultimaAcao = cmd.acao;
+    for (int i = 0; i < kSensores; i++) ultimaBarra[i] = p[i];
     const unsigned long perdidoHa = memoria.perdeuEm ? agora - memoria.perdeuEm : 0;
     if (memoria.perdeuEm) ticksPerdido++;
     if (estaBuscando(memoria, agora, ajustes)) ticksBuscando++;

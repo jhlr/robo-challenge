@@ -57,6 +57,14 @@ constexpr float kAxleToSensorMm = 60.0f;  // QRE8D ahead of the wheel axle
 
 // QRE8D polarity: set true if a channel reads HIGH over the black line.
 constexpr bool kLineIsHigh = false;
+// Sensors the bar cannot read (bit i = S(i+1)): S7/S8 sit on the input-only GPIO35/34 and an RC bar needs an output-capable pin to charge its capacitor. 0 once they move to GPIO13/4.
+constexpr uint8_t kLineDeadMask = 0b11000000;
+
+// ONE SOURCE for the robo car and its simulator (test/simulador.cpp reads these, not its own copies).
+constexpr float kLoopDtMs = 5.0f;          // one read + decide cycle
+constexpr float kPwmFullSts = 120.0f;      // firmware PWM that maps to 100% of the STS command (speeds above it saturate)
+constexpr float kSkidFactor = 0.8f;        // fraction of the ideal spin rate left with 4 wheels skidding: effective track = physical track * this
+constexpr float kStsFullSpeedMmS = kStsMaxSteps / 4096.0f * (kWheelDiaMm * 3.14159265f) / kGearRatio;   // wheel speed at 100% command (~174 mm/s)
 
 // Line follower
 constexpr float kBaseSpeed = 0.45f;  // fraction of full command

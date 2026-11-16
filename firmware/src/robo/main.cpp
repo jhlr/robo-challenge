@@ -11,6 +11,7 @@
 #include <Wire.h>
 #include <seguidor/depuracao_ble.h>
 #include <seguidor/ota_ble.h>
+#include <seguidor/perfil_carro.h>
 
 #include "carro_real.h"
 #include "core/arm.h"
@@ -33,14 +34,14 @@ hal::Claw garra;
 uint8_t pinosBarra[seguidor::kSensores];
 // S7 e S8 estao em GPIO35 e GPIO34, so de entrada: o modo RC nao carrega o pino e eles leem 2500 us em qualquer chao (2026-11-09); ver pins.h e BarraRC::mortos.
 // Uma constante so para a barra (copia o vizinho) e para a decisao (nao conta a copia como leitura).
-constexpr uint8_t kBarraMortos = 0b11000000;
+constexpr uint8_t kBarraMortos = params::kLineDeadMask;
 
 seguidor::DepuracaoBLE ble;
 seguidor::OtaBLE ota;
 constexpr const char* kOtaSegredo = "robo-challenge-2026";   // o mesmo em ota_ble.py (--segredo); sem ele ninguem grava firmware por BLE
 seguidor::Tee dbg(Serial, ble);   // tudo que o carro escreve vai ao USB E ao Bluetooth
 
-constexpr float kDtMs = 5.0f;   // um ciclo de leitura + decisao: o mesmo do simulador
+constexpr float kDtMs = params::kLoopDtMs;   // um ciclo de leitura + decisao: o mesmo do simulador
 
 robo::CarroReal carro(drive, barra, sonar, corChao, corFrente, garra, kDtMs);
 seguidor::Robo<robo::CarroReal>* fw = nullptr;
@@ -209,9 +210,8 @@ void preparar() {
   cfg.tauMs = 50.0;
   cfg.encoder = true;
   cfg.rumoPeloEncoder = true;
-  cfg.ajustes.bitolaMm = params::kTrackMm;   // a bitola que o firmware supoe (a EFETIVA, ja com a derrapagem)
-  cfg.ajustes.sensoresMortos = kBarraMortos;
-  cfg.ajustes = seguidor::normalizar(cfg.ajustes);
+  cfg.ajustes = seguidor::normalizar(seguidor::ajustesDoCarro());   // a mesma fonte do simulador (params.h)
+  cfg.cruzamento = seguidor::cruzamentoDoCarro(cfg.ajustes);
   fw = new seguidor::Robo<robo::CarroReal>(cfg);
   fw->ceder = vigiar;
   fw->ligarImu(carro);   // sem MPU: so zera o rumo e liga o ciclo por encoder
