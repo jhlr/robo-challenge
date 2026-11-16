@@ -28,3 +28,10 @@ Resultado (20 sementes, 18 cubos):
 - Liquido: 17/20 antes e depois; media 460 s (antes 458 s).
 
 Proximo: achar a origem dos fantasmas restantes (seed 4).
+
+## Seed 4: origem dos fantasmas (investigado, correcao testada e revertida)
+- Fantasma (0,4)-E a 25 s: `aoBloquear()` (robo.h, bloqueio de cubo sem plataforma e do outro robo) marca `ruaDe→ruaPara`, a rua percorrida, como bloqueada e vazia. O cubo real nao esta ali.
+- Testei trocar `aoBloquear` pela geometria do eco (como em `aoBloquearTemporario`): seed 4 6/6, mas 14/20 no total (antes 17/20). Sementes 2, 3, 6, 9 e 11 pioraram.
+- Causa da piora: perto de um cruzamento a geometria do eco e ambigua (`ruaDoEco` devolve -1) e nada e bloqueado; o bloqueio pela rua percorrida, mesmo errado as vezes, era o que impedia o carro de voltar ao mesmo cubo. A regra "bloquear a rua do eco" sozinha nao vale.
+- Revertido. Estado commitado: 17/20, media 460 s.
+- Proximo: identificar o cubo sem plataforma pela cor na posicao certa (o TCS da frente pode ler um objeto que nao e cubo naquele momento), antes de decidir o bloqueio.
