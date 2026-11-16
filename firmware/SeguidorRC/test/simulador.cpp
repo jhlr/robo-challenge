@@ -1509,7 +1509,7 @@ static Resultado cenarioBusca(double dist, double rumoGraus) {
   const bool com = buscar(dist, rumoGraus, true, msCom, cCom, p, &c);
   svg(fmt("busca_d%.0f_r%.0f %s", dist, rumoGraus, com ? fmt("OK em %.1f s", msCom / 1000.0).c_str() : "NAO ACHOU"), p, *c, com ? 1 : 0);
   return {fmt("busca a %.0f mm, rumo %.0f", dist, rumoGraus), com,
-          fmt("com MPU (calibra o giro antes): %s em %lu ms | sem MPU (chute de 110 graus/s): %s", com ? "achou" : "NAO achou", msCom, sem ? fmt("achou em %lu ms", msSem).c_str() : "NAO achou")};
+          fmt("com MPU (calibra o giro antes): %s em %lu ms | sem MPU: %s", com ? "achou" : "NAO achou", msCom, sem ? fmt("achou em %lu ms", msSem).c_str() : "NAO achou")};
 }
 
 // ================================================================ SIMULACAO AO VIVO (--servir): sem duracao gravada
@@ -1884,6 +1884,31 @@ int main(int argc, char** argv) {
     if (!eq) {
       if (!strcmp(argv[i], "-q")) gSo_Placar = true;
       else if (!strcmp(argv[i], "--servir")) servirAoVivo = true;
+      else if (!strcmp(argv[i], "--busca-lote")) {   // 5 distancias x 8 rumos, sem MPU: quantas acha, tempo medio e pior (o conjunto para ajustar a busca sem sobreajustar)
+        Pista p;
+        p.reta(0, -400, 0, 1400);
+        int achou = 0, n = 0;
+        double soma = 0, pior = 0;
+        for (double d : {20.0, 40.0, 60.0, 80.0, 100.0})
+          for (double r : {0.0, 45.0, 90.0, 135.0, 180.0, -45.0, -90.0, -135.0}) {
+            unsigned long ms = 0;
+            int ciclos = 0;
+            const bool ok = buscar(d, r, false, ms, ciclos, p);
+            n++;
+            if (ok) { achou++; soma += ms; pior = std::max(pior, double(ms)); }
+          }
+        printf("BUSCA sem MPU: achou %d de %d | media %.1f s | pior %.1f s\n", achou, n, achou ? soma / achou / 1000.0 : 0.0, pior / 1000.0);
+        return 0;
+      }
+      else if (!strcmp(argv[i], "--busca")) {   // --busca DIST RUMO: so a busca sem MPU (use com SIM_TRACE=1 para ver o rastro)
+        Pista p;
+        p.reta(0, -400, 0, 1400);
+        unsigned long ms = 0;
+        int ciclos = 0;
+        const bool achou = buscar(i + 1 < argc ? atof(argv[i + 1]) : 60.0, i + 2 < argc ? atof(argv[i + 2]) : 90.0, false, ms, ciclos, p);
+        printf("busca sem MPU: %s em %lu ms (%d ciclos buscando)\n", achou ? "achou" : "NAO achou", ms, ciclos);
+        return 0;
+      }
       else if (!strcmp(argv[i], "--bitola")) {   // mede a bitola efetiva no centro de um cruzamento, com o eixo deslocado de 0 a 8 mm (erro de posicionar o carro)
         for (const double off : {0.0, 3.0, 6.0, 8.0}) {
           Pista pista = tabuleiro();
@@ -1945,6 +1970,8 @@ int main(int argc, char** argv) {
     else if (k == "periodo") gAjustes.periodoCorrecaoMs = static_cast<unsigned long>(v);
     else if (k == "fl") gAjustes.fracaoGiroLeve = static_cast<float>(v);
     else if (k == "ff") gAjustes.fracaoGiroForte = static_cast<float>(v);
+    else if (k == "giro") gAjustes.buscaGiroGraus = static_cast<float>(v);
+    else if (k == "fp") gAjustes.fracaoGiroPonta = static_cast<float>(v);
     else if (k == "vl") gAjustes.velCorrecaoLeve = static_cast<int>(v);
     else if (k == "vf") gAjustes.velCorrecaoForte = static_cast<int>(v);
     else if (k == "posreto") gAjustes.posReto = static_cast<float>(v);

@@ -49,7 +49,7 @@ int main() {
     const float esperado = 2.0f * velRodaMmS / params::kTrackMm * 57.29578f;
     assert(std::fabs(a.grausPorSegundoBusca - esperado) < 0.5f);
     assert(a.grausPorSegundoBusca < 110.0f);   // o carro real gira mais devagar que o chute antigo: 360 graus de busca sao mais que 3,3 s
-    assert(buscaGiroMs(a) > 3600); }
+    assert(std::fabs(buscaGiroMs(a) / 1000.0f * a.grausPorSegundoBusca - a.buscaGiroGraus) < 1.0f); }   // o tempo do giro da busca fecha o angulo pedido
   { // a lacuna e uma distancia: o carro, andando reto, atravessa kLacunaMm antes de comecar a girar
     const Ajustes a = normalizar(ajustesDoCarro());
     const float andaMm = a.velReto * kMmSPorPwm * a.lacunaMs / 1000.0f;

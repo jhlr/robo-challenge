@@ -26,6 +26,7 @@ struct Ajustes {
   unsigned long periodoCorrecaoMs = 80;   // tamanho de um ciclo giro + avanco
   float fracaoGiroLeve = 0.7f;            // parte do ciclo girando na correcao leve (o resto avanca)
   float fracaoGiroForte = 0.95f;          // idem na forte; entre as duas a fracao sobe em rampa junto com a velocidade
+  float fracaoGiroPonta = 0.5f;           // idem quando so S1 ou so S8 veem a linha (na ponta, fora do alcance do giro): metade do ciclo avancando leva a linha para o meio da barra
 
   // Freada: entre os giros de uma correcao o robo avanca mais devagar (velReto x isto): vai corrigir, nao precisa de pressa (e nao passa da curva).
   float fatorAvancoCorrecao = 0.85f;

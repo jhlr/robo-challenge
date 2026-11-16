@@ -26,6 +26,11 @@ inline Ajustes ajustesDoCarro() {
   aj.bitolaMm = params::kTrackMm;             // a EFETIVA, ja com a derrapagem das 4 rodas
   aj.sensoresMortos = params::kLineDeadMask;  // sensores que a barra nao le (copia do vizinho)
   aj.zonaMortaPwm = 0;                        // STS3215: velocidade em malha fechada, sem zona morta
+  // Busca sem MPU (medida no simulador, 40 casos: 5 distancias x 8 rumos): 40 de 40 achados, ~5 s em media (antes: 19 de 40). Gira so um trecho (a linha perdida em
+  // seguimento esta por perto, e a volta inteira custava ~6 s), depois quadrado em espiral; roda de busca mais rapida.
+  aj.velBuscaExterna = 110;
+  aj.buscaGiroGraus = 120.0f;
+  aj.buscaAvancoMs = 600;
   recalcularDerivados(aj);
   return aj;
 }

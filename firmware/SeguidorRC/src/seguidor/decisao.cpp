@@ -32,7 +32,7 @@ Comando linhaPerdida(unsigned long agora, const Ajustes& aj, Memoria& m, bool ba
   const unsigned long giro = buscaGiroMs(aj), esp = aj.buscaEspiralMs, vira = buscaViradaMs(aj);
   unsigned long giroAqui = giro;   // quanto dura o giro de uma volta NESTA volta da busca (so a primeira, com buscaGiraSoNaPrimeira)
   for (int k = 0;; k++) {
-    const int fator = k + 1 < aj.buscaAvancoMaxFator ? k + 1 : aj.buscaAvancoMaxFator;
+    const int fator = k / 2 + 1 < aj.buscaAvancoMaxFator ? k / 2 + 1 : aj.buscaAvancoMaxFator;   // quadrado em espiral: lados 1, 1, 2, 2, 3, 3... x buscaAvancoMs (um lado de cada tamanho seguido de outro igual fecha a volta)
     leg = aj.buscaAvancoMs * static_cast<unsigned long>(fator);
     const unsigned long giroK = (k == 0 || !aj.buscaGiraSoNaPrimeira) ? giro : 0;   // so a primeira volta gira uma volta inteira
     const unsigned long total = giroK + esp + leg + vira;
@@ -118,9 +118,11 @@ Comando decidir(const bool preto[kSensores], unsigned long agoraMs, const Ajuste
 
   // So S1 ou so S8 e mais nada: a linha esta na ponta, longe do centro. Vira correcao FORTE para esse lado (posicao +-3,5), com o avanco
   // intercalado: girar no lugar nao leva a linha ao centro (o eixo esta quase embaixo da barra), so gira a barra ate ficar paralela a linha.
+  bool pontaIsolada = false;   // so S1 ou so S8: o eixo esta mais longe da linha do que a barra alcanca girando (raio dos sensores da ponta ~ 40 mm), so avancar a traz para o meio
   if (n == 0 && pontaSozinha) {
     soma = preto[0] ? -3.5f : 3.5f;
     n = 1;
+    pontaIsolada = true;
   }
 
   const bool buscando = estaBuscando(m, agoraMs, aj);
@@ -157,7 +159,7 @@ Comando decidir(const bool preto[kSensores], unsigned long agoraMs, const Ajuste
       const int v = aj.velCorrecaoLeve + static_cast<int>((aj.velCorrecaoForte - aj.velCorrecaoLeve) * t + 0.5f);
       m.ultimoLado = sinal;
       // Giro intercalado com avanco: nos primeiros fracaoGiro do ciclo gira no eixo, no resto anda reto
-      const float fracao = aj.fracaoGiroLeve + (aj.fracaoGiroForte - aj.fracaoGiroLeve) * t;
+      const float fracao = pontaIsolada ? aj.fracaoGiroPonta : aj.fracaoGiroLeve + (aj.fracaoGiroForte - aj.fracaoGiroLeve) * t;
       // Curva fechada: so de um lado, 3 ou mais acesos: gira direto, sem avancar entre os giros
       // So conta sensor vivo, e o lado precisa ter os 3 vivos: com um morto a copia do vizinho faria 1 sensor parecer 3 (e o carro giraria no lugar sem nunca avancar)
       int esqN = 0, dirN = 0;

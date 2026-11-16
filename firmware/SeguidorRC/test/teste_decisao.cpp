@@ -1,5 +1,6 @@
 // Teste da decisao no PC (sem Arduino): g++ -std=c++17 -Wall -Isrc test/teste_decisao.cpp src/seguidor/decisao.cpp -o /tmp/teste && /tmp/teste
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 
 #include "seguidor/decisao.h"
@@ -127,7 +128,8 @@ int main() {
       else assert(false);
       assert(!c.estranho || true);
     }
-    assert(giro > avanco && avanco > 0);                  // forte: gira a maior parte do ciclo, mas avanca
+    assert(avanco > 0 && giro > 0);                       // so a ponta enxerga a linha: girar no lugar nao a traz (fora do alcance da barra), entao avanca boa parte do ciclo
+    assert(std::fabs(static_cast<float>(giro) / aj.periodoCorrecaoMs - aj.fracaoGiroPonta) < 0.05f);
     const Comando c = passo(m, aj, "#.......", 1);
     assert(m.ultimoLado == -1 && c.esq == -aj.velCorrecaoForte); }
   { Memoria m;  // so S8 e mais nada: forte para a direita
@@ -168,11 +170,14 @@ int main() {
     assert(c.esq == -ae.velBuscaExterna && c.dir == ae.velBuscaExterna);              // vira 90 graus (para o lado onde a linha sumiu)
     c = passo(m, ae, "........", t0 + buscaGiroMs(ae) + ae.buscaEspiralMs + ae.buscaAvancoMs + buscaViradaMs(ae));
     assert(c.esq == -ae.velBuscaExterna && !c.parar);    // recomeca o giro: nunca para
-    // o trecho reto cresce a cada volta (x2 na segunda), ate buscaAvancoMaxFator
+    // quadrado em espiral: os lados crescem de dois em dois (1, 1, 2, 2, 3, 3 x buscaAvancoMs), ate buscaAvancoMaxFator
     const unsigned long volta1 = buscaGiroMs(ae) + ae.buscaEspiralMs + ae.buscaAvancoMs + buscaViradaMs(ae);
-    // a segunda volta nao gira uma volta inteira (buscaGiraSoNaPrimeira): vai direto para a espiral e o trecho reto, que agora dura 2x
+    // a segunda volta nao gira uma volta inteira (buscaGiraSoNaPrimeira) e tem o trecho reto do MESMO tamanho: depois dele ja vira
     c = passo(m, ae, "........", t0 + volta1 + ae.buscaEspiralMs + ae.buscaAvancoMs + 10);
-    assert(c.esq == ae.velBuscaExterna && c.dir == ae.velBuscaExterna);              // ainda reto: o trecho agora dura 2x
+    assert(c.esq == -ae.velBuscaExterna && c.dir == ae.velBuscaExterna);             // vira 90 graus
+    const unsigned long volta2 = ae.buscaEspiralMs + ae.buscaAvancoMs + buscaViradaMs(ae);
+    c = passo(m, ae, "........", t0 + volta1 + volta2 + ae.buscaEspiralMs + ae.buscaAvancoMs + 10);
+    assert(c.esq == ae.velBuscaExterna && c.dir == ae.velBuscaExterna);              // terceira volta: o trecho reto agora dura 2x, ainda reto
     c = passo(m, ae, "...##...", 99999);                 // linha voltou: anda reto
     assert(c.esq == ae.velReto && !c.parar); }
   { // o giro no eixo e SEMPRE uma volta inteira antes da espiral, e comeca ao fim da lacuna
