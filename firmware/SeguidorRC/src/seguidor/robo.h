@@ -124,8 +124,15 @@ struct Navegador {
     // coluna 0; a linha: se entrou alinhado com uma rua conhecida (volta do ecoponto: as linhas ficam a 400 mm, entao um erro de dezenas de mm ainda escolhe a certa) ja sabe; senao
     // descobre indo ate a linha vermelha de um dos lados e contando os cruzamentos que viu
     if (linhaEntrada >= 0 && linhaEntrada < core::kMapRows) core::onOwnBlueAtRow(loc, linhaEntrada, 0.9f);
-    else core::onOwnBlue(loc);
+    else {
+      core::onOwnBlue(loc);
+      // Sem saber a linha, o 1o contato com a coluna 0 e quase sempre o MEIO de um quarteirao (ou o beco), nao um cruzamento: contar como cruzamento fazia a conta de linhas passar de 4
+      // (partida a y<168: 5 "cruzamentos" para cima) e o localizador ficava seguro numa linha errada sem nunca ver a moldura. Pula a contagem dele: o proximo cruzamento de verdade e o 1o no (0, r).
+      if (primeiroContatoNaoENo) { pularProximo = true; contatoNaoContado = true; }
+    }
   }
+  bool primeiroContatoNaoENo = true;
+  bool contatoNaoContado = false;   // o 1o contato com a coluna 0 foi pulado (nao contou como no): ate o 1o cruzamento contado nao ha no 'de onde veio' para a meia-volta da borda voltar a
   int linhaEntrada = -1;   // a linha pela qual entrou (conhecida pela moldura vermelha); -1 = nao sabe
   double faseGrade = std::nan("");   // as plataformas ficam numa grade de 260 mm, mas a FASE dela (nas 5 marcas ou entre elas) so se sabe depois de ver uma: desvio de (y - meio) em relacao ao passo
   std::vector<std::pair<double, seguidor::CorCubo>> platConhecidas;   // (y, cor) das plataformas ja lidas de perto
@@ -134,7 +141,7 @@ struct Navegador {
   bool mapeado = false;   // a varredura parada ja foi feita (uma vez por jogo)
   int calibrando = 0;      // (nao usado: a calibracao pos-reset agora e ir ate a linha vermelha contando cruzamentos)
   int contados = 0;        // cruzamentos contados nesse trecho ate a linha vermelha
-  void aoProibido(core::Forbidden k) { core::onForbidden(loc, k); core::onTurn(loc, 2); pularProximo = true; }   // meia-volta no fim da rua: volta ao cruzamento que deixou
+  void aoProibido(core::Forbidden k) { core::onForbidden(loc, k); core::onTurn(loc, 2); pularProximo = !contatoNaoContado; }   // meia-volta no fim da rua: volta ao cruzamento que deixou
   void aposVirar(char a) { core::onTurn(loc, a == 'L' ? 1 : a == 'R' ? -1 : a == 'U' ? 2 : 0); }
   bool ruaValida() const { return core::inMap(ruaDe.c, ruaDe.r) && core::inMap(ruaPara.c, ruaPara.r) && (abs(ruaDe.c - ruaPara.c) + abs(ruaDe.r - ruaPara.r)) == 1; }
   bool ancorando = false;   // o ultimo cruzamento foi decidido no modo ANCORAR (linha desconhecida)
@@ -219,7 +226,7 @@ struct Navegador {
       if (qRumo != qPose) core::onTurn(loc, (qRumo - qPose + 4) % 4);
     }
     const bool chegouNormal = !pularProximo && naRua && !loc.inGreen && !loc.atGate;
-    if (pularProximo) pularProximo = false; else core::onCrossing(loc);
+    if (pularProximo) pularProximo = false; else { core::onCrossing(loc); contatoNaoContado = false; }
     if (loc.inGreen) return 'S';
     const core::Estimate est = core::estimate(loc);
     const core::Pose& p = est.pose;

@@ -208,3 +208,16 @@ com as 2 pontas pretas, o detector e zerado e o cruzamento vale (`zerarSaindoNoF
 Entrada no meio do quarteirao (semente 14), tentativa descartada: sondar 70 mm adiante apos o 1o contato (linha adiante = no; sem linha = meio do quarteirao,
 engolido) e voltar. A semente 14 voltou a 6/6 e 30/36 tambem, mas o total de 20 sementes caiu para 79 (101 sem a sonda, 94 sem o `zerarSaindoNoFim`):
 a sonda erra a classificacao em outras entradas (y perto da borda, rua a 40-60 mm). Revertida; `zerarSaindoNoFim` (101) fica. A entrada no meio do quarteirao segue sem tratamento proprio.
+
+### Entrada (partida/reposicao no verde): metrica propria e o 1o contato nao e no
+
+A entrada e a parte critica (toda recolocacao pelo juiz recomeca por ela), entao ganhou metrica propria: `firmware/SeguidorRC/tools/entrada.py "params" N` roda N
+partidas aleatorias e mede, por semente, quando a linha ficou segura (massaLinha >= 0,9) e se a pose estimada estava certa nesse instante.
+Achado: o beco entre o portao e a coluna 0 NAO tem linha de rua; o 1o contato da barra e sempre a coluna 0 em y qualquer, quase sempre no MEIO de um quarteirao
+(ou no beco, y < 168). O localizador (`onCrossing` com `atGate`) tratava esse contato como o no (0, r) e somava um cruzamento a mais na conta de linhas: partida a y=60
+fazia 5 "cruzamentos" para cima (>4), o localizador ficava seguro numa linha errada e o carro dava meia-volta sem tocar a moldura vermelha (semente 0).
+Agora, sem linha conhecida na entrada, o 1o contato nao conta (`primeiroContatoNaoENo`, via `pularProximo`) e o proximo cruzamento de verdade vira o 1o no (0, r) com a linha
+uniforme; se a borda vermelha vem antes de qualquer no contado, a meia-volta nao pula o proximo cruzamento (`contatoNaoContado`: nao ha no contado para voltar).
+Resultado em 20 partidas aleatorias: pose errada no instante "linha segura" 1 -> 0; tempo medio 29,5 s -> 34,7 s (a semente 15 pega um cubo no caminho e leva 108 s; as outras
+~31 s); entregas em 20 sementes 101 -> 99 (ruido). Tentativa anterior descartada: sonda de 70 mm adiante (79 entregas).
+Pendente na entrada: ~30 s ate a linha segura (anda ate a moldura vermelha); da para encurtar escolhendo a moldura mais perto.
