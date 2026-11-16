@@ -150,3 +150,13 @@ Causa: ao atravessar o portao azul, a travessia em frente terminava assim que o 
 depois da faixa so as pontas da barra (S1/S2) viam a sobra da faixa / a rua ~30 mm ao lado; o seguidor lia isso como curva fechada e
 girava ~120 graus subindo pela faixa azul (laco de "PORTAO atravessado" / "AZUL do outro lado"). Agora a travessia so acaba com preto
 nos 4 sensores do meio (`portaoSoMeio`), ou em 1,3 s. Sementes ruins 1,8,14,15,16,17: 12 -> 20 entregas; sementes 0-4: 18 -> 21; testes ok.
+
+### Partida na borda (semente 14): diagnostico, sem correcao ainda
+
+A semente 14 e recolocada no verde a y=1041 (a 97 mm da rua mais perto, fora da barra de 75 mm). Ao chegar na coluna 0 a barra le #######
+por 3 leituras (x=147..158), o carro PARA uns 100 ms (parece a leitura de cor/eco), mas nao registra PARADA/cruzamento; segue 60 mm,
+perde a linha, gira no eixo (120 graus, ~8 s de busca no lugar) e fica 50 mm fora da coluna. O rumo sai 30-60 graus errado
+(-123, -149), o localizador perde a coluna (massa 1.00 -> 0.17) e a linha nunca fica segura: o carro roda a coluna 0 de ponta a ponta
+(3 bordas, 150 s) ate pedir ajuda. Dos 5 outros starts ruins, so a 14 tem isso (chegar de lado numa rua no meio do quarteirao).
+Proximo passo: descobrir por que a faixa preta de lado nao vira cruzamento (cruzamentoConfirmado / tratarCubo / parada de eco em x~150).
+Depuracao: BELIEF agora mostra direcao e massa de linha/coluna.

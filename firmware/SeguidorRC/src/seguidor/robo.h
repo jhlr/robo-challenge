@@ -223,7 +223,7 @@ struct Navegador {
     if (loc.inGreen) return 'S';
     const core::Estimate est = core::estimate(loc);
     const core::Pose& p = est.pose;
-    if (ROBO_DEPURANDO()) { core::CubeBelief cp = cubos; fprintf(stderr, "    BELIEF t=%.1f pose (%d,%d) rua(0,0)-(0,1)=%.2f (0,1)-(0,2)=%.2f\n", agoraMs / 1000.0, p.at.c, p.at.r, core::streetSlot(cp, core::Node{0,0}, core::Node{0,1}), core::streetSlot(cp, core::Node{0,1}, core::Node{0,2})); }
+    if (ROBO_DEPURANDO()) { core::CubeBelief cp = cubos; fprintf(stderr, "    BELIEF t=%.1f pose (%d,%d) dir (%d,%d) massaLinha %.2f massaColuna %.2f rua(0,0)-(0,1)=%.2f (0,1)-(0,2)=%.2f\n", agoraMs / 1000.0, p.at.c, p.at.r, p.dc, p.dr, core::rowMass(loc, p.at.r), core::columnMass(loc, p.at.c), core::streetSlot(cp, core::Node{0,0}, core::Node{0,1}), core::streetSlot(cp, core::Node{0,1}, core::Node{0,2})); }
     const bool colSure = core::columnMass(loc, p.at.c) >= core::kMinCoordBelief, rowSure = core::rowMass(loc, p.at.r) >= core::kMinCoordBelief;
     // (so com a pose SEGURA: com a pose errada a rua andada e outra, e a rua do cubo ficava marcada como vazia de certeza)
     // Andou a rua inteira de ruaDe ate aqui com o ultrassom ligado e NAO parou por nenhum cubo: a rua esta vazia (a de tras da esquina nunca aparece na varredura,
