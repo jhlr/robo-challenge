@@ -143,3 +143,10 @@ Falhas que restam nas sementes ruins (1, 8, 14, 15, 16, 17), ainda nao corrigida
 2. Pos-entrega (sementes 14, 16): depois de "VERDE inesperado" o carro fica indo e voltando sobre a faixa azul do portao ("atravessado" / "AZUL do outro lado" em laco),
    ou atravessa a arena ate o lado do oponente (x ~ 2900).
 3. Cubo de cor sem plataforma na 1a viagem (semente 16): ~50 s de busca e -10; so a observacao inicial evita, e ela e pior no total.
+
+### Laco no portao (semente 14, 16)
+
+Causa: ao atravessar o portao azul, a travessia em frente terminava assim que o TCS deixava o azul E qualquer sensor via preto. Logo
+depois da faixa so as pontas da barra (S1/S2) viam a sobra da faixa / a rua ~30 mm ao lado; o seguidor lia isso como curva fechada e
+girava ~120 graus subindo pela faixa azul (laco de "PORTAO atravessado" / "AZUL do outro lado"). Agora a travessia so acaba com preto
+nos 4 sensores do meio (`portaoSoMeio`), ou em 1,3 s. Sementes ruins 1,8,14,15,16,17: 12 -> 20 entregas; sementes 0-4: 18 -> 21; testes ok.

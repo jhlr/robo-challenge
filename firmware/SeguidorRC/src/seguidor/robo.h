@@ -362,6 +362,7 @@ struct Robo {
   bool esperandoAjuda = false;
   int pedidosDeAjuda = 0, marcoMetas = 0;
   unsigned long ultimaMetaMs = 0;
+  bool portaoSoMeio = true;
   bool olharSoSeNaoMedida = true;   // depois de virar, o olhar de 35 graus (~1,4 s) so quando a rua nova ainda nao foi medida pelo ultrassom
   static constexpr double kRetoParaReancorarMm = 150.0;
   double retoDesdeMm = -1.0;   // odometro quando comecou a andar reto sobre a linha (-1 = nao esta nisso)
@@ -575,7 +576,8 @@ struct Robo {
             bool pp[kSensores];
             lerBarra(c, pp);
             const bool algumPreto = pp[0] || pp[1] || pp[2] || pp[3] || pp[4] || pp[5] || pp[6] || pp[7];
-            return dt >= 130 && c.tcsChao() != CorLinha::Azul && (algumPreto || dt >= 1300);
+            const bool noMeio = pp[2] || pp[3] || pp[4] || pp[5];   // so as pontas acesas logo depois da faixa azul e a sobra da faixa (ou a rua 30 mm ao lado): nao e a rua sob a barra
+            return dt >= 130 && c.tcsChao() != CorLinha::Azul && ((portaoSoMeio ? noMeio : algumPreto) || dt >= 1300);
           });
           esquecerUltimoComando(memoria);
           memoria.perdeuEm = 0;

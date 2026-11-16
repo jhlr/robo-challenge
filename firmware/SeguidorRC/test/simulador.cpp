@@ -106,6 +106,7 @@ struct ParamsFisicos {
 constexpr double kErroFinalMm = 8.0;
 
 static bool gOlharSoNaoMedida = true;   // param olhar=0: olha adiante em toda virada (antes)
+static bool gPortaoMeio = true;
 static bool gObservar = false;   // param observar=1: liga a viagem de observacao das plataformas no inicio (desligada: piorou a entrega)
 Ajustes gAjustes = ajustesDoCarro();   // a MESMA fonte do firmware (params.h); os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
 bool gSo_Placar = false;
@@ -677,7 +678,7 @@ inline ConfigRobo configDoSim() {
   return c;
 }
 struct Firmware : Robo<Carro> {
-  Firmware() : Robo<Carro>(configDoSim()) { nav.observarNoInicio = gObservar; olharSoSeNaoMedida = gOlharSoNaoMedida; }
+  Firmware() : Robo<Carro>(configDoSim()) { nav.observarNoInicio = gObservar; olharSoSeNaoMedida = gOlharSoNaoMedida; portaoSoMeio = gPortaoMeio; }
   void passo(Carro& c) {   // SIM_TRACE=1: uma linha a cada 50 ms (tempo, pose, barra, o que a decisao mandou)
     Robo<Carro>::passo(c);
     static const bool rastro = getenv("SIM_TRACE") != nullptr;
@@ -1799,6 +1800,7 @@ int main(int argc, char** argv) {
     else if (k == "periodo") gAjustes.periodoCorrecaoMs = static_cast<unsigned long>(v);
     else if (k == "fl") gAjustes.fracaoGiroLeve = static_cast<float>(v);
     else if (k == "ff") gAjustes.fracaoGiroForte = static_cast<float>(v);
+    else if (k == "portaomeio") gPortaoMeio = v != 0.0;
     else if (k == "olhar") gOlharSoNaoMedida = v != 0.0;
     else if (k == "observar") gObservar = v != 0.0;
     else if (k == "giro") gAjustes.buscaGiroGraus = static_cast<float>(v);
