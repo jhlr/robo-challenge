@@ -114,6 +114,7 @@ static bool gAteAzul = true;
 static bool gZSaindo = true;
 static bool gContatoNaoNo = true;
 static bool gAncSemVarrer = true;
+static bool gCorSaida = true;
 static bool gObservar = false;   // param observar=1: liga a viagem de observacao das plataformas no inicio (desligada: piorou a entrega)
 Ajustes gAjustes = ajustesDoCarro();   // a MESMA fonte do firmware (params.h); os cenarios partem destes (mude na linha de comando para varrer parametros da decisao)
 bool gSo_Placar = false;
@@ -685,7 +686,7 @@ inline ConfigRobo configDoSim() {
   return c;
 }
 struct Firmware : Robo<Carro> {
-  Firmware() : Robo<Carro>(configDoSim()) { nav.primeiroContatoNaoENo = gContatoNaoNo; nav.observarNoInicio = gObservar; olharSoSeNaoMedida = gOlharSoNaoMedida; portaoSoMeio = gPortaoMeio; ancorarSemVarrer = gAncSemVarrer; zerarSaindoNoFim = gZSaindo; portaoAteAzulAcabar = gAteAzul; tentarLados = gLados; portaoSoMeio2 = gPortaoMeio2; ancorarSemRepetir = gSemRepetir; }
+  Firmware() : Robo<Carro>(configDoSim()) { nav.primeiroContatoNaoENo = gContatoNaoNo; nav.observarNoInicio = gObservar; olharSoSeNaoMedida = gOlharSoNaoMedida; portaoSoMeio = gPortaoMeio; corNaSaidaParaTudo = gCorSaida; ancorarSemVarrer = gAncSemVarrer; zerarSaindoNoFim = gZSaindo; portaoAteAzulAcabar = gAteAzul; tentarLados = gLados; portaoSoMeio2 = gPortaoMeio2; ancorarSemRepetir = gSemRepetir; }
   void passo(Carro& c) {   // SIM_TRACE=1: uma linha a cada 50 ms (tempo, pose, barra, o que a decisao mandou)
     Robo<Carro>::passo(c);
     static const bool rastro = getenv("SIM_TRACE") != nullptr;
@@ -1815,6 +1816,7 @@ int main(int argc, char** argv) {
     else if (k == "zsaindo") gZSaindo = v != 0.0;
     else if (k == "contato") gContatoNaoNo = v != 0.0;
     else if (k == "ancsemvarrer") gAncSemVarrer = v != 0.0;
+    else if (k == "corsaida") gCorSaida = v != 0.0;
     else if (k == "olhar") gOlharSoNaoMedida = v != 0.0;
     else if (k == "observar") gObservar = v != 0.0;
     else if (k == "giro") gAjustes.buscaGiroGraus = static_cast<float>(v);

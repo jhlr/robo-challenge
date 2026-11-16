@@ -373,6 +373,7 @@ struct Robo {
   bool portaoAteAzulAcabar = true;   // a travessia do portao so termina quando o TCS deixou o azul (antes: branco numa ponta + qualquer preto da propria faixa ja bastava)
   bool zerarSaindoNoFim = true;
   bool ancorarSemVarrer = true;
+  bool corNaSaidaParaTudo = true;
   bool portaoSoMeio = true;
   bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
   bool ancorarSemRepetir = true;
@@ -1358,6 +1359,10 @@ struct Robo {
     ultimoUsMs = agora;
     float d = static_cast<float>(c.us());
     bool deMemoria = false;
+    // Logo depois de uma curva o carro sai ~5 graus torto e o cone (+-10) pode passar ao lado de um cubo que esta a 100-200 mm do cruzamento (medido: cubo a 11 graus do eixo, cone de 10,
+    // e o eco lia a parede do fundo a 870 mm: ele passou por cima). O TCS da frente nao depende do angulo (faixa estreita a ~90 mm): nos primeiros 250 mm da rua uma cor de cubo
+    // a frente vale como eco na distancia de parar.
+    if (corNaSaidaParaTudo && andadoRuaMm < 250.0f && (d <= 0.0f || d > nav.alvo.cuboParaDePertoMm + 15.0f) && c.tcsFrente() != seguidor::CorCubo::Nenhuma) d = nav.alvo.cuboParaDePertoMm;
     if (ROBO_TRACE(agora)) fprintf(stderr, "      US t=%.2f eixo (%.0f,%.0f) th %.0f d=%.0f andadoRua=%.0f vel=%.0f\n", agora / 1000.0, c.estado().x, c.estado().y, c.estado().th * 57.3, d, andadoRuaMm, velMmSAtual);
     // MEMORIA DO ECO: depois de uma curva o carro balanca de 5 a 10 graus ao realinhar na rua e o cone (+-10) pode perder um cubo no meio da rua justo quando ele chega na distancia
     // de parar (o eco de 82 mm numa leitura e sem eco na seguinte: ele passava por cima). Um eco perto que some quando ainda falta andar ate ele vale como o eco menos o que andou.

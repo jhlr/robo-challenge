@@ -226,3 +226,11 @@ Entrada, 2a medida: em ANCORAR (linha desconhecida, indo reto pela coluna 0 ate 
 conhecida e o cruzamento a ~400 mm do anterior (+-40), passa direto (`ancorarSemVarrer`; param do simulador `ancsemvarrer=0` volta ao antigo). Entrada em 20 partidas aleatorias: linha segura
 em 29,0 s em media (antes 34,7; tipicos 41 s -> 25 s), pose errada 0 de 20; entregas em 20 sementes 99 -> 98 (ruido). Uma moldura mais perto nao da para escolher: o carro nao sabe o y de partida
 e o ultrassom nao ve a fita vermelha.
+
+### Cubo a 100-200 mm do cruzamento: o cone do ultrassom perdia por 0,8 grau (semente 14)
+
+Medido na semente 14: depois da meia-volta da borda o carro sai da curva a ~5 graus do eixo (th 365 em vez de 360); o cubo a 194 mm do cruzamento ficava a 10,8 graus do
+eixo do sensor, o cone e de 10 (cone 20), e o eco lia a parede do fundo a 870 mm: o carro passou por cima (-5) e, como andou a rua "sem parar", marcou-a como vazia de certeza
+(depois, "so pode ser o outro robo", `pularProximo` mal usado e pose uma linha errada). Agora, nos primeiros 250 mm da rua, uma cor de cubo no TCS da frente (faixa estreita a ~90 mm, nao
+depende do angulo) vale como eco na distancia de parar (`corNaSaidaParaTudo`). Sementes ruins (14, 36, 58): 2 -> 18; sementes 0-4: 27 -> 29; 20 sementes: 98 -> 106; testes ok.
+Custo no carro real: uma leitura do TCS da frente a cada 60 ms so nos primeiros 250 mm de cada rua; medir se o laco aguenta.
