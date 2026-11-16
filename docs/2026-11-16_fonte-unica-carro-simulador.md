@@ -169,3 +169,9 @@ cruzamento nao e chegada (`ancorarSemRepetir`). Com 108 mm (o minimo teorico ant
 Semente 10: a guarda de 60 mm (acima) tambem engolia a faixa a ~30 mm DEPOIS de uma meia-volta por cubo na frente, que e o cruzamento a que ele
 volta e quem consome `pularProximo`; a flag ficava pendente e pulava o proximo cruzamento de verdade (pose uma coluna atras, ~150 s perdido com
 cubo, ate pedir ajuda). A guarda agora so vale com `!pularProximo`. Sementes ruins (2,8,10,12,18,19): 11 -> 15; sementes 0-4: 20 (era 21, ruido).
+
+Semente 10, 2a falha (ainda aberta): na reentrada o carro cruza o portao a y=1346 (rua em 1368, 22 mm de erro de y); logo depois da faixa so
+S2/S3 veem a rua, o seguidor sem historico (`vinhaSeguindo` falso) gira no eixo ("CURVA FECHADA esquerda") ate th=65 e a parada seguinte
+e lida como "chegou CEDO" (borda azul), com a meia-volta voltando pela arena ate o lado do oponente (x~2300). `trechoRestante0` agora e zerado
+ao cruzar o portao (valor da ultima saida, 360 mm, estava velho; correto, sem efeito medido). A causa a atacar e o giro no eixo com a rua so
+22 mm ao lado logo depois do portao: devia corrigir de leve, nao girar.

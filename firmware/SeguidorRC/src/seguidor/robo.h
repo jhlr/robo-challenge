@@ -565,6 +565,7 @@ struct Robo {
         else if (indoParaOeste()) { core::initInGreen(nav.loc); nav.naRua = false; portaoPendente = true; precisaAlinhar = true; }   // saiu pelo nosso portao sem querer: esta no verde de novo
         else {
           nav.aoPortao();
+          trechoRestante0 = -1.0;
           // A barra para em cima da faixa azul e a barra/eixo ainda estao dentro dela: seguir a linha dali o fazia SEGUIR A AZUL como se fosse rua (subia ou descia por ela). Atravessa em
           // frente, segurando o rumo pelos encoders, ate a barra sair da faixa (20 mm + a barra a ~30 mm do eixo).
           cruz = MemoriaCruzamento{};
@@ -1150,6 +1151,7 @@ struct Robo {
     nav.calibrando = 0;
     nav.contados = 0;
     portaoPendente = true;
+    trechoRestante0 = -1.0;   // o trecho da ultima saida nao vale mais: o 1o cruzamento depois do portao fica a ~170 mm (beco), nao a 360
     semReacaoAte = 0;   // a azul que vem agora E o portao que ele espera: a janela de 1,5 s da saida anterior (ainda em cima da faixa) nao pode engoli-la (voltava e atravessava a cidade 'no verde')
     memoria = Memoria{};
     cruz = MemoriaCruzamento{};
@@ -1508,6 +1510,7 @@ struct Robo {
         portaoPendente = false;
         semReacaoAte = agora + 1500;
         nav.aoPortao();
+        trechoRestante0 = -1.0;
         c.evento(fmt("PORTAO azul atravessado em (%.0f,%.0f) (de frente ou de lado)", c.estado().x, c.estado().y));
         esquecerUltimoComando(memoria);
         cruz = MemoriaCruzamento{};
