@@ -30,3 +30,12 @@ Achados:
 Conclusao: o limite de 150 s nao e gargalo. Reduzi-lo gera pedidos de ajuda falsos (o carro so esta lento, nao perdido) e custa entregas. Mantem-se 150 s. Nas sementes 2, 5, 7 e 14 o limite nao muda a falha (ajudas 4 a 5 contra 4 a 5), entao a perda e de localizacao, nao de espera.
 
 Penalidade de reinicio (-15) continua fora da simulacao; com 150 s e 4 pedidos em 20 sementes o custo esperado e baixo.
+
+## Por que o cruzamento nao-esperado varre (fase 2)
+Divisao do `nao-esperado` (420 casos em 20 sementes): 74% `ne-insegura` (a coluna ou a linha da crenca com massa < 0,8), 25% `ne-sem-trecho`, 1% `ne-odo-mais`, 0% `ne-odo-menos`. O odometro nao e a causa.
+
+Causa (`core/localizer.h`): `onCrossing(loc)` sem distancia faz cada cruzamento ter 5% de chance de ter "pulado" dois quarteiroes, e essa massa nunca some dentro da cidade (nao ha evidencia interior que a distinga). A coluna fica em ~0,76 a 0,79, logo abaixo do limite de 0,8 de `kMinCoordBelief`, e o carro varre quase todo cruzamento por uma diferenca de 2%.
+
+Teste: passar a distancia andada (`onCrossing(loc, mm)`, o modelo ja existia) tirou a varredura (insegura 22 -> 8 na semente 0), mas a semente 2 caiu de 5 para 1 entrega: o carro entrou num laco de meia-volta entre dois cruzamentos com crenca confiante e errada (girou 180 graus a cada cruzamento, de t=30 s em diante). Revertido. Proximo passo: fase 2b, o laco.
+
+Evento de fim de beco: `core::onLineEnd` era chamado so nos testes; agora e chamado quando `classificarPerda` decide FimDeBeco. Efeito medido: nenhum (115/120 igual ao baseline, mesma entrega por semente). Mantido por ser a evidencia correta e nao mudar o resultado.

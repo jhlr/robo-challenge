@@ -353,8 +353,8 @@ struct Robo {
     ~Fatia() { r.cobrar(c.agoraMs()); r.fase = ant; }
   };
   // Quantas vezes cada ramo de decisao do cruzamento e da plataforma foi tomado (mede, nao decide). Lido pelo SIM_FASES.
-  enum class Ramo : uint8_t { CruzPoseSegura, CruzVizinhasMedidas, CruzGesto, CruzSoUmLado, CruzVarreCompleta, CruzAncorar, CruzNaoEsperado, kNum };
-  static constexpr const char* kNomesRamo[static_cast<int>(Ramo::kNum)] = {"pose-segura", "vizinhas-medidas", "gesto", "so-um-lado", "varre-completa", "ancorar", "nao-esperado"};
+  enum class Ramo : uint8_t { CruzPoseSegura, CruzVizinhasMedidas, CruzGesto, CruzSoUmLado, CruzVarreCompleta, CruzAncorar, CruzNaoEsperado, NeInsegura, NeSemTrecho, NeOdoMais, NeOdoMenos, kNum };
+  static constexpr const char* kNomesRamo[static_cast<int>(Ramo::kNum)] = {"pose-segura", "vizinhas-medidas", "gesto", "so-um-lado", "varre-completa", "ancorar", "nao-esperado", "ne-insegura", "ne-sem-trecho", "ne-odo-mais", "ne-odo-menos"};
   unsigned long contRamo[static_cast<int>(Ramo::kNum)] = {};
   void contar(Ramo r) { contRamo[static_cast<int>(r)]++; }
   std::string resumoRamos() const {
@@ -697,7 +697,13 @@ struct Robo {
       const bool esperado = segura && trechoRestante0 > 0.0 && fabs(andado - trechoRestante0) < (cfg.encoder ? 40.0 : 110.0);   // com encoder o cruzamento esperado e conferido pelo odometro
       if (esperado && cfg.encoder && cfg.gestoGraus != 0.0) { pularVarredura = true; gesto = cfg.gestoGraus > 0.0; contar(Ramo::CruzPoseSegura); }   // gesto < 0: passa direto, sem girar
       else if (esperado && pularVarreduraComPoseSegura) { pularVarredura = true; contar(Ramo::CruzPoseSegura); }
-      else if (!esperado) contar(Ramo::CruzNaoEsperado);
+      else if (!esperado) {
+        contar(Ramo::CruzNaoEsperado);
+        if (!segura) { contar(Ramo::NeInsegura); ROBO_DBG("    INSEGURA: col(%d)=%.2f row(%d)=%.2f conf=%.2f inGreen=%d atGate=%d trecho=%.0f andado=%.0f\n", es.pose.at.c, core::columnMass(nav.loc, es.pose.at.c), es.pose.at.r, core::rowMass(nav.loc, es.pose.at.r), es.confidence, (int)nav.loc.inGreen, (int)nav.loc.atGate, trechoRestante0, andado); }
+        else if (trechoRestante0 <= 0.0) contar(Ramo::NeSemTrecho);
+        else if (andado - trechoRestante0 >= 40.0) contar(Ramo::NeOdoMais);   // andou mais que o esperado: o no esta alem
+        else contar(Ramo::NeOdoMenos);   // andou menos
+      }
       else if (esperado) {
         // A rua do lado ja foi MEDIDA se a crenca saiu do prior (vista vazia ou com cubo) ou se nao existe (fora do mapa: o beco do portao). So essas dispensam o giro.
         const core::Node cur{static_cast<int8_t>(es.pose.at.c + es.pose.dc), static_cast<int8_t>(es.pose.at.r + es.pose.dr)};
@@ -1654,6 +1660,7 @@ struct Robo {
         classificarPerda(perdidoHa, andadoRuaMm, ajustes.lacunaMs, ajC) == Perda::FimDeBeco) {
       fimDeBecoAvisado = true;
       fimDeBeco = true;
+      core::onLineEnd(nav.loc);   // a rua acabou logo apos o cruzamento: e a borda (beco). Era a unica evidencia de linha da borda e nenhum caminho do robo a entregava ao localizador
     }
     if (memoria.perdeuEm != 0 && perdeuAntes == 0) rumoAoPerder = rumo;
     if (!ROBO_SEM("SIM_SEM_LACUNA") && vinhaSeguindo && memoria.perdeuEm != 0 && agora - memoria.perdeuEm < ajustes.lacunaMs) segurarRumoNaLacuna(cmd, rumo, rumoAoPerder, ajustes);
