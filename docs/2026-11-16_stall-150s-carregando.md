@@ -15,3 +15,16 @@ Com cubos em ruas demais e capacidade 1, o bloqueio pode desconectar o portao do
 
 ## Decisao pendente
 A capacidade 1 foi escolha da equipe ("entrega logo"); a regra permite 2 cubos por viagem. Com 2, o carro pegaria o cubo do caminho em vez de contorna-lo, e esse bloqueio deixaria de existir. Isto muda o comportamento do carro real, entao e decisao sua.
+
+## Correcao: bloqueio na rua do eco (nao na rua percorrida)
+- `aoBloquearTemporario` tinha um fallback que bloqueava `ruaDe`→`ruaPara` (a rua que o carro percorre) sempre que o eco nao era cubo ou a geometria falhava. Um eco de outro robo ou parede bloqueava a rua onde o carro estava.
+- Agora todo bloqueio usa a geometria do eco (`ruaDoCuboVisto`) e nao bloqueia nada se o eco for ambiguo. O caminho sem cubo passa a receber a distancia do eco.
+- Diagnostico novo (SIM_DEBUG): `FANTASMA bloqueio rua ... sem cubo real`, comparando cada bloqueio com os cubos reais do simulador.
+
+Resultado (20 sementes, 18 cubos):
+- Seed 10: fantasmas 9 -> 0; 5/6 -> 6/6.
+- Seed 4: 6/6 -> 5/6; ainda tem 2 fantasmas (0,4)-E a 47 s e (1,3)-N a 89 s. Causa nao verificada.
+- Seeds 15 e 16: completam, mas mais lentas (545 s e 468 s, antes 410 s e 441 s).
+- Liquido: 17/20 antes e depois; media 460 s (antes 458 s).
+
+Proximo: achar a origem dos fantasmas restantes (seed 4).

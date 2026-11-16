@@ -197,14 +197,15 @@ struct Navegador {
     *b = core::Node{static_cast<int8_t>(ruaDe.c + dc * (k + 1)), static_cast<int8_t>(ruaDe.r + dr * (k + 1))};
     return core::inMap(a->c, a->r) && core::inMap(b->c, b->r);
   }
-  void aoBloquearTemporario(bool cuboConfirmado, float usMm = -1.0f, float andadoMm = 0.0f) {
+  // Bloqueia a rua ONDE O ECO ESTA (geometria do ultrassom, ruaDoCuboVisto), nunca a rua que o carro percorre: o carro andando nao esta sobre o objeto.
+  // Eco ambiguo (perto de um cruzamento): nao bloqueia nada. Cubo confirmado tambem marca o cubo na crenca.
+  void aoBloquearTemporario(bool cuboConfirmado, float usMm, float andadoMm) {
     desviar = true;
     core::Node ca{}, cb{};
-    if (cuboConfirmado && ruaDoCuboVisto(usMm, andadoMm, &ca, &cb)) {   // sabe que tem cubo la (para pegar depois da entrega): na rua do cubo, nao na que o carro percorre
-      core::setStreet(cubos, ca, cb, 1.0f);
+    if (ruaDoCuboVisto(usMm, andadoMm, &ca, &cb)) {
+      if (cuboConfirmado) core::setStreet(cubos, ca, cb, 1.0f);
       core::streetSlot(bloq, ca, cb) = true; bloqueiosTemporarios.push_back({ca, cb});
     }
-    if (ruaValida()) { core::streetSlot(bloq, ruaDe, ruaPara) = true; bloqueiosTemporarios.push_back({ruaDe, ruaPara}); }
     ROBO_DBG("    BLOQ-TEMP rua (%d,%d)-(%d,%d) valida=%d pose (%d,%d)\n", ruaDe.c, ruaDe.r, ruaPara.c, ruaPara.r, (int)ruaValida(), core::estimate(loc).pose.at.c, core::estimate(loc).pose.at.r);
     core::onTurn(loc, 2);
     pularProximo = true;
@@ -1471,7 +1472,7 @@ struct Robo {
       ecoLembradoMm = -1.0f; ecoRealinhado = false;
       if (++ecosNaoCuboSeguidos > kMaxEcosNaoCubo) {   // o mesmo eco perto sem cubo (parede, moldura, o outro robo, cor ilegivel) por ~2 s: esperar mais nao muda nada, trata como rua bloqueada e busca outra rota
         ecosNaoCuboSeguidos = 0;
-        nav.aoBloquearTemporario(false);   // eco sem cubo (marrom, parede, outro robo): bloqueia a rota, nao marca cubo
+        nav.aoBloquearTemporario(false, static_cast<float>(d), static_cast<float>(andadoDesdeSaida(c, c.agoraMs())));   // eco sem cubo (marrom, parede, outro robo): bloqueia a rua do eco, nao marca cubo
         trechoRestante0 = -1.0;
         c.evento(fmt("eco a %.0f mm que nao e cubo (cor %d) por %d leituras: rua bloqueada por enquanto, volta e busca outra rota", d, static_cast<int>(cor), kMaxEcosNaoCubo));
         voltarDoCubo(c);

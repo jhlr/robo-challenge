@@ -1,3 +1,4 @@
+#include <set>
 // Simulador do carrinho seguidor no PC: cinematica diferencial + barra de 8 sensores sobre uma pista de linhas, rodando a logica REAL da biblioteca
 // (decidir, cruzamentoConfirmado, giro de 90 graus, classificarPerda). Nao testa eletronica: testa se as REGRAS levam o carro onde deviam.
 //
@@ -1182,8 +1183,21 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   constexpr unsigned long kPartidaMs = 720000;   // 12 min (regras)
   unsigned long pedidoEm = 0;
   int ajudas = 0;
+  std::set<int> fantasmasVistos;   // SIM_DEBUG: ruas bloqueadas pelo robo SEM cubo real (diagnostico)
   while (c.agoraMs() < kPartidaMs && fw.nav.entregues < n) {
     fw.passo(c);
+    if (getenv("SIM_DEBUG") && fw.nav.carregando) {
+      for (int cc = 0; cc < core::kMapCols; cc++)
+        for (int rr = 0; rr < core::kMapRows; rr++)
+          for (int leste = 0; leste < 2; leste++) {
+            const bool bl = leste ? (cc + 1 < core::kMapCols && fw.nav.bloq.east[cc][rr]) : (rr + 1 < core::kMapRows && fw.nav.bloq.north[cc][rr]);
+            if (!bl) continue;
+            bool real = false;
+            for (const Cubo& q : m.cubos) if (q.vivo && q.c == cc && q.r == rr && q.leste == (leste == 1)) real = true;
+            const int chave = (cc * 16 + rr) * 2 + leste;
+            if (!real && !fantasmasVistos.count(chave)) { fantasmasVistos.insert(chave); fprintf(stderr, "    FANTASMA bloqueio rua (%d,%d)-%s sem cubo real t=%.1f s\n", cc, rr, leste ? "E" : "N", c.agoraMs() / 1000.0); }
+          }
+    }
     if (fw.esperandoAjuda) {   // o humano pega o carro parado e apitando e o poe no verde, num ponto aleatorio, depois de 8 s
       if (!pedidoEm) pedidoEm = c.agoraMs();
       else if (c.agoraMs() - pedidoEm > 8000) { c.colocarEm({kPartidaX0 + m.rnd() * kPartidaDX, 60.0 + m.rnd() * (kAlt - 120.0), 0.0}); pedidoEm = 0; ajudas++; }
