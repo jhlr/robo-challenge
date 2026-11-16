@@ -67,9 +67,9 @@ As ruas terminam numa linha vermelha (cima e baixo) ou azul (laterais) que acend
 
 `Ajustes::zonaMortaPwm` (PWM abaixo do qual a roda nao anda) e a unica calibracao de hardware: `normalizar(ajustes)` levanta toda velocidade de giro, correcao e busca para fora dela. No simulador, com a zona real em 80 e a decisao achando 65, 52 cenarios falham (o robo nao gira); com a zona calibrada, 2. Meca a zona antes de ajustar o resto. Os valores de correcao (`velCorrecaoLeve` 90, `fracaoGiroLeve` 0,7, `fracaoGiroForte` 0,95) vieram de uma varredura no simulador (`python` + `test/simulador.cpp -q chave=valor`), nao da pista.
 
-## MPU6050, calibracao e o mapa completo
+## Rumo e o mapa completo
 
-`inercial.h` e `calibracao.h` (puros) + `USA_IMU` no sketch: rumo ancorado na grade (multiplo de 90 numa reta, corrige tambem o vies do giroscopio), levantado -> motores parados -> espera estabilizar 1,5 s -> reposicionado (rumo 0, SEMPRE de frente; pose volta para "no verde", mapa de cubos fica), travado -> reforca o PWM e recua, colisao forte (oponente; cubo e leve e fica abaixo de 1,2 g), lacuna segurando o rumo, e calibracao automatica da zona morta e dos graus por segundo girando no eixo. Todos os limiares de `AjustesInercial` sao chutes: grave os picos reais (`colisao.picoG`) e corrija.
+O carro nao tem bussola nem acelerometro: o rumo (+ = esquerda, 0 = de frente para dentro da cidade) vem da diferenca dos percursos das duas rodas (encoders dos STS, `Robo::tick`), com a bitola efetiva de `params::kTrackMm`. `segurar_rumo.h` (puro) segura esse rumo enquanto a linha some por pouco tempo (lacuna). O verde inesperado reposiciona a pose (rumo 0, pose volta para "no verde", mapa de cubos fica).
 
 O simulador (`test/simulador.cpp`, `--html=arquivo` gera uma pagina que anima cada cenario) inclui o TABULEIRO INTEIRO (6 x 5 cruzamentos a 302 mm, becos de 127 mm, azul nas laterais, vermelho em cima e embaixo, verde e amarelo nas pontas). A primeira azul lida e o nosso portao (`AcaoCruzamento::Portao`); a do outro lado e borda.
 
@@ -78,7 +78,7 @@ O simulador (`test/simulador.cpp`, `--html=arquivo` gera uma pagina que anima ca
 
 ## Regra das duas pontas acesas (acima de todas as outras)
 
-S1 e S8 no preto juntos, em QUALQUER situacao (seguindo, perdido, buscando), tem prioridade sobre a decisao, a busca e o resto (so levantado/motores parados vem antes). Para e roda `passoVarredura` (`giro_cruzamento.h`, maquina de estados pura; o sketch e o simulador so alimentam leituras e motores): vira 90 graus comecando pelo lado MENOS EXPLORADO (`exploracao.h`: rumo do MPU + cruzamentos ja visitados; sem MPU, o lado da ultima correcao) e decide por historico + padrao:
+S1 e S8 no preto juntos, em QUALQUER situacao (seguindo, perdido, buscando), tem prioridade sobre a decisao, a busca e o resto . Para e roda `passoVarredura` (`giro_cruzamento.h`, maquina de estados pura; o sketch e o simulador so alimentam leituras e motores): vira 90 graus comecando pelo lado MENOS EXPLORADO (`exploracao.h`: rumo dos encoders + cruzamentos ja visitados; empate, o lado da ultima correcao) e decide por historico + padrao:
 - vinha seguindo a linha: **cruzamento** se ha rua dos dois lados; senao falso alarme.
 - estava perdido/buscando: se depois de virar o padrao fica **estreito** (1 a 3 acesos), era ele de lado em cima da linha: **endireitou** e segue por ela; senao vira para o outro lado; senao falso alarme.
 O padrao estreito nao exige o centro: com a barra sobre a linha o eixo fica ~30 mm ao lado dela (o simulador mostrou).
@@ -96,7 +96,7 @@ O servidor C++ simula so o que a pagina pede, SEM duracao gravada nem tempo maxi
 `test/simulador.cpp` agora modela (tudo CONFIGURAVEL em `Mundo::cfg`, ligado no simulador antes de existir no robo):
 - **Ultrassom** (alcance 900 mm, cone 20 graus, ruido 3 mm) e **TCS da frente** (cor do cubo a ~9 cm). `alvo.h` (puro) diz o que o eco e: cubo numa rua (`ruaTemCubo`), **oponente = eco que se mexe** (`ecoMovel`: o cubo e parado, entao andando v mm/s para ele a distancia cai v*dt; outra variacao e alvo que se move) e se a cor do cubo se pega (`podeColetar`, configuravel: branco e cor sem plataforma bloqueiam a rua). No sketch: `-DUSA_ULTRASSOM=1 -DUS_TRIG=.. -DUS_ECHO=..` (desligado).
 - **TCS do chao** com cadencia de 60 ms, verde/amarelo, leitura parado com 3 leituras que concordam, e **reposicao pelo verde** so depois de varias leituras seguidas (`reposicionadoPeloVerde`).
-- **Cubos** nas ruas (nunca no cruzamento), **oponente** que anda pelo mapa, leva cubos e bate no robo (o MPU sente a pancada), **ruido aleatorio SINALIZADO** (mancha escura que parece linha, patinagem, atraso dos sensores, leitura errada do TCS: cada evento entra no registro e a mancha e desenhada; liga/desliga na pagina).
+- **Cubos** nas ruas (nunca no cruzamento), **oponente** que anda pelo mapa, leva cubos e bate no robo , **ruido aleatorio SINALIZADO** (mancha escura que parece linha, patinagem, atraso dos sensores, leitura errada do TCS: cada evento entra no registro e a mancha e desenhada; liga/desliga na pagina).
 - **Navegador** (no simulador; usa o `core/`): localizador Bayes (`localizer.h`), memoria dos cubos que esquece com o tempo (`belief.h`), **exploracao por regioes menos visitadas** (`explore.h`: sem cubo provavel vai para o cruzamento menos visitado, nao para a primeira rua), ruas **bloqueadas** (`Blocked`), ancora a coluna na azul do outro lado e a linha na vermelha, coleta (para a ~6 cm, le a cor, pega ou bloqueia), entrega no verde e volta pelo portao. A pagina mostra o que o carrinho lembra (rosa = chance de cubo por rua, X = rua bloqueada, numero = vezes que passou).
 
 **Limites conhecidos (a missao ainda e informativa nos testes):** a localizacao deriva depois de pancadas do oponente e de curvas que nao sao verificadas (depois de virar nao se confere se a rua existe), e entao ele fica "ancorando" em vez de coletar; o navegador ainda nao esta ligado ao sketch.
@@ -117,7 +117,7 @@ Descobertas do simulador: o ultrassom na ponta ve cubos da rua SEGUINTE se o lim
 
 - **Alcance:** com ~900 mm ele ve, em linha reta, ate 3 ruas a frente (cone estreito: so cubos no eixo da rua). `alvo.h::ruaDoEco` diz em qual rua da linha esta o cubo (0 = a primeira); sem eco, as ruas inteiras ao alcance estao vazias. O eco vira INFORMACAO (memoria) e OBJETIVO (o navegador vai ate la), na varredura e tambem a cada 300 ms enquanto anda. Eco numa rua que ja era vazia de certeza = o outro robo.
 - **Rua vazia e caminho normal**, so nao e alvo (nao insiste nela). `kEmptyStreetPenalty = 0` (parametro, caso queira preferir ruas nao vistas).
-- **Depois de cada reset** (posicao aleatoria do verde, olhando para a cidade, rumo do MPU = 0): sobe ate a moldura vermelha para saber o y, alinha com uma rua (a linha de entrada fica conhecida) e **mede + varre os 5 primeiros cruzamentos** (velocidade, ruas, memoria).
+- **Depois de cada reset** (posicao aleatoria do verde, olhando para a cidade, rumo = 0): sobe ate a moldura vermelha para saber o y, alinha com uma rua (a linha de entrada fica conhecida) e **mede + varre os 5 primeiros cruzamentos** (velocidade, ruas, memoria).
 - **Girar 90 graus no cruzamento VARRE o corpo do carro** (~130 mm de raio) por cima das ruas do lado: um cubo a 112-140 mm do centro e atingido. Com a pose segura e o cruzamento esperado nao gira: S1+S8 e a cor bastam. Varre so perdido, em duvida e na calibracao.
 
 ## Correcoes do mundo real e calibracao por contagem (decididas com o usuario)

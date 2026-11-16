@@ -14,7 +14,7 @@ constexpr int kStsRx = 16;  // UART2, half-duplex STS3215 bus via adapter board
 constexpr int kStsTx = 17;
 #endif
 
-// Two I2C buses, no multiplexer (the MPU6050 is gone): the two TCS34725 share address 0x29, so each one has a bus of its own, as wired on the bench.
+// Two I2C buses, no multiplexer : the two TCS34725 share address 0x29, so each one has a bus of its own, as wired on the bench.
 // Wire (FLOOR RGB): SDA 21, SCL 22.   Wire1 (FRONT RGB): SDA 18, SCL 19.   As wired on the bench.
 constexpr int kI2cSda = 21;
 constexpr int kI2cScl = 22;

@@ -1,10 +1,10 @@
 // A logica de navegacao do carro (seguir a rua, cruzamentos, giro na linha, mapa de cubos, coleta e entrega): UM dono, usado pelo simulador e pelo carro real.
 // `Carro` e o robo de verdade ou o simulado; precisa oferecer (duck typing):
 //   tempo/ciclo:  agoraMs(), avancar() (espera/simula um ciclo de cfg.dtMs)
-//   atuadores:    comandar(pwmEsq, pwmDir) (-255..255), parar(), compensar(ganhoEsq, ganhoDir), roda(esquerda) (alvo da roda, 0 = parada),
+//   atuadores:    comandar(pwmEsq, pwmDir) (-255..255), parar(), roda(esquerda) (alvo da roda, 0 = parada),
 //                 coletar(i) -> bool (pegou e guardou o cubo), soltar(cor) -> bool (largou o cubo na plataforma)
 //   sensores:     ler(bool[8]) (true = linha), odoMm()/odoEMm()/odoDMm() (mm das rodas), us() (mm ou -1), tcsChao(), tcsFrente(), piso(),
-//                 plataformaNaFrente(alcanceMm), cuboNaFrente(alcanceMm), imu() (neutro sem MPU)
+//                 plataformaNaFrente(alcanceMm), cuboNaFrente(alcanceMm)
 //   missao:       missao(), usAtivo(), tcsPeriodoMs(), consumirToques(), mostrarCarga(slot, cor), limparCarga(), evento(texto)
 //   so depuracao: estado() (a verdade do simulador; o carro real devolve zeros), ecoTipo() (o que deu o ultimo eco; vazio no carro real)
 #pragma once
@@ -27,14 +27,12 @@
 #include <core/map.h>
 #include <core/navigator.h>
 #include "alvo.h"
-#include "assimetria.h"
 #include "borda.h"
-#include "calibracao.h"
 #include "cruzamento.h"
 #include "decisao.h"
 #include "exploracao.h"
 #include "giro_cruzamento.h"
-#include "inercial.h"
+#include "segurar_rumo.h"
 #include "tabuleiro.h"
 
 #if defined(ROBO_SIMULADOR)   // so no PC: o carro real nao imprime nem le variaveis de ambiente
@@ -66,7 +64,6 @@ struct ConfigRobo {
   double dtMs = 5.0;          // um ciclo de leitura + decisao
   double tauMs = 50.0;        // atraso de primeira ordem das rodas (o giro ainda anda isto depois do comando de parar)
   bool encoder = false;       // STS3215: odometria das rodas, malha fechada no servo
-  bool rumoPeloEncoder = false;   // sem MPU: o rumo vem da diferenca dos percursos das rodas (e nao ha acelerometro: sem pickup, colisao, ancora, tracao)
   bool autoCalBitola = false;     // cada giro na linha corrige a bitola efetiva (o meio da faixa tem ~5% de vies: piora o caso ja calibrado)
   double gestoGraus = 45.0;       // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado (0 = varredura de 90, < 0 = passa direto)
   Ajustes ajustes;
@@ -253,7 +250,7 @@ struct Navegador {
     // Capacidade 2 (regras): com 1 cubo so continua coletando se ha cubo provavel; com 2 vai entregar. Entregar e obrigatorio antes de coletar de novo.
     core::Plan plano = core::planAtCrossing(loc, cubos, core::kMinCoordBelief, &visitas, &bloq);
     if (carregando) {
-      // Carregando 1 cubo: ENTREGA JA, e sem depender de saber onde esta: a bussola do MPU diz para onde aponta e o nosso portao fica a OESTE (toda rua horizontal leva a ele).
+      // Carregando 1 cubo: ENTREGA JA, e sem depender de saber onde esta: o rumo dos encoders diz para onde aponta e o nosso portao fica a OESTE (toda rua horizontal leva a ele).
       // Em cada esquina vira para o oeste e segue por ela; a azul no fim e o nosso portao (portaoPendente fica ligado enquanto carrega).
       const int q = ((static_cast<int>(lroundf(rumoGraus / 90.0f)) % 4) + 4) % 4;   // 0 = leste, 1 = norte, 2 = oeste, 3 = sul
       int qAlvo = 2;
@@ -372,72 +369,22 @@ struct Robo {
   float ultimaVelMedida = 0.0f, velLivreMmS = 0.0f;
   static constexpr int kVerdesParaReposicionar = 3;
 
-  // ---- MPU (inercial.h). Desligado por padrao: os cenarios antigos rodam como antes.
-  bool usaImu = false, usaAncora = true;
-  AjustesInercial ai;
-  Assimetria assimMpu;      // ganhos medidos pelo giroscopio em reta no inicio (1,1 = nao mediu)
-  bool compensarMotores = !cfg.encoder;   // STS: o servo regula a velocidade de cada roda, nao ha assimetria a compensar
-  void aplicarCompensacao(Carro& c) const {
-    if (!compensarMotores) { c.compensar(1.0, 1.0); return; }
-    c.compensar(assimMpu.ganhoEsq, assimMpu.ganhoDir);
-  }
-  // No verde, parado: 3 rodadas curtas de re/frente com o MESMO PWM nos dois lados; o giroscopio diz para que lado o carro puxa e o lado fraco ganha forca.
-  void calibrarAssimetria(Carro& c) {
-    if (!usaImu || !compensarMotores) return;
-    AjustesAssimetria aj;
-    aj.pwm = ajustes.velReto; aj.velMmS = ajC.velMmS; aj.bitolaMm = ajustes.bitolaMm;
-    assimMpu = Assimetria{};
-    c.compensar(1.0, 1.0);
-    ComandoAssimetria k{0, 0, false};
-    for (int i = 0; i < 8000 && !k.terminou; i++) {
-      k = passoAssimetria(assimMpu, ultimoImu.gzRadS - vies, c.agoraMs(), aj);
-      c.comandar(k.esq, k.dir);
-      tick(c);
-    }
-    c.parar();
-    if (assimMpu.fase != Assimetria::Pronto) assimMpu = Assimetria{};
-    aplicarCompensacao(c);
-    c.evento(fmt("ASSIMETRIA dos motores (giroscopio em reta): esquerda x%.3f, direita x%.3f", assimMpu.ganhoEsq, assimMpu.ganhoDir));
-  }
-  double odoEAnt = 0.0, odoDAnt = 0.0;   // odometros das rodas no ciclo anterior (rumo pelo encoder)
-  float rumo = 0.0f, vies = 0.0f;   // rumo em graus (+ esquerda, 0 = de frente); vies em rad/s (estimado parado no inicio)
-  Imu ultimoImu = {0, 0, 0, 1};
-  unsigned long ultimoMsImu = 0;
-  Ancora ancora;
-  Pickup pickup;
-  Tracao tracao;
-  Colisao colisao;
+  // ---- Rumo: o carro nao tem bussola; o giro vem da diferenca dos percursos das duas rodas (encoder do eixo, nao ve patinagem), + = esquerda
+  double odoEAnt = 0.0, odoDAnt = 0.0;   // odometros das rodas no ciclo anterior
+  bool rumoIniciado = false;
+  float rumo = 0.0f;   // rumo em graus (+ esquerda, 0 = de frente para dentro da cidade), contado pelos encoders
   float rumoAoPerder = 0.0f;
-  bool rumoSuspeito = false;
-  int levantados = 0, reposicionados = 0, colisoes = 0, reforcos = 0, recuos = 0, ticksMotorLevantado = 0;
-
-  // Liga o MPU: mede o vies com o robo parado (1 s) e, como a lacuna agora segura o rumo, estica a lacuna.
-  void ligarImu(Carro& c) {
-    usaImu = true;
-    float soma = 0.0f;
-    for (int i = 0; i < 200; i++) { c.avancar(); soma += c.imu().gzRadS; }
-    vies = soma / 200.0f;
-    ultimoMsImu = c.agoraMs();
-    odoEAnt = c.odoEMm(); odoDAnt = c.odoDMm();
-    ajustes.lacunaMs = 450;
-  }
+  int reposicionados = 0;
 
   std::function<void()> ceder;   // quando ha outro robo na cena: devolve a vez a cada ciclo (os dois andam juntos)
 
-  // Avanca um ciclo e le o MPU (integra o rumo com o vies estimado).
+  // Avanca um ciclo e atualiza o rumo pelos encoders (o primeiro ciclo so guarda os odometros de partida).
   void tick(Carro& c) {
     c.avancar();
-    if (!usaImu) { if (ceder) ceder(); return; }
-    ultimoImu = c.imu();
-    const unsigned long agora = c.agoraMs();
-    if (cfg.rumoPeloEncoder) {   // sem MPU: o giro vem da diferenca dos percursos das duas rodas (encoder do eixo, nao ve patinagem), + = esquerda
-      const double dE = c.odoEMm() - odoEAnt, dD = c.odoDMm() - odoDAnt;
-      odoEAnt = c.odoEMm(); odoDAnt = c.odoDMm();
-      rumo += static_cast<float>((dD - dE) / ajustes.bitolaMm * 180.0 / M_PI);   // a bitola que o FIRMWARE supoe (a real pode diferir)
-    } else {
-      rumo += (ultimoImu.gzRadS - vies) * kRadParaGrau * static_cast<float>(agora - ultimoMsImu) / 1000.0f;
-    }
-    ultimoMsImu = agora;
+    if (!rumoIniciado) { odoEAnt = c.odoEMm(); odoDAnt = c.odoDMm(); rumoIniciado = true; }
+    const double dE = c.odoEMm() - odoEAnt, dD = c.odoDMm() - odoDAnt;
+    odoEAnt = c.odoEMm(); odoDAnt = c.odoDMm();
+    rumo += static_cast<float>((dD - dE) / ajustes.bitolaMm * 180.0 / M_PI);   // a bitola que o FIRMWARE supoe (a real pode diferir)
     if (ceder) ceder();
   }
 
@@ -468,15 +415,14 @@ struct Robo {
   }
 
   // Gira no eixo ate o angulo ESTIMADO (por tempo) chegar em alvo (espelho de girarAte do .ino). Guarda tambem o angulo VERDADEIRO de cada amostra.
-  // pelaLinha (so sem MPU, rumoenc=1): o giro de rua fecha na LINHA, nao no angulo (girarNaLinha).
+  // pelaLinha: o giro de rua fecha na LINHA, nao no angulo (girarNaLinha).
   float girarAte(Carro& c, float agora, float alvo, std::vector<AmostraGiro>& est, std::vector<AmostraGiro>& ver, double thRef, float rumoRef = 0.0f, bool pelaLinha = false) {
-    const bool fechaNaLinha = pelaLinha && cfg.rumoPeloEncoder;
-    if (fechaNaLinha) return girarNaLinha(c, agora, alvo, est, ver, thRef, rumoRef);
+    if (pelaLinha) return girarNaLinha(c, agora, alvo, est, ver, thRef, rumoRef);
     const bool esq = alvo > agora;
     const int v = ajustes.velBuscaExterna;
     c.comandar(esq ? -v : v, esq ? v : -v);
     const unsigned long inicio = c.agoraMs();
-    float omega = 0.0f, rumoAnt = rumo;   // graus/s pelo giroscopio
+    float omega = 0.0f, rumoAnt = rumo;   // graus/s pelos encoders
     // com encoder (servo em malha fechada, sem zona morta) a roda leva ~tauMs para parar: o giro que ainda sobra na freada (omega x tau, ~4 graus) fazia o rumo real errar o alvo
     auto previsto = [&] { return cfg.encoder ? agora + omega * static_cast<float>(cfg.tauMs) / 1000.0f : agora; };
     while ((esq ? previsto() < alvo : previsto() > alvo) && c.agoraMs() - inicio < 3000) {
@@ -485,20 +431,19 @@ struct Robo {
       lerBarra(c, p);
       omega = (rumo - rumoAnt) / static_cast<float>(cfg.dtMs / 1000.0);
       rumoAnt = rumo;
-      if (usaImu) agora = rumo - rumoRef;   // angulo pelo giroscopio
-      else agora += (esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;   // angulo estimado por tempo
+      agora = rumo - rumoRef;   // angulo pelos encoders
       const float verdade = static_cast<float>((c.estado().th - thRef) * 180.0 / M_PI);
       est.push_back({agora, p[0], p[7], acesos(p)});
       ver.push_back({verdade, p[0], p[7], acesos(p)});
     }
     c.parar();
-    if (cfg.encoder && usaImu) {   // espera parar de girar: o que sobra entra na estimativa
+    if (cfg.encoder) {   // espera parar de girar: o que sobra entra na estimativa
       for (int i = 0; i < 80 && fabsf(omega) > 2.0f; i++) { tick(c); omega = (rumo - rumoAnt) / static_cast<float>(cfg.dtMs / 1000.0); rumoAnt = rumo; agora = rumo - rumoRef; }
     }
     return agora;
   }
 
-  // Giro de rua sem MPU. A barra gira em torno do eixo a ~30 mm dele, entao os sensores do centro veem a rua nova numa FAIXA de +-24 graus em volta da direcao dela: parar na primeira vez
+  // Giro de rua. A barra gira em torno do eixo a ~30 mm dele, entao os sensores do centro veem a rua nova numa FAIXA de +-24 graus em volta da direcao dela: parar na primeira vez
   // que a veem deixa o carro de ate 24 graus de lado. Gira DIRETO pela faixa (marca o angulo contado pelos encoders na entrada e na saida), para, volta ao MEIO dela e so ai o rumo vira
   // o multiplo de 90 certo da grade (o erro do angulo dos encoders so conta na meia faixa, ~2 graus, e nao se acumula de um giro para o outro).
   float girarNaLinha(Carro& c, float agora, float alvo, std::vector<AmostraGiro>& est, std::vector<AmostraGiro>& ver, double thRef, float rumoRef) {
@@ -566,7 +511,7 @@ struct Robo {
         else {
           nav.aoPortao();
           // A barra para em cima da faixa azul e a barra/eixo ainda estao dentro dela: seguir a linha dali o fazia SEGUIR A AZUL como se fosse rua (subia ou descia por ela). Atravessa em
-          // frente, segurando o rumo pelo giroscopio, ate a barra sair da faixa (20 mm + a barra a ~30 mm do eixo).
+          // frente, segurando o rumo pelos encoders, ate a barra sair da faixa (20 mm + a barra a ~30 mm do eixo).
           cruz = MemoriaCruzamento{};
           comecarASair(cruz, c.agoraMs(), odoCruz(c));   // o debounce conta desde ANTES de andar: o 1o cruzamento fica a ~90 mm do portao e nao pode ser engolido
           // Em frente ate sair da faixa azul E achar a rua (algum sensor preto sem azul sob o TCS), no maximo ~1,3 s: se a entrada errou uns 40 mm de y a rua nao esta sob a barra, e
@@ -640,7 +585,7 @@ struct Robo {
     medindoVel = false;
     // As duas pontas acesas, em QUALQUER situacao (inclusive perdido/buscando): varredura de 90 graus a partir do lado menos explorado
     const bool vinhaSeguindo = vinhaSeguindoLinha(memoria, c.agoraMs(), ajustes);
-    const int lado = ladoMenosExplorado(expl, rumo, usaImu, memoria.ultimoLado);
+    const int lado = ladoMenosExplorado(expl, rumo, memoria.ultimoLado);
     const double th0 = c.estado().th;   // angulo verdadeiro medido a partir de como chegou
     const float rumo0 = rumo;
     // Girar 90 graus no cruzamento VARRE o corpo do carro (~130 mm de raio) por cima das ruas do lado, e um cubo a 112-140 mm do centro seria atingido. Com a pose SEGURA e o
@@ -671,7 +616,7 @@ struct Robo {
         }
       }
     }
-    float estimado = 0.0f;   // sem MPU: angulo estimado por tempo girando
+    float estimado = 0.0f;   // angulo girado pelos encoders desde o inicio da varredura
     if (pularVarredura) {
       iniciarVarredura(varr, lado, vinhaSeguindo);
       varr.ruas = ResultadoGiro{true, 1, 1, false, false, -2.0f, -2.0f, static_cast<float>(c.us())};   // -2 = "nao medi" (sem giro): so a frente tem leitura
@@ -698,8 +643,7 @@ struct Robo {
         tick(c);
         bool p[kSensores];
         lerBarra(c, p);
-        if (usaImu) estimado = rumo - rumo0;
-        else estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * 0.005f;
+        estimado = rumo - rumo0;
         leitura = {estimado, p[0], p[7], acesos(p), static_cast<float>(c.us())};
       }
     }
@@ -772,23 +716,23 @@ struct Robo {
       if (!p[0] && !p[7]) break;
     }
     c.parar();
-    // Sem MPU o giro fecha na linha (girarNaLinha) e isso so da certo se o eixo gira no CENTRO do cruzamento: as pontas apagam com a barra ~12,5 mm alem do centro, ou seja,
+    // O giro fecha na linha (girarNaLinha) e isso so da certo se o eixo gira no CENTRO do cruzamento: as pontas apagam com a barra ~12,5 mm alem do centro, ou seja,
     // com o eixo (barraAFrenteMm - 12,5) mm antes dele (17,5 mm com a barra a 30 mm). Anda esses mm (odometro) para a rua nova ficar centrada no eixo e a faixa dela ser simetrica.
-    if (cfg.rumoPeloEncoder) andarMm(c, ajustes.barraAFrenteMm - 12.5, [] { return false; });
+    andarMm(c, ajustes.barraAFrenteMm - 12.5, [] { return false; });
     std::vector<AmostraGiro> est, ver;
     girarAte(c, 0.0f, esquerda ? 90.0f : -90.0f, est, ver, c.estado().th, rumo, true);
     esquecerUltimoComando(memoria);
     memoria.perdeuEm = 0;
   }
 
-  // ---- movimentos simples fora da cidade (sem linha): giram pelo giroscopio e andam por tempo com a velocidade CALIBRADA (distancia entre cruzamentos)
+  // ---- movimentos simples fora da cidade (sem linha): giram pelos encoders e andam por tempo com a velocidade CALIBRADA (distancia entre cruzamentos)
   void girarPara(Carro& c, double rumoAlvoGraus) {   // gira pelo caminho mais curto ate o rumo (0 = leste, + = esquerda)
     const float delta = static_cast<float>(remainder(rumoAlvoGraus - rumo, 360.0));
     if (fabsf(delta) < 3.0f) return;
     std::vector<AmostraGiro> e2, v2;
     girarAte(c, 0.0f, delta, e2, v2, c.estado().th, rumo);
   }
-  // Anda `mm` na direcao do rumo atual, segurando o rumo pelo giroscopio; para antes se `parar()` ficar verdadeiro.
+  // Anda `mm` na direcao do rumo atual, segurando o rumo pelos encoders; para antes se `parar()` ficar verdadeiro.
   template <class Parar>
   double andarMm(Carro& c, double mm, Parar parar) {   // devolve quantos mm andou (encoder; sem encoder, tempo x velocidade): quem precisa voltar ao ponto de partida anda o mesmo
     const double alvoRumo = rumo;
@@ -801,7 +745,7 @@ struct Robo {
     while (cfg.encoder ? (c.odoMm() - odo0 + vNow * cfg.tauMs / 1000.0 < mm && c.agoraMs() - ini < 3 * ms + 500) : c.agoraMs() - ini < ms) {
       Comando cmd{};
       cmd.esq = cmd.dir = ajustes.velReto;   // a MESMA velocidade em que se mediu a velocidade (distancia entre cruzamentos / tempo): senao o tempo nao vira distancia
-      if (usaImu) segurarRumoNaLacuna(cmd, rumo, static_cast<float>(alvoRumo), ajustes, ai);
+      segurarRumoNaLacuna(cmd, rumo, static_cast<float>(alvoRumo), ajustes);
       c.comandar(cmd.esq, cmd.dir);
       tick(c);
       vNow = (c.odoMm() - antes) / (cfg.dtMs / 1000.0);
@@ -816,10 +760,10 @@ struct Robo {
     return (c.agoraMs() - ini) / 1000.0 * vel;
   }
 
-  // Indo para o OESTE (pelo compasso do MPU) a azul que aparece e a do NOSSO lado (nosso portao: sair para o verde e permitido); indo para o LESTE seria a do adversario.
-  bool indoParaOeste() const { return usaImu && cosf(rumo * 3.14159265f / 180.0f) < -0.3f; }
+  // Indo para o OESTE (pelo rumo dos encoders) a azul que aparece e a do NOSSO lado (nosso portao: sair para o verde e permitido); indo para o LESTE seria a do adversario.
+  bool indoParaOeste() const { return cosf(rumo * 3.14159265f / 180.0f) < -0.3f; }
 
-  // ---- inicio da partida e depois de cada reposicionamento: ele esta em posicao ALEATORIA do verde, olhando para a cidade (de frente = rumo 0, calibra o MPU)
+  // ---- inicio da partida e depois de cada reposicionamento: ele esta em posicao ALEATORIA do verde, olhando para a cidade (de frente = rumo 0)
   // Anda ate achar o chao amarelo ou uma plataforma a ~6 cm olhando para o oeste e volta para x ~ -150 (a mesma distancia das duas formas): isso da o x. Devolve a cor da plataforma vista.
   seguidor::CorCubo olharSlotOeste(Carro& c, bool ficar = false) {   // ficar: se ha plataforma, fica parado de frente para ela (olhando oeste) em vez de voltar
     girarPara(c, 180.0);
@@ -923,7 +867,7 @@ struct Robo {
     const double e0 = c.us();
     if (e0 < 0.0) return yPlataforma;   // sem eco de frente: nao corrige
     const double r0 = e0 + 100.0;       // distancia do EIXO a face
-    // varredura CONTINUA (sem parar a cada angulo): vai a phi = -36, gira para +36 lendo o ultrassom a cada ~30 ms (o HC-SR04 nao da mais que isso) e rotula cada leitura pelo giroscopio
+    // varredura CONTINUA (sem parar a cada angulo): vai a phi = -36, gira para +36 lendo o ultrassom a cada ~30 ms (o HC-SR04 nao da mais que isso) e rotula cada leitura pelo rumo dos encoders
     girarPara(c, rumo0 + 36.0f);
     const int v = ajustes.velBuscaExterna;
     c.comandar(v, -v);   // phi cresce = rumo diminui (vira a direita)
@@ -994,7 +938,7 @@ struct Robo {
   // ou antes), desce do alto do ecoponto olhando as marcas ate achar a da cor do cubo (o que vir no caminho fica guardado em platConhecidas). Quando as 5 foram olhadas, sabe
   // quais cores tem plataforma e so passa a coletar essas. `yAtual` e atualizado.
   bool procurarPlataforma(Carro& c, seguidor::CorCubo cor, double& yAtual) {
-    // De frente para uma plataforma o carro aponta para o oeste (a face e uma parede): reancora o rumo do giroscopio, que anda com tantas curvas de 90 graus.
+    // De frente para uma plataforma o carro aponta para o oeste (a face e uma parede): reancora o rumo, que anda com tantas curvas de 90 graus.
     auto reancorarOeste = [&] { rumo = static_cast<float>(180.0 + 360.0 * lround((rumo - 180.0) / 360.0)); };
     constexpr double kFolga = 60.0;   // a ponta para a ~60 mm da face da plataforma ao ler a cor
     auto jaOlhou = [&](double y) { for (const double o : nav.yOlhados) if (fabs(o - y) < 40.0) return true; return false; };
@@ -1110,8 +1054,8 @@ struct Robo {
     precisaAlinhar = false;
   }
 
-  // Depois de um reset (colocado em posicao aleatoria do verde, olhando para a cidade: o rumo do MPU volta a 0): entra direto (sem percurso no verde): o y vem de contar os cruzamentos ate o vermelho.
-  void alinharNaRua(Carro& c) {   // depois de um reset (posicao aleatoria do verde, de frente para a cidade, rumo do MPU = 0): sobe ate o vermelho para saber o y e alinha com uma rua
+  // Depois de um reset (colocado em posicao aleatoria do verde, olhando para a cidade: o rumo volta a 0): entra direto (sem percurso no verde): o y vem de contar os cruzamentos ate o vermelho.
+  void alinharNaRua(Carro& c) {   // depois de um reset (posicao aleatoria do verde, de frente para a cidade, rumo = 0): sobe ate o vermelho para saber o y e alinha com uma rua
     entrarNaCidade(c, NAN);
   }
 
@@ -1300,7 +1244,7 @@ struct Robo {
     const int idx = c.cuboNaFrente(100.0);
     ROBO_DBG("    CUBO? t=%.1fs d=%.0f idx=%d cor=%d carga=%zu robo (%.0f,%.0f) th %.0f\n", c.agoraMs() / 1000.0, d, idx, static_cast<int>(cor), nav.carga.size(), c.estado().x, c.estado().y, c.estado().th * 57.3);
     if (idx < 0 || cor == seguidor::CorCubo::Nenhuma) {
-      if (deMemoria && !ecoRealinhado && usaImu) {   // o eco veio da memoria: o carro esta torto (5 a 10 graus) e o cone nao pega o cubo: aponta para o eixo da rua e le de novo
+      if (deMemoria && !ecoRealinhado) {   // o eco veio da memoria: o carro esta torto (5 a 10 graus) e o cone nao pega o cubo: aponta para o eixo da rua e le de novo
         ecoRealinhado = true;
         girarPara(c, 90.0 * lround(rumo / 90.0));
         ultimoUsMs = 0; usAnt = -1.0f;
@@ -1372,29 +1316,6 @@ struct Robo {
   void passo(Carro& c) {
     if (const int toques = c.consumirToques()) nav.pontos -= 5 * toques;
     if (parado) { c.parar(); tick(c); return; }
-    if (usaImu && !cfg.rumoPeloEncoder) {   // sem MPU nao ha acelerometro: levantar/colisao so pelo verde inesperado e pelo ultrassom
-      const EventoPostura ev = atualizarPickup(pickup, ultimoImu, c.agoraMs(), ai);
-      if (ev == EventoPostura::FoiLevantado) levantados++;
-      if (ev == EventoPostura::Reposicionado) {   // sempre de frente, em algum lugar do verde: rumo 0, pose desconhecida, mapa de cubos fica
-        reposicionados++;
-        rumo = 0.0f;
-        memoria = Memoria{};
-        cruz = MemoriaCruzamento{};
-        ancora = Ancora{};
-        tracao = Tracao{};
-        esquecerCor(memCor);
-        tUltimoCruzamento = 0;
-        portaoPendente = true;
-        if (nav.ativo) { nav.reposicionado(); precisaAlinhar = true; }
-      }
-      if (!motoresLiberados(pickup)) {   // carregado: motores parados ate estabilizar
-        c.parar();
-        if (c.roda(true) != 0.0 || c.roda(false) != 0.0) ticksMotorLevantado++;
-        tick(c);
-        return;
-      }
-      if (colisaoDetectada(colisao, ultimoImu, true, c.agoraMs(), ai)) colisoes++;
-    }
     bool p[kSensores];
     lerBarra(c, p);
     const unsigned long agora = c.agoraMs();
@@ -1408,7 +1329,7 @@ struct Robo {
       if (nav.ativo && !nav.loc.inGreen && verdesSeguidos >= kVerdesParaReposicionar && reposicionadoPeloVerde(CorLinha::Verde, portaoPendente, nav.entregando)) {   // verde inesperado: o juiz pegou e pos de volta
         nav.reposicionado();
         precisaAlinhar = true;
-        reposicionados++;   // o rumo do giroscopio continua valendo: so o levantar (MPU) garante que foi posto de frente
+        reposicionados++;   // o rumo continua valendo
         memoria = Memoria{};
         cruz = MemoriaCruzamento{};
         esquecerCor(memCor);
@@ -1428,7 +1349,7 @@ struct Robo {
     if (cruzandoPortao) {
       Comando cmd{};
       cmd.esq = cmd.dir = ajustes.velReto;
-      if (usaImu) segurarRumoNaLacuna(cmd, static_cast<float>(remainder(rumo, 360.0)), 0.0f, ajustes, ai);
+      segurarRumoNaLacuna(cmd, static_cast<float>(remainder(rumo, 360.0)), 0.0f, ajustes);
       c.comandar(cmd.esq, cmd.dir);
       velMmSAtual = ajC.velMmS;
       tick(c);
@@ -1453,20 +1374,20 @@ struct Robo {
       }
       return;
     }
-    if (nav.ativo && nav.loc.inGreen && c.missao() && !inicioFeito) { inicioFeito = true; calibrarAssimetria(c); entrarNaCidade(c, NAN); return; }
+    if (nav.ativo && nav.loc.inGreen && c.missao() && !inicioFeito) { inicioFeito = true; entrarNaCidade(c, NAN); return; }
     if (nav.ativo && nav.loc.inGreen && precisaAlinhar) { alinharNaRua(c); return; }
     if (nav.ativo && nav.loc.inGreen && !(p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7])) {   // no verde: sem linha, anda reto para o portao
       Comando cmd{};
       cmd.parar = false;
       cmd.acao = "no verde: de frente para a cidade e reto ate o portao";
-      const float erro = usaImu ? static_cast<float>(remainder(rumo, 360.0)) : 0.0f;   // + = apontando para a esquerda de "frente"
+      const float erro = static_cast<float>(remainder(rumo, 360.0));   // + = apontando para a esquerda de "frente"
       if (fabsf(erro) > 15.0f) {   // fora de rumo: gira no lugar ate apontar para a cidade (rumo 0), nao anda torto
         const int v = ajustes.velBuscaExterna;
         cmd.esq = erro > 0 ? v : -v;   // apontando a esquerda: gira para a direita
         cmd.dir = -cmd.esq;
       } else {
         cmd.esq = cmd.dir = ajustes.velReto;
-        if (usaImu) segurarRumoNaLacuna(cmd, erro, 0.0f, ajustes, ai);
+        segurarRumoNaLacuna(cmd, erro, 0.0f, ajustes);
       }
       c.comandar(cmd.esq, cmd.dir);
       velMmSAtual = ajC.velMmS;
@@ -1491,23 +1412,8 @@ struct Robo {
       fimDeBecoAvisado = true;
       fimDeBeco = true;
     }
-    if (usaImu) {
-      if (memoria.perdeuEm != 0 && perdeuAntes == 0) rumoAoPerder = rumo;
-      if (!ROBO_SEM("SIM_SEM_LACUNA") && vinhaSeguindo && memoria.perdeuEm != 0 && agora - memoria.perdeuEm < ajustes.lacunaMs) segurarRumoNaLacuna(cmd, rumo, rumoAoPerder, ajustes, ai);
-      if (usaAncora && !cfg.rumoPeloEncoder) rumoSuspeito |= ancorarNaGrade(rumo, vies, ultimoImu.gzRadS, ehReto(cmd), agora, ancora, ai);
-      const bool comandando = abs(cmd.esq) >= ajustes.zonaMortaPwm || abs(cmd.dir) >= ajustes.zonaMortaPwm;
-      const AcaoTracao acao = cfg.rumoPeloEncoder ? AcaoTracao::Nada : atualizarTracao(tracao, ultimoImu, comandando && !cmd.parar, agora, ai);
-      if (acao == AcaoTracao::Reforcar) reforcos++;
-      if (acao == AcaoTracao::Recuar) {   // nao adiantou reforcar: recua um pouco e tenta de novo
-        recuos++;
-        c.comandar(-ajustes.velReto, -ajustes.velReto);
-        for (int i = 0; i < 60; i++) tick(c);
-        c.parar();
-        tracao.reforco = 0;
-        return;
-      }
-      if (!ROBO_SEM("SIM_SEM_TRACAO")) aplicarReforco(cmd, tracao.reforco);
-    }
+    if (memoria.perdeuEm != 0 && perdeuAntes == 0) rumoAoPerder = rumo;
+    if (!ROBO_SEM("SIM_SEM_LACUNA") && vinhaSeguindo && memoria.perdeuEm != 0 && agora - memoria.perdeuEm < ajustes.lacunaMs) segurarRumoNaLacuna(cmd, rumo, rumoAoPerder, ajustes);
     c.comandar(cmd.parar ? 0 : cmd.esq, cmd.parar ? 0 : cmd.dir);
     if (cfg.encoder) {   // velocidade e percurso lidos das rodas
       velMmSAtual = static_cast<float>((c.odoMm() - odoAnt) / 0.005);

@@ -9,7 +9,7 @@
 
 #include "../../../src/core/localizer.h"   // dono da pose no mapa: o sketch so avisa portao e cruzamento
 #include "../../../src/hal/drive.h"        // dono das rodas STS (velocidade + odometria)
-#include "../../../src/hal/sensors.h"      // dono do I2C (PCA9548), TCS34725, MPU6050 e ultrassom
+#include "../../../src/hal/sensors.h"      // dono do I2C (PCA9548), TCS34725 e ultrassom
 #include "../../../include/params.h"       // canais do multiplexador
 #include "../../../include/pins.h"         // pinos (barra, I2C, ultrassom, bus dos STS)
 
@@ -26,34 +26,6 @@ core::Cor corAnterior = core::DESCONHECIDA, corAceita = core::DESCONHECIDA, corB
 #endif
 MemoriaCor memCor;
 
-// --- MPU6050 (inercial.h): REMOVIDO DO CARRO (hal::Imu e o multiplexador sairam de hal/sensors). Sem ele o rumo vem dos encoders dos STS e os giros de rua fecham na linha (o simulador
-// ja faz isso: rumoenc=1, ver docs/2026-11-03_encoder-simulador.md); este sketch ainda nao. O bloco USA_IMU abaixo e codigo morto ate ser apagado ou refeito sem o MPU.
-// Bitola/eixos: confira o sinal de kSinalGz (+ = anti-horario com o MPU de cabeca para cima) girando o robo a mao para a esquerda e olhando o rumo no Monitor Serial.
-#ifndef USA_IMU
-#define USA_IMU 0   // 1 quando o MPU estiver instalado (sem ele o setup espera o sensor para sempre)
-#endif
-#if USA_IMU
-#error "USA_IMU=1 nao compila mais: o MPU6050 foi removido do carro (hal::Imu nao existe). Veja o comentario acima."
-#include "../../../src/core/yaw.h"   // dono da integracao do giroscopio (viés + dt)
-hal::Imu mpu;   // MPU6050: canal params::kMuxImu do PCA9548 (hal/sensors.*)
-constexpr float kSinalGz = 1.0f;
-// 1 = SO o MPU: setup mede o vies e para (sem calibrar motores nem a barra), loop so imprime rumo/giro/aceleracao; os motores nunca recebem comando. 0 = sketch completo.
-#ifndef SO_TESTE_IMU
-#define SO_TESTE_IMU 1
-#endif
-constexpr bool kCalibrarMotores = true;
-AjustesInercial ajustesInercial;
-Imu imu = {0.0f, 0.0f, 0.0f, 1.0f};
-float rumo = 0.0f;                 // graus, + = esquerda, 0 = de frente para dentro da cidade (SEMPRE assim depois de levantado)
-float viesGz = 0.0f;               // rad/s
-float rumoAoPerder = 0.0f;
-unsigned long ultimoImuMs = 0;
-Ancora ancora;
-Pickup pickup;
-Tracao tracao;
-Colisao colisao;
-int reposicionamentos = 0;
-#endif
 constexpr unsigned long kJanelaCorMs = 400;   // a cor da borda vale por este tempo (o TCS pode estar a frente ou atras da barra)
 bool temCubo = false;   // carregando um cubo para guardar: na borda nao da meia-volta, deixa para o navegador (ainda nao ligado)
 bool parado = false;
@@ -125,17 +97,6 @@ MemoriaCruzamento cruzamento;
 Exploracao exploracao;   // cruzamentos ja visitados (relativos a partida): vira para o lado menos explorado
 int cruzamentos = 0;
 
-#if USA_IMU
-// Le o MPU e integra o rumo (com o vies medido parado, e corrigido nas retas).
-void lerImu() {
-  hal::ImuSample m;
-  if (!mpu.read(m)) return;
-  imu = {kSinalGz * m.gz, m.ax / 9.80665f, m.ay / 9.80665f, m.az / 9.80665f};
-  const unsigned long agora = millis();
-  rumo = core::integrateYaw(rumo, imu.gzRadS, viesGz, (agora - ultimoImuMs) / 1000.0f);
-  ultimoImuMs = agora;
-}
-#endif
 
 // --- Ultrassom HC-SR04 (alvo.h): pronto e DESLIGADO ate o sensor existir. Na varredura das duas pontas ele le o eco ao longo de cada rua (cubo na rua = eco menor que ~330 mm).
 // Ligue com -DUSA_ULTRASSOM=1 (pinos em pins.h: trig 14, echo 12; o ECHO do HC-SR04 e 5 V: use divisor para 3,3 V). O TCS34725 da frente (cor do cubo) e o canal params::kMuxFrontRgb
@@ -177,26 +138,16 @@ int acesos() {
 // Gira no eixo ate o angulo estimado chegar em `alvo` (+ = esquerda), lendo a barra a cada passo. Devolve o angulo estimado em que parou.
 float girarAte(float agora, float alvo, int& n) {
   const bool paraEsquerda = alvo > agora;
-#if USA_IMU
-  const float rumoRef = rumo - agora;   // angulo pelo giroscopio, a partir de onde comecou
-#endif
   const int v = ajustes.velBuscaExterna;
   mover(paraEsquerda ? -v : v, paraEsquerda ? v : -v);   // rodas em sentidos opostos
-#if !USA_IMU
   unsigned long t0 = micros();
-#endif
   const unsigned long inicio = millis();
   while ((paraEsquerda ? agora < alvo : agora > alvo) && millis() - inicio < 3000) {
     ler(barra);
-#if USA_IMU
-    lerImu();
-    agora = rumo - rumoRef;
-#else
     const unsigned long t1 = micros();
     const float passo = ajustes.grausPorSegundoBusca * (t1 - t0) * 1e-6f;
     agora += paraEsquerda ? passo : -passo;
     t0 = t1;
-#endif
     if (n < kMaxAmostras) amostras[n++] = {agora, barra.preto[0], barra.preto[kSensores - 1], acesos()};
   }
   parar();
@@ -209,27 +160,17 @@ Oito varrer(bool vinhaSeguindo, int lado) {
   Varredura v;
   iniciarVarredura(v, lado, vinhaSeguindo);
   float estimado = 0.0f;
-#if USA_IMU
-  const float rumo0 = rumo;
-#endif
   AmostraGiro leitura = {0.0f, barra.preto[0], barra.preto[kSensores - 1], acesos(), lerUltrassomMm()};   // como chegou
-#if !USA_IMU
   unsigned long t0 = micros();
-#endif
   const unsigned long inicio = millis();
   while (millis() - inicio < 20000) {
     const ComandoVarredura k = passoVarredura(v, leitura, millis(), ajustes.velBuscaExterna, ajustesGiro, amostras, kMaxAmostras);
     if (k.terminou) break;
     mover(k.esq, k.dir);
     ler(barra);
-#if USA_IMU
-    lerImu();
-    estimado = rumo - rumo0;   // angulo pelo giroscopio
-#else
     const unsigned long t1 = micros();
     estimado += (k.dir > k.esq ? 1 : -1) * ajustes.grausPorSegundoBusca * (t1 - t0) * 1e-6f;   // angulo estimado por tempo
     t0 = t1;
-#endif
     leitura = {estimado, barra.preto[0], barra.preto[kSensores - 1], acesos(), lerUltrassomMm()};
   }
   parar();
@@ -280,7 +221,7 @@ void atualizarPose() {
 }
 
 // As duas pontas acesas (S1 e S8), ACIMA DE TODAS AS OUTRAS REGRAS, em qualquer situacao (inclusive perdido/buscando): para e varre 90 graus, comecando pelo
-// lado MENOS EXPLORADO do mapa (rumo do MPU + cruzamentos ja visitados). Seguindo a linha: cruzamento se ha rua dos dois lados. Perdido: era ele de lado em cima da
+// lado MENOS EXPLORADO do mapa (cruzamentos ja visitados). Seguindo a linha: cruzamento se ha rua dos dois lados. Perdido: era ele de lado em cima da
 // linha; se ficou estreito depois de virar, endireitou e segue por ela. A decisao de qual rua seguir sera do navegador (ainda nao ligado aqui).
 void pararNoCruzamento() {
   parar();
@@ -289,18 +230,11 @@ void pararNoCruzamento() {
   if (kModoTeste) { dbg.println(">>> S1 e S8 no preto (modo teste: nao gira)"); comecarASair(cruzamento, millis()); return; }
 
   const bool vinhaSeguindo = vinhaSeguindoLinha(memoria, millis(), ajustes);
-#if USA_IMU
-  const int lado = ladoMenosExplorado(exploracao, rumo, true, memoria.ultimoLado);
-#else
-  const int lado = ladoMenosExplorado(exploracao, 0.0f, false, memoria.ultimoLado);   // sem MPU nao ha bussola: lado da ultima correcao
-#endif
+  const int lado = memoria.ultimoLado != 0 ? memoria.ultimoLado : 1;   // este sketch nao conta o rumo: lado da ultima correcao
   const Oito oito = varrer(vinhaSeguindo, lado);
   if (oito == Oito::Cruzamento) {
     cruzamentos++;
     atualizarPose();
-#if USA_IMU
-    registrarCruzamento(exploracao, rumo);
-#endif
     dbg.printf(">>> CRUZAMENTO %d CONFIRMADO\n", cruzamentos);
   } else if (oito == Oito::Endireitou) {
     dbg.println(">>> ENDIREITOU: estava de lado em cima da linha, agora segue por ela");
@@ -346,12 +280,9 @@ void aoReceberComando(const String& linha) {
   if (cmd == "ajuda" || cmd == "h" || cmd == "?") {
     dbg.println("comandos: estado | parar | seguir | teste on/off | debug on/off | tele on/off | ajustes | ajuste <nome> <valor>");
     dbg.println("          roda esq|dir|ambas|giro (1 s a 30%, so parado, de preferencia com as rodas no ar)");
-    dbg.println("          zerar (rumo=0) | nomes: velReto velCorrecaoLeve velCorrecaoForte zonaMortaPwm periodoCorrecaoMs");
+    dbg.println("          nomes: velReto velCorrecaoLeve velCorrecaoForte zonaMortaPwm periodoCorrecaoMs");
   } else if (cmd == "estado") {
     dbg.printf("t=%lu ms | %s | teste=%d debug=%d tele=%d | cruzamentos=%d | portaoPendente=%d\n", millis(), parado ? "PARADO" : "andando", kModoTeste, kDebug, telemetria, cruzamentos, portaoPendente);
-#if USA_IMU
-    dbg.printf("rumo=%.1f graus | vies gz=%.4f rad/s\n", rumo, viesGz);
-#endif
     mostrarAjustes();
   } else if (cmd == "parar") { parado = true; parar(); dbg.println("ok: parado");
   } else if (cmd == "roda") {
@@ -366,12 +297,6 @@ void aoReceberComando(const String& linha) {
   } else if (cmd == "debug") { kDebug = arg == "on"; dbg.printf("ok: debug %s\n", kDebug ? "ligado" : "desligado");
   } else if (cmd == "tele") { telemetria = arg == "on"; if (telemetria) dbg.println("t_ms,rumo,S1,S2,S3,S4,S5,S6,S7,S8,esq,dir"); dbg.printf("ok: telemetria %s\n", telemetria ? "ligada" : "desligada");
   } else if (cmd == "ajustes") { mostrarAjustes();
-  } else if (cmd == "zerar") {
-#if USA_IMU
-    rumo = 0.0f; dbg.println("ok: rumo = 0");
-#else
-    dbg.println("sem IMU neste build");
-#endif
   } else if (cmd == "ajuste") {
     const int sp2 = arg.indexOf(' ');
     if (sp2 < 0) { dbg.println("uso: ajuste <nome> <valor>"); return; }
@@ -412,46 +337,6 @@ void setup() {
   if (!corChao.begin(Wire)) dbg.println("!!! TCS34725 nao respondeu: sem leitura de cor (a borda sera tratada como cruzamento)");
 #endif
 
-#if USA_IMU
-  while (!mpu.begin()) { dbg.println("!!! MPU6050 nao respondeu, tentando de novo..."); delay(1000); }
-  dbg.println("Medindo o vies do giroscopio: nao mexa no robo (1 s)");
-  core::GyroBias vies;
-  for (int i = 0; i < 200; i++) {
-    hal::ImuSample m;
-    if (mpu.read(m)) core::addStillSample(vies, kSinalGz * m.gz);
-    delay(5);
-  }
-  viesGz = vies.bias();
-  ultimoImuMs = millis();
-#if SO_TESTE_IMU
-  parar();
-  dbg.println("TESTE SO DO MPU: motores desligados. Gire o robo a mao: rumo (graus, + = esquerda), giro (graus/s), aceleracao (g).");
-  return;
-#endif
-  if (kCalibrarMotores) {   // gira no eixo ate o giroscopio acusar: zona morta e graus por segundo de verdade
-    Calibracao cal;
-    AjustesCalibracao ac;
-    // mede os graus por segundo numa velocidade RAPIDA (ac.velMedida, 140): e a que passa a ser a da busca, e procurar mais rapido acha mais e antes
-    ComandoCalibracao k;
-    do {
-      lerImu();
-      k = passoCalibracao(cal, imu.gzRadS - viesGz, millis(), ac);
-      mover(k.esq, k.dir);
-      delay(5);
-    } while (!k.terminou);
-    parar();
-    if (cal.fase == Calibracao::Pronto) {
-      ajustes.zonaMortaPwm = cal.zonaMortaPwm;
-      ajustes.velBuscaExterna = cal.velMedida;   // a velocidade em que os graus por segundo foram medidos
-      ajustes.grausPorSegundoBusca = cal.grausPorSegundo;
-      dbg.printf("Calibracao dos motores: zona morta %d, giro %.0f graus/s a PWM %d\n", cal.zonaMortaPwm, cal.grausPorSegundo, cal.velMedida);
-    } else {
-      dbg.println("!!! Calibracao dos motores falhou (o robo nao girou): usando os valores padrao");
-    }
-  }
-  ajustes.lacunaMs = 450;   // a lacuna agora segura o rumo pelo giroscopio, pode ser maior
-  rumo = 0.0f;              // posto de frente, apontando para dentro da cidade
-#endif
   ajustes = normalizar(ajustes);
   delay(1000);
   // Nao anda com sensores demais mortos (GPIO so de entrada): o carro rodopiava
@@ -467,15 +352,6 @@ void loop() {
   ble.atualizar();
   ota.atualizar();
   if (ota.ativo()) { parar(); return; }   // atualizando o firmware: robo parado
-#endif
-#if SO_TESTE_IMU
-  static unsigned long ultimoPrintMs = 0;
-  lerImu();
-  if (millis() - ultimoPrintMs >= 200) {
-    ultimoPrintMs = millis();
-    dbg.printf("rumo=%7.1f graus | giro=%7.1f graus/s | acel x=%5.2f y=%5.2f z=%5.2f g\n", rumo, (imu.gzRadS - viesGz) * 57.29578f, imu.ax, imu.ay, imu.az);
-  }
-  return;
 #endif
   if (parado) { parar(); return; }
   ler(barra);
@@ -495,29 +371,6 @@ void loop() {
     }
   }
 #endif
-#if USA_IMU
-  lerImu();
-  const EventoPostura evento = atualizarPickup(pickup, imu, millis(), ajustesInercial);
-  if (evento == EventoPostura::FoiLevantado) { parar(); dbg.println(">>> LEVANTADO: motores parados"); }
-  if (evento == EventoPostura::Reposicionado) {
-    // Depois de levantado ele e SEMPRE posto em algum lugar do verde, apontando para frente: rumo 0, pose desconhecida (o mapa de cubos fica).
-    // O localizador (core/localizer.h, initInGreen) tem de receber o mesmo reset quando for ligado aqui.
-    reposicionamentos++;
-    rumo = 0.0f;
-    memoria = Memoria{};
-    cruzamento = MemoriaCruzamento{};
-    exploracao = Exploracao{};
-    ancora = Ancora{};
-    tracao = Tracao{};
-    esquecerCor(memCor);
-    tUltimoCruzamento = 0;
-    portaoPendente = true;   // vai entrar de novo pelo nosso portao
-    core::initInGreen(pose);
-    dbg.printf(">>> REPOSICIONADO (%d): rumo 0, de frente\n", reposicionamentos);
-  }
-  if (!motoresLiberados(pickup)) { parar(); return; }
-  if (colisaoDetectada(colisao, imu, true, millis(), ajustesInercial)) dbg.printf(">>> COLISAO forte (pico %.1f g)\n", colisao.picoG);
-#endif
   const int travados = atualizarSaude(barra.preto, millis(), saude, barra.ok);
   if (travados > 0) dbg.printf("!!! %d sensor(es) no preto ha mais de 30 s: marcado(s) como ruim(ns) e ignorado(s)\n", travados);
   // Procurando a linha, S1 e S8 acesos nao sao cruzamento: a barra acende inteira ao ficar paralela a linha (robo de lado)
@@ -526,27 +379,7 @@ void loop() {
     pararNoCruzamento();
     return;
   }
-#if USA_IMU
-  const unsigned long perdeuAntes = memoria.perdeuEm;
-#endif
   Comando c = decidir(barra.preto, millis(), ajustes, memoria);
-#if USA_IMU
-  if (memoria.perdeuEm != 0 && perdeuAntes == 0) rumoAoPerder = rumo;
-  if ((memoria.ultimoEsq != 0 || memoria.ultimoDir != 0) && memoria.perdeuEm != 0 && millis() - memoria.perdeuEm < ajustes.lacunaMs) segurarRumoNaLacuna(c, rumo, rumoAoPerder, ajustes, ajustesInercial);
-  if (ancorarNaGrade(rumo, viesGz, imu.gzRadS, ehReto(c), millis(), ancora, ajustesInercial)) dbg.println("!!! rumo suspeito: longe de um multiplo de 90 numa reta");
-  const bool comandando = abs(c.esq) >= ajustes.zonaMortaPwm || abs(c.dir) >= ajustes.zonaMortaPwm;
-  const AcaoTracao tr = atualizarTracao(tracao, imu, comandando && !c.parar, millis(), ajustesInercial);
-  if (tr == AcaoTracao::Reforcar) dbg.printf(">>> andando menos que o esperado: reforco de PWM %d\n", tracao.reforco);
-  if (tr == AcaoTracao::Recuar) {
-    dbg.println(">>> TRAVADO mesmo com reforco: recua um pouco");
-    mover(-ajustes.velReto, -ajustes.velReto);
-    delay(300);
-    parar();
-    tracao.reforco = 0;
-    return;
-  }
-  aplicarReforco(c, tracao.reforco);
-#endif
 
   // A linha sumiu: falha curta, fim de beco (a rua acabou no limite do mapa) ou perdida? O fim de beco e evidencia de borda.
   const unsigned long perdidoHa = memoria.perdeuEm ? millis() - memoria.perdeuEm : 0;
@@ -565,11 +398,7 @@ void loop() {
   static unsigned long ultimaTele = 0;
   if (telemetria && millis() - ultimaTele >= 100) {
     ultimaTele = millis();
-#if USA_IMU
-    const float r = rumo;
-#else
     const float r = 0.0f;
-#endif
     dbg.printf("%lu,%.1f,", millis(), r);
     for (int i = 0; i < kSensores; i++) dbg.printf("%u,", barra.leituras[i]);
     dbg.printf("%d,%d\n", c.esq, c.dir);

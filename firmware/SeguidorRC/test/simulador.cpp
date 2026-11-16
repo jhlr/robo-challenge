@@ -97,8 +97,6 @@ struct ParamsFisicos {
   double barraMm = 75.0;
   uint8_t barraMortos = params::kLineDeadMask;   // sensores que a barra real nao le (copia do vizinho): o mesmo do carro
   double dtMs = params::kLoopDtMs;              // um ciclo de leitura+decisao
-  double viesGzGrauS = 1.2;       // vies REAL do giroscopio (o firmware mede um estimado parado no inicio)
-  double derivaViesGrauS = 0.0;   // quanto o vies anda depois da calibracao inicial (temperatura)
   bool encoder = true;           // STS3215: encoder de cada roda + velocidade em malha fechada (sem zona morta nem assimetria fixa entre os lados); a distancia vem das rodas, nao de tempo x velocidade
   double escalaOdo = 1.0;         // erro de escala do odometro (diametro da roda / relacao de engrenagens): 1,01 = le 1% a mais do que anda
 };
@@ -107,7 +105,6 @@ Ajustes gAjustes = ajustesDoCarro();   // a MESMA fonte do firmware (params.h); 
 bool gSo_Placar = false;
 double gGestoGraus = 45.0;   // modo encoder: no cruzamento esperado (odometro ~400 mm, pose segura) so da uma rodadinha deste angulo para UM lado e volta reto, em vez da varredura de 90 graus (0 = desliga e usa a varredura de antes, < 0 = passa direto sem girar)
 static bool gAutoCalBitola = false;   // param autocal=1: cada giro na linha corrige a bitola efetiva (o meio da faixa tem ~5% de vies: piora o caso ja calibrado)
-static bool gRumoPeloEncoder = true;   // como o carro (sem MPU): o rumo vem dos encoders das rodas. rumoenc=0 liga o MPU (os cenarios so de MPU passam a valer)
 ParamsFisicos gFis;   // os cenarios usam este; da para mudar na linha de comando (veja main)
 
 
@@ -262,42 +259,17 @@ class Carro {
   Mundo* mundo() const { return mundo_; }
   void fatorRodas(double f) { fatorRodas_ = f; }          // patinagem / ganho das rodas (ruido)
   void atrasoLeitura(int ticks) { atrasoTicks_ = ticks; }  // atraso dos sensores RC em ciclos (ruido)
-  double gE_ = 1.0, gD_ = 1.0;   // ganho da compensacao dos motores (firmware -> ponte)
   void assimetria(double esq, double dir) { aE_ = esq; aD_ = dir; }   // diferenca FIXA entre os dois motores (a partida inteira, ruido)
   void fatorLados(double esq, double dir) { fE_ = esq; fD_ = dir; }   // motor de um lado mais fraco (ruido)
   void prenderSensor(int i, bool preto, unsigned long ateMs) { presoAte_[i] = ateMs; presoValor_[i] = preto ? 1 : 0; }   // sensor RC preso (ruido)
   void ultrassomFalso(unsigned long ateMs, double mm) { usFalsoAte_ = ateMs; usFalsoMm_ = mm; }   // eco falso (mm > 0) ou perda de eco (-1) por um tempo (ruido)
-  void saltarVies(double grausS) { extraVies_ += grausS; }   // o viés do giroscopio anda (temperatura)
   void chutar(double graus) { e_.th += graus * M_PI / 180.0; }   // solavanco: o carro gira sem comando (ruido)
   double velNominalMmS(int pwm) const { return pwm * f_.mmSPorPwm; }
 
   Estado estado() const { return e_; }
 
-  // ---- MPU simulado (gz em rad/s COM vies, aceleracao em g). Ruido deterministico (LCG): o mesmo resultado a cada execucao.
-  Imu imu() {
-    const double vies = (f_.viesGzGrauS + extraVies_ + f_.derivaViesGrauS * (levantado_ ? 0.0 : t_ / 1000.0)) / 57.29578;
-    Imu m;
-    if (levantado_) {   // nas maos: inclinado ~35 graus, balancando
-      m.gzRadS = static_cast<float>(vies + 0.3 * ruido());
-      m.ax = static_cast<float>(0.57 + 0.15 * ruido());
-      m.ay = static_cast<float>(0.15 * ruido());
-      m.az = static_cast<float>(0.82 + 0.15 * ruido());
-      return m;
-    }
-    const bool andando = fabs(vMmS_) > 5.0 || fabs(wRadS_) > 0.05;
-    const double sigma = andando ? 0.04 : 0.004;
-    m.gzRadS = static_cast<float>(wRadS_ + vies + 0.003 * ruido());
-    m.ax = static_cast<float>(aMmS2_ / 9810.0 + sigma * ruido() + (impulsoTicks_ > 0 ? impulsoG_ : 0.0));
-    m.ay = static_cast<float>(sigma * ruido());
-    m.az = static_cast<float>(1.0 + sigma * ruido());
-    if (impulsoTicks_ > 0) impulsoTicks_--;
-    return m;
-  }
-  void levantar(bool sim) { levantado_ = sim; if (sim) { vE_ = vD_ = 0; vMmS_ = wRadS_ = aMmS2_ = 0; } }
   void limparRastro() { rastro_.clear(); bits_.clear(); if (mundo_) { mundo_->opQuadros.clear(); mundo_->cargaQuadros.clear(); } grava(); }   // o que vem depois e o que interessa mostrar
   void colocarEm(Estado e) { e_ = e; vE_ = vD_ = 0; grava(); }   // solto no chao em outro lugar
-  void bater(double g, int ticks) { impulsoG_ = g; impulsoTicks_ = ticks; }   // pancada horizontal de g por `ticks` ciclos
-  bool levantado() const { return levantado_; }
   double roda(bool esquerda) const { return esquerda ? alvoE_ : alvoD_; }   // alvo da roda (mm/s) para conferir que parou
   unsigned long agoraMs() const { return t_; }
   double velMmS() const { return vMmS_; }
@@ -453,18 +425,14 @@ class Carro {
     return pista_.distancia((x + x2) / 2, (y + y2) / 2);
   }
 
-  // Compensacao dos motores (aumenta a forca do lado fraco), como definirCompensacao() da ponte H real: multiplica o PWM e limita em 255.
   double odoEMm() const { return odoE_; }
   double odoDMm() const { return odoD_; }
   double odoMm() const { return (odoE_ + odoD_) / 2.0; }   // percurso medio das rodas desde o inicio (mm, com sinal; quem mede usa diferencas)
-  void compensar(double esq, double dir) { gE_ = esq; gD_ = dir; }
-  static int comGanho(int pwm, double g) { const double v = pwm * g; return static_cast<int>(v > 255 ? 255 : v < -255 ? -255 : v); }
-  void comandar(int esq, int dir) { alvoE_ = alvo(comGanho(esq, gE_)); alvoD_ = alvo(comGanho(dir, gD_)); }
+  void comandar(int esq, int dir) { alvoE_ = alvo(esq); alvoD_ = alvo(dir); }
   void parar() { alvoE_ = alvoD_ = 0; }
 
   // Passa um ciclo (dtMs) com o comando atual.
   void avancar() {
-    if (levantado_) { t_ += static_cast<unsigned long>(f_.dtMs); if (t_ % 20 == 0) grava(); return; }   // as rodas giram no ar: nao sai do lugar
     const double dt = f_.dtMs / 1000.0, k = 1.0 - exp(-f_.dtMs / f_.tauMs);
     vE_ += (alvoE_ - vE_) * k;
     vD_ += (alvoD_ - vD_) * k;
@@ -472,7 +440,6 @@ class Carro {
     odoD_ += vD_ * f_.escalaOdo * dt;
     const double ve = f_.encoder ? vE_ : vE_ * fE_ * aE_, vd = f_.encoder ? vD_ : vD_ * fD_ * aD_;   // malha fechada no servo: o lado fraco e compensado
     const double v = (ve + vd) / 2.0 * fatorRodas_, w = (vd - ve) / f_.bitolaMm * f_.derrapagem * fatorRodas_;   // w > 0 = anti-horario (esquerda)
-    aMmS2_ = (v - vMmS_) / dt;
     vMmS_ = v;
     wRadS_ = w;
     // roda direita mais rapida -> gira para a esquerda; passo medio do rumo
@@ -513,21 +480,17 @@ class Carro {
   const Pista& pista_;
   Estado e_;
   ParamsFisicos f_;
-  double ruido() { seed_ = seed_ * 6364136223846793005ULL + 1442695040888963407ULL; return ((seed_ >> 33) & 0xFFFF) / 32768.0 - 1.0; }   // -1..1
   double vE_ = 0, vD_ = 0, alvoE_ = 0, alvoD_ = 0, erroMax_ = 0, soma2_ = 0;
-  double vMmS_ = 0, wRadS_ = 0, aMmS2_ = 0, impulsoG_ = 0;
-  int impulsoTicks_ = 0;
+  double vMmS_ = 0, wRadS_ = 0;
   double odoE_ = 0.0, odoD_ = 0.0;   // percurso de cada roda lido pelo encoder (mm, com sinal)
-  bool levantado_ = false;
   Mundo* mundo_ = nullptr;
-  double fatorRodas_ = 1.0, fE_ = 1.0, fD_ = 1.0, aE_ = 1.0, aD_ = 1.0, extraVies_ = 0.0, usFalsoMm_ = 0.0;
+  double fatorRodas_ = 1.0, fE_ = 1.0, fD_ = 1.0, aE_ = 1.0, aD_ = 1.0, usFalsoMm_ = 0.0;
   unsigned long presoAte_[8] = {};
   int presoValor_[8] = {};
   unsigned long usFalsoAte_ = 0;
   int atrasoTicks_ = 0;
   uint8_t ring_[32] = {};
   int ringI_ = 0, ringN_ = 0;
-  unsigned long long seed_ = 12345;
   long n_ = 0;
   unsigned long t_ = 0;
   std::vector<Estado> rastro_;
@@ -569,7 +532,6 @@ inline void Mundo::tick(Carro& c) {
         evento(t, fmt("OPONENTE levou um cubo da rua (%d,%d)", cu.c, cu.r));
       }
     if (hypot(e.x - op.x, e.y - op.y) < 170.0 && t >= cooldownColisao) {   // bateu num robo
-      c.bater(2.5, 4);
       op.paradoAte = t + 1500;
       cooldownColisao = t + 3000;
       colisoesOponente++;
@@ -658,12 +620,6 @@ inline void Mundo::tick(Carro& c) {
     evento(t, "RUIDO: BATERIA caiu: todas as rodas a 85% por 4 s");
     agenda(6, 40000, 70000);
   }
-  if (t >= prox[7]) {   // o vies do giroscopio anda
-    const double d = (rnd() - 0.5) * 3.0 * kEsc;
-    c.saltarVies(d);
-    evento(t, fmt("RUIDO: o VIES do giroscopio andou %+.1f graus/s (o rumo vai derivar ate a ancora na grade corrigir)", d));
-    agenda(7, 45000, 80000);
-  }
   if (t >= prox[8]) {   // solavanco
     const double g = (rnd() - 0.5) * 14.0 * kEsc;
     c.chutar(g);
@@ -695,7 +651,6 @@ inline ConfigRobo configDoSim() {
   c.dtMs = gFis.dtMs;
   c.tauMs = gFis.tauMs;
   c.encoder = gFis.encoder;
-  c.rumoPeloEncoder = gRumoPeloEncoder;
   c.autoCalBitola = gAutoCalBitola;
   c.gestoGraus = gGestoGraus;
   c.ajustes = gAjustes;
@@ -794,7 +749,6 @@ struct Cena {
     b.mundo.seed = 9191;
     b.mundo.cfg.tcsChaoErro = ruido ? 0.02 : 0.0;
     b.carro->usarMundo(&b.mundo);
-    b.fw->ligarImu(*b.carro);
     b.fw->nav.iniciar();
     b.fw->portaoPendente = true;
     a.mundo.op.ativo = b.mundo.op.ativo = true;
@@ -868,8 +822,6 @@ struct Cena {
     if (hypot(ea.x - eb.x, ea.y - eb.y) < 170.0 && t >= cooldown) {
       cooldown = t + 3000;
       const double fa = fechamento(ea, a.carro->velMmS(), eb), fb = fechamento(eb, b.carro->velMmS(), ea);
-      a.carro->bater(2.5, 4);
-      b.carro->bater(2.5, 4);
       reinicios++;
       Agente& culpado = fa >= fb ? a : b;
       Agente& vitima = fa >= fb ? b : a;
@@ -1033,158 +985,6 @@ static Resultado cenarioBorda(int cor, bool cubo) {
               fw.cruzamentos, fw.falsosAlarmes, voltou ? "voltou ao mapa" : "NAO voltou", c.estado().y, c.erroBarra())};
 }
 
-// ---- MPU: giro por giroscopio, ancora na grade, levantado, travado, colisao, calibracao, lacuna segurando o rumo
-
-static double rumoVerdadeGraus(const Carro& c, double base) { return remainder((c.estado().th - base) * 180.0 / M_PI, 360.0); }
-
-// Cruzamento com o angulo do giro vindo do giroscopio (e nao de contar tempo): o carro tem de voltar ao rumo em que chegou.
-static Resultado cenarioCruzamentoImu() {
-  Pista p;
-  p.reta(0, 0, 0, 627);
-  p.reta(-400, 500, 400, 500);
-  Carro c(p, norte(0, 100));
-  Firmware fw;
-  fw.ligarImu(c);
-  rodar(fw, c, [&](const Carro&) { return fw.fimDeBeco; });
-  const bool ok = fw.cruzamentos == 1 && fw.falsosAlarmes == 0 && fabs(fw.giroDriftGraus) < 2.0;
-  svg("cruzamento_giroscopio", p, c);
-  return {"cruzamento com giro pelo giroscopio", ok, fmt("confirmados %d, falsos %d, ruas %d %d | o giro deixou o rumo %+.1f graus fora (por tempo, sem giroscopio, passava de 4)", fw.cruzamentos, fw.falsosAlarmes, fw.ruaEsq, fw.ruaDir, fw.giroDriftGraus)};
-}
-
-// Reta longa com o vies do giroscopio andando 3 graus/s depois da calibracao (temperatura): sem ancora o rumo estimado foge; com ela, fica na grade.
-static Resultado cenarioAncora() {
-  Pista p;
-  p.reta(0, 0, 0, 2400);
-  ParamsFisicos f = gFis;
-  f.derivaViesGrauS = 3.0;
-  double erro[2] = {0, 0};
-  for (int com = 0; com < 2; com++) {
-    Carro c(p, norte(0, 100), f);
-    Firmware fw;
-    fw.usaAncora = com == 1;
-    fw.ligarImu(c);
-    rodar(fw, c, [](const Carro& k) { return k.estado().y > 2200; });
-    erro[com] = fabs(fw.rumo - rumoVerdadeGraus(c, M_PI / 2));   // rumo estimado contra o real
-    if (com == 1) svg("ancora_grade", p, c);
-  }
-  return {"rumo ancorado na grade (vies derivando 3 graus/s)", erro[1] < 6.0 && erro[0] > 5.0 * erro[1], fmt("erro do rumo estimado no fim da reta: sem ancora %.1f graus, com ancora %.1f graus", erro[0], erro[1])};
-}
-
-// Levantado no meio do caminho: para os motores, espera estabilizar, e volta de frente (rumo 0) e anda.
-static Resultado cenarioLevantado() {
-  Pista p;
-  p.reta(0, 0, 0, 1400);
-  Carro c(p, norte(15, 100, 10));
-  Firmware fw;
-  fw.ligarImu(c);
-  avancarAte(fw, c, 1500, [](const Carro&) { return false; });
-  c.levantar(true);
-  avancarAte(fw, c, 3500, [](const Carro&) { return false; });   // 2 s no ar
-  const int motoresNoAr = fw.ticksMotorLevantado;
-  c.colocarEm(norte(-12, 700, -10));                         // solto em outro lugar, apontando para a frente
-  c.levantar(false);
-  const unsigned long solto = c.agoraMs();
-  bool andouAntes = false;
-  avancarAte(fw, c, solto + 1300, [&](const Carro& k) { andouAntes |= k.estado().y > 700.5; return false; });   // ainda estabilizando: nao anda
-  const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 1300; });
-  const bool ok = fw.levantados == 1 && fw.reposicionados == 1 && motoresNoAr == 0 && !andouAntes && chegou;
-  svg("levantado", p, c);
-  return {"levantado, solto de frente em outro lugar", ok, fmt("levantou %d, reposicionou %d, ciclos com motor ligado no ar %d, andou antes de estabilizar: %s, %s", fw.levantados, fw.reposicionados, motoresNoAr, andouAntes ? "SIM" : "nao", chegou ? "chegou ao fim" : "NAO chegou")};
-}
-
-// Zona morta real 95 e a decisao achando 65: as correcoes (90) nao giram. Sem o MPU o robo sai da linha; com ele, o reforco sobe ate girar.
-static Resultado cenarioTravado() {
-  Pista p;
-  p.reta(0, 0, 0, 1000);
-  ParamsFisicos f = gFis;
-  f.zonaMortaPwm = 95;
-  bool chegou[2] = {false, false};
-  int reforcos = 0;
-  for (int com = 0; com < 2; com++) {
-    Carro c(p, norte(14, 100, 8), f);
-    Firmware fw;
-    fw.ajustes.zonaMortaPwm = 65;   // a decisao nao sabe da zona real
-    fw.ajustes = normalizar(fw.ajustes);
-    if (com) fw.ligarImu(c);
-    chegou[com] = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; }) && c.erroBarra() < 8.0;
-    if (com) { reforcos = fw.reforcos; svg("travado_reforco", p, c); }
-  }
-  return {"andando menos que o esperado: reforca o PWM", chegou[1], fmt("zona real 95, decisao 65: sem MPU %s; com MPU %s (%d reforcos)", chegou[0] ? "chegou" : "NAO chegou", chegou[1] ? "chegou" : "NAO chegou", reforcos)};
-}
-
-// Pancada forte (oponente) e leve (cubo): so a forte conta.
-static Resultado cenarioColisao() {
-  Pista p;
-  p.reta(0, 0, 0, 1000);
-  Carro c(p, norte(0, 100));
-  Firmware fw;
-  fw.ligarImu(c);
-  avancarAte(fw, c, 1000, [](const Carro&) { return false; });
-  c.bater(2.5, 4);
-  avancarAte(fw, c, 2000, [](const Carro&) { return false; });
-  c.bater(0.4, 4);
-  avancarAte(fw, c, 3000, [](const Carro&) { return false; });
-  return {"colisao: oponente conta, cubo nao", fw.colisoes == 1, fmt("colisoes detectadas %d (pancada forte 2,5 g e leve 0,4 g); pico visto %.2f g", fw.colisoes, fw.colisao.picoG)};
-}
-
-// Calibracao: o robo gira no eixo e acha a zona morta e os graus por segundo.
-static Resultado cenarioCalibracao(double zonaReal) {
-  Pista vazia;
-  ParamsFisicos f = gFis;
-  f.zonaMortaPwm = zonaReal;
-  Carro c(vazia, norte(0, 0), f);
-  Firmware fw;
-  fw.ligarImu(c);
-  Calibracao cal;
-  const AjustesCalibracao aj;
-  bool fim = false;
-  for (int i = 0; i < 6000 && !fim; i++) {
-    const ComandoCalibracao k = passoCalibracao(cal, fw.ultimoImu.gzRadS - fw.vies, c.agoraMs(), aj);
-    fim = k.terminou;
-    c.comandar(k.esq, k.dir);
-    fw.tick(c);
-  }
-  // giro verdadeiro em regime a velMedida: duas rodas opostas
-  const double verdade = 2.0 * (cal.velMedida * f.mmSPorPwm) / f.bitolaMm * f.derrapagem * 57.29578;
-  const bool ok = fim && cal.fase == Calibracao::Pronto && fabs(cal.zonaMortaPwm - zonaReal) <= 6 && fabs(cal.grausPorSegundo - verdade) < 0.1 * verdade;
-  return {fmt("calibracao de motores (zona real %.0f)", zonaReal), ok, fmt("achou zona %d (real %.0f), %.0f graus/s a PWM %d (real %.0f; o chute era %.0f)", cal.zonaMortaPwm, zonaReal, cal.grausPorSegundo, cal.velMedida, verdade, Ajustes{}.grausPorSegundoBusca)};
-}
-
-// Assimetria dos motores: com o MESMO PWM nos dois lados o carro puxa para um lado; o giroscopio em reta mede e o lado fraco ganha forca. Compara o desvio de rumo numa reta
-// de 2 s sem e com a compensacao, e confere os ganhos (o lado fraco sobe quase o que faltava; o forte fica em 1).
-static Resultado cenarioAssimetria(double assim) {   // assim > 0: direita mais forte (o carro puxa para a esquerda)
-  Pista vazia;
-  auto desvioReta = [&](bool compensar) {
-    Carro c(vazia, norte(0, 0), gFis);
-    c.assimetria(1.0 - assim / 2.0, 1.0 + assim / 2.0);
-    Firmware fw;
-    fw.ligarImu(c);
-    if (compensar) fw.calibrarAssimetria(c);
-    const double th0 = c.estado().th;
-    for (int i = 0; i < 400; i++) { c.comandar(fw.ajustes.velReto, fw.ajustes.velReto); fw.tick(c); }   // 2 s
-    c.parar();
-    return std::make_pair(remainder(c.estado().th - th0, 2 * M_PI) * 57.29578, fw.assimMpu);
-  };
-  const auto sem = desvioReta(false), com = desvioReta(true);
-  const double ganho = assim > 0 ? com.second.ganhoEsq : com.second.ganhoDir, outro = assim > 0 ? com.second.ganhoDir : com.second.ganhoEsq;
-  const double razaoDir = (1.0 + assim / 2.0) / (1.0 - assim / 2.0);
-  const double verdade = assim > 0 ? razaoDir : 1.0 / razaoDir;   // quanto o lado fraco precisa subir
-  const bool ok = fabs(sem.first) > 5.0 && fabs(com.first) < 0.25 * fabs(sem.first) && fabs(ganho - verdade) < 0.15 * (verdade - 1.0) + 0.002 && outro == 1.0;
-  return {fmt("assimetria dos motores (%+.0f%%)", assim * 100), ok, fmt("desvio em 2 s: %.1f graus sem, %.1f com; ganho do lado fraco x%.3f (real x%.3f), do forte x%.3f", sem.first, com.first, ganho, verdade, outro)};
-}
-
-// Lacuna segurando o rumo pelo giroscopio: a lacuna pode ser maior do que o ultimo comando levava.
-static Resultado cenarioLacunaImu(double lacunaMm) {
-  Pista p;
-  p.reta(0, 0, 0, 300);
-  p.reta(0, 300 + lacunaMm, 0, 1000);
-  Carro c(p, norte(0, 100, 6));
-  Firmware fw;
-  fw.ligarImu(c);
-  const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 900; });
-  svg(fmt("lacuna_giroscopio_%.0f", lacunaMm), p, c);
-  return {fmt("lacuna de %.0f mm segurando o rumo", lacunaMm), chegou && c.erroBarra() < 6.0, fmt("%s em %lu ms, erro final %.1f mm, buscando %d ciclos", chegou ? "chegou" : "NAO chegou", c.agoraMs(), c.erroBarra(), fw.ticksBuscando)};
-}
 
 // ---- O tabuleiro inteiro (docs/2026-10-28_mapa-comparacao-e-localizacao.md): 6 colunas x 5 linhas de cruzamentos a 400 mm, becos de 127 mm ate a borda,
 // linha azul nos lados (x = 0 e kLarg), vermelha em cima e embaixo (y = 0 e kAlt) e em volta, verde (371 mm) e amarelo (291 mm) nas pontas, cubos nos quarteiroes.
@@ -1218,7 +1018,6 @@ static Resultado cenarioTabuleiro() {
   const double yRua = kBeco + 2 * kPasso;
   Carro c(p, {-140, yRua, 0.0});   // no verde, de frente para a cidade
   Firmware fw;
-  fw.ligarImu(c);
   fw.nav.iniciar();
   fw.nav.coleta.capacidade = 1;
   fw.portaoPendente = true;
@@ -1231,18 +1030,16 @@ static Resultado cenarioTabuleiro() {
 }
 
 // Perdido e de lado em cima da linha (barra paralela a ela: os 8 sensores acesos): vira 90 graus, ve que ficou estreito e centrado, e segue por ela.
-// Tambem vale quando o MPU nao esta ligado (angulo por tempo).
-static Resultado cenarioEndireitar(bool imu) {
+static Resultado cenarioEndireitar() {
   Pista p;
   p.reta(0, 0, 0, 1200);
   Carro c(p, {-150, 300, 0.0});   // longe da linha, perdido
   Firmware fw;
-  if (imu) fw.ligarImu(c);
   avancarAte(fw, c, c.agoraMs() + 700, [](const Carro&) { return false; });   // procura um pouco: perdeuEm e a lacuna ja passaram
   c.colocarEm({-gFis.barraAFrenteMm, 500, 0.0});   // a busca o deixou de lado em cima da linha: a barra inteira sobre ela (a barra fica barraAFrenteMm a frente do eixo)
   const bool chegou = rodar(fw, c, [](const Carro& k) { return k.estado().y > 1000; });
-  svg(imu ? "endireitar_na_linha" : "endireitar_na_linha_sem_mpu", p, c);
-  return {imu ? "perdido de lado na linha: vira 90 e se endireita (com MPU)" : "perdido de lado na linha: vira 90 e se endireita (sem MPU)", chegou && fw.endireitou >= 1 && fw.cruzamentos == 0,
+  svg("endireitar_na_linha", p, c);
+  return {"perdido de lado na linha: vira 90 e se endireita", chegou && fw.endireitou >= 1 && fw.cruzamentos == 0,
           fmt("%s | endireitou %d vez(es), cruzamentos %d, falsos alarmes %d | fim em (%.0f, %.0f), erro %.1f mm", chegou ? "chegou ao fim da linha" : "NAO chegou", fw.endireitou, fw.cruzamentos, fw.falsosAlarmes, c.estado().x, c.estado().y, c.erroBarra())};
 }
 
@@ -1281,7 +1078,6 @@ static void configurarMissao(Mundo& m, Firmware& fw, Carro& c, int ncubos, bool 
   m.ruidoLigado = ruido;
   m.cfg.tcsChaoErro = ruido ? 0.02 : 0.0;
   c.usarMundo(&m);
-  fw.ligarImu(c);
   fw.nav.iniciar();
   fw.nav.coleta.capacidade = gCapacidade;
   fw.portaoPendente = true;
@@ -1303,7 +1099,7 @@ static Resultado cenarioMissao(bool ruido, int meta) {
   if (getenv("SIM_DEBUG")) {
     for (const std::string& l : m.log) fprintf(stderr, "    %s\n", l.c_str());
     const Estado e = c.estado();
-    fprintf(stderr, "    FIM: robo (%.0f,%.0f) th %.0f | oponente (%.0f,%.0f) | carregando %d | pose (%d,%d) conf %.2f | levantado %d parado %d buscando ciclos %d\n", e.x, e.y, e.th * 57.3, m.op.x, m.op.y, fw.nav.carregando, core::estimate(fw.nav.loc).pose.at.c, core::estimate(fw.nav.loc).pose.at.r, core::estimate(fw.nav.loc).confidence, c.levantado(), fw.parado, fw.ticksBuscando);
+    fprintf(stderr, "    FIM: robo (%.0f,%.0f) th %.0f | oponente (%.0f,%.0f) | carregando %d | pose (%d,%d) conf %.2f | parado %d buscando ciclos %d\n", e.x, e.y, e.th * 57.3, m.op.x, m.op.y, fw.nav.carregando, core::estimate(fw.nav.loc).pose.at.c, core::estimate(fw.nav.loc).pose.at.r, core::estimate(fw.nav.loc).confidence, fw.parado, fw.ticksBuscando);
   }
   if (getenv("SIM_DEBUG")) {   // quanto tempo anda perto das molduras vermelhas (y ~ 0 ou kAlt, ou x < -440) e onde
     size_t perto = 0, topo = 0, base = 0, esq = 0;
@@ -1393,7 +1189,6 @@ static Resultado cenarioVermelhoDeLado() {
   p.reta(0, 400, 400, 400);                         // (um pedaco preto antes, para a rua nao acabar em ponta)
   Carro c(p, {20, 20, 45.0 * M_PI / 180.0});
   Firmware fw;
-  fw.ligarImu(c);
   double maxX = 0;
   rodar(fw, c, [&](const Carro& k) { maxX = std::max(maxX, k.estado().x); return fw.meiasVoltas >= 1 || k.estado().x > 900; });
   svg("vermelho_de_lado", p, c);
@@ -1457,29 +1252,7 @@ static Resultado cenarioLacuna(double lacunaMm) {
 }
 
 // 5. Busca: carro solto fora da linha (distancia lateral e rumo variados). Informativo + criterio: achar a linha em ate 15 s.
-// Liga o MPU, mede viés e calibra os motores (zona morta e graus por segundo na velocidade RAPIDA de busca) e volta o robo onde estava, com o rastro limpo.
-static void prepararMpu(Firmware& fw, Carro& c, const Estado& origem) {
-  fw.ligarImu(c);
-  Calibracao cal;
-  AjustesCalibracao ac;
-  bool fim = false;
-  for (int i = 0; i < 6000 && !fim; i++) {
-    const ComandoCalibracao k = passoCalibracao(cal, fw.ultimoImu.gzRadS - fw.vies, c.agoraMs(), ac);
-    fim = k.terminou;
-    c.comandar(k.esq, k.dir);
-    fw.tick(c);
-  }
-  if (cal.fase == Calibracao::Pronto) {
-    fw.ajustes.zonaMortaPwm = cal.zonaMortaPwm;
-    fw.ajustes.velBuscaExterna = cal.velMedida;
-    fw.ajustes.grausPorSegundoBusca = cal.grausPorSegundo;
-    fw.ajustes = normalizar(fw.ajustes);
-  }
-  c.colocarEm(origem);
-  c.limparRastro();   // a animacao mostra so o que vem depois da calibracao
-}
-
-static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms, int& ciclos, const Pista& p, Carro** saida = nullptr) {
+static bool buscar(double dist, double rumoGraus, unsigned long& ms, int& ciclos, const Pista& p, Carro** saida = nullptr) {
   // `dist` = distancia do CENTRO DA BARRA (nao do eixo) ate a linha: assim a barra nunca comeca em cima dela, qualquer que seja o rumo
   const double th = rumoGraus * M_PI / 180.0;
   const Estado origem = {dist - gFis.barraAFrenteMm * cos(th), 500 - gFis.barraAFrenteMm * sin(th), th};
@@ -1487,7 +1260,6 @@ static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms
   delete ultimo;
   Carro* c = ultimo = new Carro(p, origem);
   Firmware fw;
-  if (comMpu) prepararMpu(fw, *c, origem);
   const unsigned long t0 = c->agoraMs();
   const bool achou = rodar(fw, *c, [&](const Carro& k) {
     return k.erroBarra() < 8.0 && fw.memoria.perdeuEm == 0;   // de novo em cima da linha (ao largar, a barra esta a >= 30 mm dela)
@@ -1495,8 +1267,6 @@ static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms
   ms = c->agoraMs() - t0;
   ciclos = fw.ticksBuscando;
   if (achou) avancarAte(fw, *c, c->agoraMs() + 8000, [](const Carro&) { return false; });   // continua andando na linha depois de achar: e o que a animacao mostra
-  if (getenv("SIM_DEBUG") && comMpu) fprintf(stderr, "  busca d%.0f r%.0f com MPU: achou=%d recuos %d reforcos %d levantados %d colisoes %d fim (%.0f,%.0f)\n", dist, rumoGraus, achou, fw.recuos, fw.reforcos, fw.levantados, fw.colisoes, c->estado().x, c->estado().y);
-  if (getenv("SIM_DEBUG2") && comMpu && dist == 30 && rumoGraus == 90) { for (size_t i = c->rastro().size() > 800 ? c->rastro().size() - 800 : 0; i < c->rastro().size() && i < 800 + 100000; i += 20) fprintf(stderr, "   (%.0f,%.0f,%.0f|%02x)", c->rastro()[i].x, c->rastro()[i].y, c->rastro()[i].th * 57.29578, c->bits()[i]); fprintf(stderr, "\n   rumo[0..]\n"); }
   if (saida) *saida = c;
   return achou;
 }
@@ -1504,20 +1274,17 @@ static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms
 static Resultado cenarioBusca(double dist, double rumoGraus) {
   Pista p;
   p.reta(0, -400, 0, 1400);
-  unsigned long msSem = 0, msCom = 0;
-  int cSem = 0, cCom = 0;
-  const bool sem = buscar(dist, rumoGraus, false, msSem, cSem, p);
+  unsigned long ms = 0;
+  int ciclos = 0;
   Carro* c = nullptr;
-  const bool com = buscar(dist, rumoGraus, true, msCom, cCom, p, &c);
-  svg(fmt("busca_d%.0f_r%.0f %s", dist, rumoGraus, com ? fmt("OK em %.1f s", msCom / 1000.0).c_str() : "NAO ACHOU"), p, *c, com ? 1 : 0);
-  const bool ok = gRumoPeloEncoder ? sem : com;   // no modo do carro (sem MPU) vale a busca sem MPU
-  return {fmt("busca a %.0f mm, rumo %.0f", dist, rumoGraus), ok,
-          fmt("com MPU (calibra o giro antes): %s em %lu ms | sem MPU: %s", com ? "achou" : "NAO achou", msCom, sem ? fmt("achou em %lu ms", msSem).c_str() : "NAO achou")};
+  const bool achou = buscar(dist, rumoGraus, ms, ciclos, p, &c);
+  svg(fmt("busca_d%.0f_r%.0f %s", dist, rumoGraus, achou ? fmt("OK em %.1f s", ms / 1000.0).c_str() : "NAO ACHOU"), p, *c, achou ? 1 : 0);
+  return {fmt("busca a %.0f mm, rumo %.0f", dist, rumoGraus), achou, fmt("%s em %lu ms", achou ? "achou" : "NAO achou", ms)};
 }
 
 // ================================================================ SIMULACAO AO VIVO (--servir): sem duracao gravada
 // O simulador vira um servidor HTTP local: a pagina pede quadros (20 ms de simulacao cada) e o servidor SIMULA SO O QUE FOI PEDIDO, sem fim. Da para
-// clicar no mapa para soltar o robo em qualquer lugar (a busca roda ao vivo), levantar/soltar o robo e dar uma pancada. Usa a MESMA logica C++ dos testes.
+// clicar no mapa para soltar o robo em qualquer lugar (a busca roda ao vivo), soltar o robo no verde. Usa a MESMA logica C++ dos testes.
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -1534,7 +1301,7 @@ struct Sessao {
   std::shared_ptr<Carro> carro;
   std::shared_ptr<Firmware> fw;
   std::shared_ptr<Cena> cena;     // dois robos iguais: a = nos, b = o outro (mundo, carro e fw acima apontam para o `a`)
-  double frenteGraus = 90.0;      // para onde e "de frente" depois de levantado e solto
+  double frenteGraus = 90.0;      // para onde e "de frente" depois de solto
   // Simula ate o robo ter `quadros` quadros gravados (cada um e 20 ms).
   void avancarAte(size_t quadros) {
     if (cena) { while (carro->rastro().size() < quadros) cena->ciclo(); }
@@ -1544,14 +1311,13 @@ struct Sessao {
 
 struct Receita { std::string nome; std::function<std::shared_ptr<Sessao>()> cria; };
 
-static std::shared_ptr<Sessao> sessaoSimples(const std::string& nome, Pista&& pista, Estado e, bool mpu, double frente = 90.0) {
+static std::shared_ptr<Sessao> sessaoSimples(const std::string& nome, Pista&& pista, Estado e, double frente = 90.0) {
   auto s = std::make_shared<Sessao>();
   s->nome = nome;
   s->pista = std::make_shared<Pista>(std::move(pista));
   s->carro = std::make_shared<Carro>(*s->pista, e);
   s->fw = std::make_shared<Firmware>();
   s->frenteGraus = frente;
-  if (mpu) s->fw->ligarImu(*s->carro);
   return s;
 }
 
@@ -1575,7 +1341,7 @@ static std::vector<Receita> receitas() {
     }});
   }
   r.push_back({"Mapa completo, rota fixa (so segue a linha e vira)", [] {
-    auto s = sessaoSimples("Mapa completo, rota fixa (so segue a linha e vira)", tabuleiro(), {-140, kBeco + 2 * kPasso, 0.0}, true, 0.0);
+    auto s = sessaoSimples("Mapa completo, rota fixa (so segue a linha e vira)", tabuleiro(), {-140, kBeco + 2 * kPasso, 0.0}, 0.0);
     s->fw->portaoPendente = true;
     s->fw->rota = "SLSSSS";   // depois da rota, segue reto em todo cruzamento
     return s;
@@ -1588,15 +1354,13 @@ static std::vector<Receita> receitas() {
         p.reta(0, -400, 0, 1400);
         const double th = rumo * M_PI / 180.0;
         const Estado origem = {dist - gFis.barraAFrenteMm * cos(th), 500 - gFis.barraAFrenteMm * sin(th), th};
-        auto s = sessaoSimples(nome, std::move(p), origem, false, rumo);
-        prepararMpu(*s->fw, *s->carro, origem);
-        return s;
+        return sessaoSimples(nome, std::move(p), origem, rumo);
       }});
     }
   r.push_back({"Perdido de lado na linha (barra inteira sobre ela)", [] {
     Pista p;
     p.reta(0, 0, 0, 1400);
-    auto s = sessaoSimples("Perdido de lado na linha (barra inteira sobre ela)", std::move(p), {-150, 300, 0.0}, true, 90.0);
+    auto s = sessaoSimples("Perdido de lado na linha (barra inteira sobre ela)", std::move(p), {-150, 300, 0.0}, 90.0);
     for (int i = 0; i < 140; i++) s->fw->passo(*s->carro);   // procura um pouco
     s->carro->colocarEm({-gFis.barraAFrenteMm, 500, 0.0});
     return s;
@@ -1604,33 +1368,33 @@ static std::vector<Receita> receitas() {
   r.push_back({"Reta, comecando torto", [] {
     Pista p;
     p.reta(0, 0, 0, 3000);
-    return sessaoSimples("Reta, comecando torto", std::move(p), norte(20, 100, 15), true);
+    return sessaoSimples("Reta, comecando torto", std::move(p), norte(20, 100, 15));
   }});
   r.push_back({"Cruzamento com beco ate a borda vermelha", [] {
     Pista p;
     p.reta(0, 0, 0, 627);
     p.reta(-400, 500, 400, 500);
     p.reta(-200, 627, 200, 627, kVermelha);
-    return sessaoSimples("Cruzamento com beco ate a borda vermelha", std::move(p), norte(0, 100), true);
+    return sessaoSimples("Cruzamento com beco ate a borda vermelha", std::move(p), norte(0, 100));
   }});
   r.push_back({"Canto vivo de 90 graus (esquerda)", [] {
     Pista p;
     p.reta(0, 0, 0, 400);
     p.reta(0, 400, -600, 400);
-    return sessaoSimples("Canto vivo de 90 graus (esquerda)", std::move(p), norte(0, 50), true);
+    return sessaoSimples("Canto vivo de 90 graus (esquerda)", std::move(p), norte(0, 50));
   }});
   r.push_back({"Arco de 150 mm", [] {
     Pista p;
     p.reta(0, 0, 0, 200);
     p.arco(150, 200, 150, 180, 90);
     p.reta(150, 350, 550, 350);
-    return sessaoSimples("Arco de 150 mm", std::move(p), norte(0, 50), true);
+    return sessaoSimples("Arco de 150 mm", std::move(p), norte(0, 50));
   }});
   r.push_back({"Lacuna de 100 mm na linha", [] {
     Pista p;
     p.reta(0, 0, 0, 300);
     p.reta(0, 400, 0, 1400);
-    return sessaoSimples("Lacuna de 100 mm na linha", std::move(p), norte(0, 100, 6), true);
+    return sessaoSimples("Lacuna de 100 mm na linha", std::move(p), norte(0, 100, 6));
   }});
   return r;
 }
@@ -1743,7 +1507,7 @@ static int servir(int porta) {
         o += "]";
       }
       const Firmware& f = *s.fw;
-      std::string info = fmt("cruzamentos %d | falsos alarmes %d | endireitou %d | bordas %d (meias-voltas %d) | portao %d | levantado %s", f.cruzamentos, f.falsosAlarmes, f.endireitou, f.bordas, f.meiasVoltas, f.portoes, s.carro->levantado() ? "SIM" : "nao");
+      std::string info = fmt("cruzamentos %d | falsos alarmes %d | endireitou %d | bordas %d (meias-voltas %d) | portao %d", f.cruzamentos, f.falsosAlarmes, f.endireitou, f.bordas, f.meiasVoltas, f.portoes);
       if (f.nav.ativo) info += fmt(" | NOS: %d PONTOS (coletou %d, entregou %d, brancos identificados %d, bloqueou %d rua(s)) | plano: %s | %s | velocidade medida %.0f mm/s", f.nav.pontos, f.nav.coletados, f.nav.entregues, f.nav.brancosIdentificados, f.nav.bloqueios, f.nav.ultimoPlano.c_str(), f.nav.carregando ? fmt("levando %d cubo(s)", static_cast<int>(f.nav.carga.size())).c_str() : "sem cubo", f.ajC.velMmS);
       if (s.cena && s.cena->dois) { const Firmware& g = *s.cena->b.fw; info += fmt(" | OPONENTE: %d PONTOS (coletou %d, entregou %d, brancos %d) | colisoes entre os robos %d", g.nav.pontos, g.nav.coletados, g.nav.entregues, g.nav.brancosIdentificados, s.cena->reinicios); }
       o += "],\"i\":\"" + info + "\"";
@@ -1780,22 +1544,18 @@ static int servir(int porta) {
       Sessao& s = pega(i);
       const double th = atof(valor(q, "th", "90").c_str()) * M_PI / 180.0;
       s.carro->colocarEm({atof(valor(q, "x", "0").c_str()), atof(valor(q, "y", "0").c_str()), th});
-      s.carro->levantar(false);
       s.fw->memoria = Memoria{};
       s.fw->cruz = MemoriaCruzamento{};
       responder(fd, "text/plain", "ok");
     } else if (rota == "/acao") {
       Sessao& s = pega(i);
       const std::string ac = valor(q, "a");
-      if (ac == "levantar") s.carro->levantar(true);
-      else if (ac == "soltar") {   // SEMPRE em posicao aleatoria do verde, olhando para as ruas (o MPU volta a rumo 0)
+      if (ac == "soltar") {   // SEMPRE em posicao aleatoria do verde, olhando para as ruas (o rumo volta a 0)
         Estado e = s.carro->estado();
         e.th = s.frenteGraus * M_PI / 180.0;
         if (s.cena) { e.x = -270.0 + s.mundo->rnd() * 230.0; e.y = 60.0 + s.mundo->rnd() * (kAlt - 120.0); e.th = 0.0; s.fw->rumo = 0.0f; s.fw->nav.reposicionado(); s.fw->precisaAlinhar = true; s.fw->portaoPendente = true; s.fw->memoria = Memoria{}; s.fw->cruz = MemoriaCruzamento{}; s.mundo->carga0 = s.mundo->carga1 = 0; }
         s.carro->colocarEm(e);
-        s.carro->levantar(false);
       }   // SEMPRE de frente
-      else if (ac == "bater") s.carro->bater(2.5, 4);
       else if (ac == "ruido" && s.mundo) { s.mundo->ruidoLigado = valor(q, "on") == "1"; s.mundo->evento(s.carro->agoraMs(), s.mundo->ruidoLigado ? "RUIDO LIGADO: manchas, patinagem e atraso de sensores aleatorios (cada evento e avisado aqui)" : "ruido desligado"); }
       responder(fd, "text/plain", "ok");
     } else {
@@ -1818,7 +1578,7 @@ button{cursor:pointer}canvas{width:100%;background:var(--card);border:1px solid 
 <div class="bar"><button id="b1">&#9664;&#9664; 1 s</button><button id="b01">&#9664; 0,1 s</button><button id="pp">Pausar</button><button id="f01">0,1 s &#9654;</button><button id="f1">1 s &#9654;&#9654;</button>
 <label>velocidade <select id="vel"><option value="0.25">0,25x</option><option value="0.5">0,5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="4">4x</option><option value="8">8x</option></select></label><span id="tt"></span></div>
 <div class="bar"><label>soltar apontando para <select id="th"><option value="90">cima (norte)</option><option value="0">direita (leste)</option><option value="180">esquerda (oeste)</option><option value="-90">baixo (sul)</option></select></label>
-<button id="lev">Levantar o robo</button><button id="sol">Soltar de frente</button><button id="bat">Pancada forte</button><label><input type="checkbox" id="seg" checked> camera segue o robo</label><label id="lbM"><input type="checkbox" id="memchk" checked> mostrar a memoria do carrinho</label><label id="lbR"><input type="checkbox" id="rui"> ruido aleatorio (sinalizado)</label></div>
+<button id="sol">Soltar de frente</button><label><input type="checkbox" id="seg" checked> camera segue o robo</label><label id="lbM"><input type="checkbox" id="memchk" checked> mostrar a memoria do carrinho</label><label id="lbR"><input type="checkbox" id="rui"> ruido aleatorio (sinalizado)</label></div>
 <div id="alerta" style="display:none;background:#e02424;color:#fff;border-radius:6px;padding:6px 10px;margin-bottom:8px;font-weight:600">RUIDO LIGADO: manchas, patinagem e atraso de sensores acontecem de forma aleatoria. Cada evento aparece no registro abaixo.</div>
 <canvas id="c" width="1100" height="640"></canvas><div id="sens"></div><div id="info"></div><pre id="ev" style="white-space:pre-wrap;font-size:12px;max-height:190px;overflow:auto;background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:8px;margin:8px 0"></pre>
 <small>Simulacao AO VIVO, sem fim: nada e gravado, o servidor C++ simula o que voce esta vendo. Clique no mapa para soltar o robo ali (apontando para o lado escolhido). Sensores: S1 (esquerda) a S8 (direita), aceso = preto. Linha 20 mm, barra de 75 mm a 30 mm do eixo, carro 170 x 200 mm. Setas: 0,1 s; shift + seta: 1 s; espaco: pausa. LEGENDA. Rosa na rua = a chance de cubo que o carrinho LEMBRA (esquece com o tempo); numero no cruzamento = quantas vezes passou ali; X vermelho + 'bloqueada' = rua com um cubo que NAO se pega (branco ou cor sem plataforma: pelas regras so se identifica, sinaliza e desvia); linha verde tracejada + 'destino' = para onde esta indo agora; quadradinhos sobre o carro = cubos que esta carregando (no maximo 2); retangulos coloridos no ecoponto amarelo = plataformas; quadrados com borda laranja tracejada = cubos de quadrado marrom (so obstaculo); retangulo cinza 'outro robo' = o oponente (outro robo igual ao nosso); circulos marrons = manchas de ruido (preto = sujeira que parece linha; o desgaste branco na fita some com a linha).</small></main><script>
@@ -1869,7 +1629,7 @@ sel.onchange=()=>carrega(+sel.value);rein.onclick=()=>carrega(cur);
 b1.onclick=()=>passo(-50);b01.onclick=()=>passo(-5);f01.onclick=()=>passo(5);f1.onclick=()=>passo(50);
 pp.onclick=()=>{play=!play;pp.textContent=play?'Pausar':'Continuar'};vel_=document.getElementById('vel');vel_.onchange=e=>vel=+e.target.value;
 rui.onchange=()=>fetch('/acao?s='+cur+'&a=ruido&on='+(rui.checked?1:0));
-lev.onclick=()=>fetch('/acao?s='+cur+'&a=levantar');sol.onclick=()=>fetch('/acao?s='+cur+'&a=soltar');bat.onclick=()=>fetch('/acao?s='+cur+'&a=bater');
+sol.onclick=()=>fetch('/acao?s='+cur+'&a=soltar');
 cv.onclick=e=>{if(!vista)return;const r=cv.getBoundingClientRect(),px=(e.clientX-r.left)*cv.width/r.width,py=(e.clientY-r.top)*cv.height/r.height;const x=(px-vista.ox)/vista.k,y=(vista.oy-py)/vista.k;
 fetch(`/colocar?s=${cur}&x=${x.toFixed(1)}&y=${y.toFixed(1)}&th=${document.getElementById('th').value}`);play=true;pp.textContent='Pausar'};
 addEventListener('keydown',e=>{if(e.key==='ArrowRight')passo(e.shiftKey?50:5);else if(e.key==='ArrowLeft')passo(e.shiftKey?-50:-5);else if(e.key===' '){e.preventDefault();pp.click()}});
@@ -1892,7 +1652,7 @@ int main(int argc, char** argv) {
         printf("[%s] %s\n       %s\n", r.ok ? "ok" : "FALHA", r.nome.c_str(), r.info.c_str());
         return r.ok ? 0 : 1;
       }
-      else if (!strcmp(argv[i], "--busca-lote")) {   // 5 distancias x 8 rumos, sem MPU: quantas acha, tempo medio e pior (o conjunto para ajustar a busca sem sobreajustar)
+      else if (!strcmp(argv[i], "--busca-lote")) {   // 5 distancias x 8 rumos, : quantas acha, tempo medio e pior (o conjunto para ajustar a busca sem sobreajustar)
         Pista p;
         p.reta(0, -400, 0, 1400);
         int achou = 0, n = 0;
@@ -1901,20 +1661,20 @@ int main(int argc, char** argv) {
           for (double r : {0.0, 45.0, 90.0, 135.0, 180.0, -45.0, -90.0, -135.0}) {
             unsigned long ms = 0;
             int ciclos = 0;
-            const bool ok = buscar(d, r, false, ms, ciclos, p);
+            const bool ok = buscar(d, r, ms, ciclos, p);
             n++;
             if (ok) { achou++; soma += ms; pior = std::max(pior, double(ms)); }
           }
-        printf("BUSCA sem MPU: achou %d de %d | media %.1f s | pior %.1f s\n", achou, n, achou ? soma / achou / 1000.0 : 0.0, pior / 1000.0);
+        printf("BUSCA: achou %d de %d | media %.1f s | pior %.1f s\n", achou, n, achou ? soma / achou / 1000.0 : 0.0, pior / 1000.0);
         return 0;
       }
-      else if (!strcmp(argv[i], "--busca")) {   // --busca DIST RUMO: so a busca sem MPU (use com SIM_TRACE=1 para ver o rastro)
+      else if (!strcmp(argv[i], "--busca")) {   // --busca DIST RUMO: so a busca (use com SIM_TRACE=1 para ver o rastro)
         Pista p;
         p.reta(0, -400, 0, 1400);
         unsigned long ms = 0;
         int ciclos = 0;
-        const bool achou = buscar(i + 1 < argc ? atof(argv[i + 1]) : 60.0, i + 2 < argc ? atof(argv[i + 2]) : 90.0, false, ms, ciclos, p);
-        printf("busca sem MPU: %s em %lu ms (%d ciclos buscando)\n", achou ? "achou" : "NAO achou", ms, ciclos);
+        const bool achou = buscar(i + 1 < argc ? atof(argv[i + 1]) : 60.0, i + 2 < argc ? atof(argv[i + 2]) : 90.0, ms, ciclos, p);
+        printf("busca: %s em %lu ms (%d ciclos buscando)\n", achou ? "achou" : "NAO achou", ms, ciclos);
         return 0;
       }
       else if (!strcmp(argv[i], "--bitola")) {   // mede a bitola efetiva no centro de um cruzamento, com o eixo deslocado de 0 a 8 mm (erro de posicionar o carro)
@@ -1964,7 +1724,6 @@ int main(int argc, char** argv) {
     if (k == "tau") gFis.tauMs = v;
     else if (k == "derrap") gFis.derrapagem = v;
     else if (k == "cap") gCapacidade = static_cast<int>(v);
-    else if (k == "rumoenc") gRumoPeloEncoder = v != 0.0;
     else if (k == "autocal") gAutoCalBitola = v != 0.0;
     else if (k == "encoder") { gFis.encoder = v != 0.0; const int zona = gFis.encoder ? 0 : 65; gFis.zonaMortaPwm = zona; gAjustes.zonaMortaPwm = zona; }   // encoder=0: TT amarelos (zona morta 65)   // STS3215: sem zona morta, malha fechada
     else if (k == "escalaodo") gFis.escalaOdo = v;
@@ -2014,22 +1773,6 @@ int main(int argc, char** argv) {
   rs.push_back(cenarioCruzamento(10, 0));
   rs.push_back(cenarioCruzamento(-10, 8));
   rs.push_back(cenarioAtravessa());
-  rs.push_back(cenarioCruzamentoImu());
-  rs.back().informativo = gRumoPeloEncoder;   // so com MPU
-  rs.push_back(cenarioAncora());
-  rs.back().informativo = gRumoPeloEncoder;   // so com MPU
-  rs.push_back(cenarioLevantado());
-  rs.back().informativo = gRumoPeloEncoder;   // so com MPU
-  rs.push_back(cenarioTravado());
-  rs.back().informativo = gRumoPeloEncoder;   // so com MPU
-  rs.push_back(cenarioColisao());
-  rs.back().informativo = gRumoPeloEncoder;   // so com MPU
-  for (double z : {65.0, 80.0, 95.0}) { rs.push_back(cenarioCalibracao(z)); rs.back().informativo = gRumoPeloEncoder; }   // so com MPU
-  for (double a : {0.04, -0.07}) { rs.push_back(cenarioAssimetria(a)); rs.back().informativo = gRumoPeloEncoder; }   // so com MPU
-  for (double l : {60.0, 100.0, 150.0}) {
-    rs.push_back(cenarioLacunaImu(l));
-    rs.back().informativo = l > 100.0 || gRumoPeloEncoder;   // so com MPU
-  }
   rs.push_back(cenarioVermelhoDeLado());
   rs.push_back(cenarioTabuleiro());
   rs.push_back(cenarioMissao(false, 2));
@@ -2040,9 +1783,7 @@ int main(int argc, char** argv) {
   rs.back().informativo = true;
   rs.push_back(cenarioDuasEquipes(false, 2));
   rs.back().informativo = true;
-  rs.push_back(cenarioEndireitar(true));
-  rs.back().informativo = gRumoPeloEncoder;   // so com MPU
-  rs.push_back(cenarioEndireitar(false));
+  rs.push_back(cenarioEndireitar());
   rs.push_back(cenarioBorda(kVermelha, false));
   rs.push_back(cenarioBorda(kAzul, false));
   rs.push_back(cenarioBorda(kVermelha, true));

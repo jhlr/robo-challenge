@@ -1,5 +1,5 @@
 // M2: line follower with junction handling (advance -> settle/read floor -> turn per kRoute). Same app for both cars (see platformio.ini):
-// STS car measures advance and turns with the servo encoders; the DC car has none (advance by time, turns by integrating the IMU gyro).
+// STS car measures advance and turns with the servo encoders; the DC car has none (advance and turns by time).
 #include <Arduino.h>
 
 #include "core/line.h"

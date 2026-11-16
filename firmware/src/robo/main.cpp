@@ -1,5 +1,5 @@
 // A missao completa no carro STS: a MESMA logica que o simulador testa (seguidor/robo.h) sobre o carro de verdade (carro_real.h).
-// Sem MPU: o rumo vem dos encoders das rodas com params::kTrackMm (a bitola EFETIVA, medida com o env `bitola`; sem ela os giros erram). O ombro se mexe de verdade ao pegar e largar; a garra e STUB (hal/claw.h).
+// O rumo vem dos encoders das rodas com params::kTrackMm (a bitola EFETIVA, medida com o env `bitola`; sem ela os giros erram). O ombro se mexe de verdade ao pegar e largar; a garra e STUB (hal/claw.h).
 //
 // Inicio: o carro NAO anda ao ligar. A partida comeca quando o chao le VERDE (zona de largada) por ~0,5 s seguidos, ou pelo comando g. Depois de x ou do fim do tempo
 // ele fica DESARMADO (nao reinicia sozinho sobre o verde): so g, ou desligar e ligar de novo, arma o gatilho do verde. Console por USB (115200) E por Bluetooth LE ("RoboChallenge", Nordic UART: tools/console_ble.py ou nRF Connect):
@@ -208,7 +208,6 @@ void preparar() {
   const seguidor::ConfigRobo cfg = seguidor::configDoCarro();   // a mesma do simulador (params.h)
   fw = new seguidor::Robo<robo::CarroReal>(cfg);
   fw->ceder = vigiar;
-  fw->ligarImu(carro);   // sem MPU: so zera o rumo e liga o ciclo por encoder
   fw->nav.iniciar();
   fw->nav.coleta.capacidade = 1;
   fw->portaoPendente = true;

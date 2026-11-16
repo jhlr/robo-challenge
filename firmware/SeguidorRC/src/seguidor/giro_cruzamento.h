@@ -137,7 +137,7 @@ inline void iniciarVarredura(Varredura& v, int lado, bool vinhaSeguindo, bool so
   v.fase = Varredura::AteLado;
 }
 
-// `leitura.graus` = angulo desde o INICIO da varredura (+ esquerda), do giroscopio ou estimado. Guarda a leitura em `buf` (capacidade `cap`).
+// `leitura.graus` = angulo desde o INICIO da varredura (+ esquerda), pelos encoders. Guarda a leitura em `buf` (capacidade `cap`).
 // `velGiro` = PWM do giro (ja fora da zona morta). Cada fase tem 3 s no maximo (nao fica girando para sempre se o angulo nao anda).
 inline ComandoVarredura passoVarredura(Varredura& v, const AmostraGiro& leitura, unsigned long agoraMs, int velGiro, const AjustesGiroCruzamento& aj, AmostraGiro* buf, int cap) {
   if (v.fase == Varredura::Parada || v.fase == Varredura::Pronta) return {0, 0, true};

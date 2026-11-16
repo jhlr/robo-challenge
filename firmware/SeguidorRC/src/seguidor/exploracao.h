@@ -1,6 +1,6 @@
 #pragma once
 // Exploracao: por onde o robo ja passou, em cruzamentos, para escolher o lado MENOS EXPLORADO quando precisa virar (as duas pontas acesas).
-// Pura. O rumo vem do MPU (bussola na grade: 0 = de frente para dentro da cidade; multiplos de 90 depois de ancorado); as coordenadas sao RELATIVAS
+// Pura. O rumo vem dos encoders das rodas (0 = de frente para dentro da cidade); as coordenadas sao RELATIVAS
 // ao ponto de partida (a posicao absoluta e do localizador, core/localizer.h, quando for ligado aqui: ele pode alimentar os mesmos contadores).
 #include <math.h>
 #include <stdint.h>
@@ -45,10 +45,9 @@ inline int visitadosDoLado(const Exploracao& e, float rumoGraus, int lado) {
   return soma;
 }
 
-// +1 = esquerda, -1 = direita: o lado com MENOS cruzamentos visitados. Empate (ou rumo desconhecido): o lado da ultima correcao; sem ele, esquerda.
-inline int ladoMenosExplorado(const Exploracao& e, float rumoGraus, bool rumoValido, int ultimoLado) {
+// +1 = esquerda, -1 = direita: o lado com MENOS cruzamentos visitados. Empate: o lado da ultima correcao; sem ele, esquerda.
+inline int ladoMenosExplorado(const Exploracao& e, float rumoGraus, int ultimoLado) {
   const int fallback = ultimoLado != 0 ? ultimoLado : 1;
-  if (!rumoValido) return fallback;
   const int esq = visitadosDoLado(e, rumoGraus, 1), dir = visitadosDoLado(e, rumoGraus, -1);
   if (esq == dir) return fallback;
   return esq < dir ? 1 : -1;

@@ -3,7 +3,6 @@
 #pragma once
 #include <Arduino.h>
 #include <seguidor/borda.h>
-#include <seguidor/inercial.h>
 #include <seguidor/robo.h>
 #include <seguidor/sensores_rc.h>
 
@@ -50,7 +49,6 @@ class CarroReal {
     drive_.setSpeeds(fracao(esq), fracao(dir));
   }
   void parar() { comandar(0, 0); }
-  void compensar(double, double) {}   // o servo regula a velocidade de cada roda: nada a compensar
   double roda(bool esquerda) const { return esquerda ? alvoE_ : alvoD_; }
   // Pegar e largar o cubo: a maquina de core/pickplace.h sobre o ombro real (hal/shoulder), o recuo por encoders, o sonar e o TCS da frente.
   // A garra (hal/claw) e STUB por enquanto: abrir/fechar so registram e a pegada sempre "confere". O ombro e o recuo se mexem de verdade.
@@ -138,7 +136,6 @@ class CarroReal {
   seguidor::CorCubo tcsFrente() { return algoPerto(kAlcanceCorFrenteMm) ? corCubo(corDaFrente()) : seguidor::CorCubo::Nenhuma; }
   seguidor::CorCubo plataformaNaFrente(double alcanceMm) { return algoPerto(static_cast<float>(alcanceMm)) ? corCubo(corDaFrente()) : seguidor::CorCubo::Nenhuma; }
   int cuboNaFrente(double alcanceMm) { return algoPerto(static_cast<float>(alcanceMm)) ? 0 : -1; }   // so ha UM "cubo" para pegar: o que o sonar ve
-  seguidor::Imu imu() const { return {0.0f, 0.0f, 0.0f, 1.0f}; }   // sem MPU: neutro (a logica nao usa o acelerometro com rumoPeloEncoder)
 
   // ---- missao
   bool missao() const { return true; }

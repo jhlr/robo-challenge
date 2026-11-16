@@ -16,7 +16,6 @@
 #include "core/odo.h"
 #include "core/pid.h"
 #include "core/turn.h"
-#include "core/yaw.h"
 #include "params.h"
 
 void setUp() {}
@@ -640,44 +639,26 @@ void test_navigator_explores_an_empty_map() {
   TEST_ASSERT_FALSE(d.next == here);
 }
 
-void test_yaw_bias_is_the_still_mean() {
-  core::GyroBias b;
-  core::addStillSample(b, 0.01f);
-  core::addStillSample(b, 0.03f);
-  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.02f, b.bias());
-  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, core::GyroBias{}.bias());
-}
-
-void test_yaw_integrates_a_quarter_turn() {
-  // 90 deg/s for 1 s in 100 steps, with a 0.02 rad/s bias that must cancel out
-  const float rate = 90.0f / core::kRadToDeg;
-  float yaw = 0.0f;
-  for (int i = 0; i < 100; ++i) yaw = core::integrateYaw(yaw, rate + 0.02f, 0.02f, 0.01f);
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 90.0f, yaw);
-  TEST_ASSERT_TRUE(core::turnReached(yaw, 90.0f - 0.1f));
-  TEST_ASSERT_FALSE(core::turnReached(yaw, 91.0f));
-}
-
-void test_yaw_turn_reached_either_direction() {
+void test_turn_reached_either_direction() {
   TEST_ASSERT_TRUE(core::turnReached(-90.0f, 90.0f));
   TEST_ASSERT_FALSE(core::turnReached(-89.0f, 90.0f));
 }
 
-void test_timed_turn_ignores_the_gyro() {
+void test_timed_turn_ignores_the_encoders() {
   const core::TurnSpec t{90.0f, false, 90.0f, 2.0f};   // 1 s at 90 deg/s
   TEST_ASSERT_EQUAL_UINT32(1000, core::timedTurnMs(t));
-  TEST_ASSERT_FALSE(core::turnFinished(t, 999, 90.0f));   // yaw already there, but no MPU is trusted
+  TEST_ASSERT_FALSE(core::turnFinished(t, 999, 90.0f));   // heading already there, but the open-loop turn only trusts the clock
   TEST_ASSERT_TRUE(core::turnFinished(t, 1000, 0.0f));
 }
 
-void test_gyro_turn_finishes_on_the_angle() {
+void test_closed_loop_turn_finishes_on_the_angle() {
   const core::TurnSpec t{90.0f, true, 90.0f, 2.0f};
   TEST_ASSERT_FALSE(core::turnFinished(t, 500, 60.0f));
   TEST_ASSERT_TRUE(core::turnFinished(t, 500, 90.0f));
   TEST_ASSERT_TRUE(core::turnFinished(t, 500, -91.0f));
 }
 
-void test_gyro_turn_times_out_if_the_gyro_is_dead() {
+void test_closed_loop_turn_times_out_if_the_wheels_are_stuck() {
   const core::TurnSpec t{90.0f, true, 90.0f, 2.0f};    // limit 2 s
   TEST_ASSERT_FALSE(core::turnFinished(t, 1999, 0.0f));
   TEST_ASSERT_TRUE(core::turnFinished(t, 2000, 0.0f));
@@ -911,12 +892,10 @@ int main() {
   RUN_TEST(test_navigator_turns_toward_the_cube);
   RUN_TEST(test_navigator_falls_back_to_the_least_unlikely);
   RUN_TEST(test_navigator_explores_an_empty_map);
-  RUN_TEST(test_yaw_bias_is_the_still_mean);
-  RUN_TEST(test_yaw_integrates_a_quarter_turn);
-  RUN_TEST(test_yaw_turn_reached_either_direction);
-  RUN_TEST(test_timed_turn_ignores_the_gyro);
-  RUN_TEST(test_gyro_turn_finishes_on_the_angle);
-  RUN_TEST(test_gyro_turn_times_out_if_the_gyro_is_dead);
+      RUN_TEST(test_turn_reached_either_direction);
+  RUN_TEST(test_timed_turn_ignores_the_encoders);
+  RUN_TEST(test_closed_loop_turn_finishes_on_the_angle);
+  RUN_TEST(test_closed_loop_turn_times_out_if_the_wheels_are_stuck);
   RUN_TEST(test_loc_gate_gives_column_and_heading_not_row);
   RUN_TEST(test_loc_distance_one_street_moves_one_junction);
   RUN_TEST(test_loc_distance_two_streets_means_a_missed_crossing);

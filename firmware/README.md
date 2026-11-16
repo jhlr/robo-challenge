@@ -19,7 +19,7 @@ Medem ou testam o hardware, nao fazem parte da missao.
 | `scan` | ping nos ids 0..253: acha id duplicado ou barramento instavel |
 | `tensao` | configura UM STS novo sozinho no barramento: `v` janela de tensao, `i` id 3 |
 | `bitola` | mede a bitola efetiva das rodas |
-| `sensores` | sonar + 2 TCS + MPU em tempo real |
+| `sensores` | sonar + 2 TCS em tempo real |
 
 ## Observar e comandar o carro pelo BLE (agente ou curl)
 `tools/robo_bridge.py` fica conectada ao carro (`RoboChallenge`), guarda o log em `~/.cache/robo/ble.log` e aceita `g [s]`, `x`, `s`, `h` por HTTP em `localhost:8765` (`/status`, `/log?desde=N&espera=S`, `POST /send`). Rode no terminal do app (a permissao de Bluetooth e dele): `~/.venvs/seguidor/bin/python firmware/tools/robo_bridge.py`. `tools/robo_mcp.py` e um servidor MCP sem dependencias sobre essa ponte (`robo_enviar`, `robo_ler`); registrado com `claude mcp add robo -- ~/.venvs/seguidor/bin/python <caminho>/firmware/tools/robo_mcp.py` (aparece na proxima sessao). A ponte segura a unica conexao BLE do carro: pare-a antes do OTA ou do `console_ble.py`.

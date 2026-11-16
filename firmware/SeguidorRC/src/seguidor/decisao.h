@@ -26,6 +26,7 @@ struct Ajustes {
   unsigned long periodoCorrecaoMs = 80;   // tamanho de um ciclo giro + avanco
   float fracaoGiroLeve = 0.7f;            // parte do ciclo girando na correcao leve (o resto avanca)
   float fracaoGiroForte = 0.95f;          // idem na forte; entre as duas a fracao sobe em rampa junto com a velocidade
+  float lacunaToleranciaGraus = 4.0f;   // na lacuna: ate esta diferenca de rumo (graus) anda reto; alem dela gira no eixo de volta ao rumo (segurar_rumo.h)
   float fracaoGiroPonta = 0.5f;           // idem quando so S1 ou so S8 veem a linha (na ponta, fora do alcance do giro): metade do ciclo avancando leva a linha para o meio da barra
 
   // Freada: entre os giros de uma correcao o robo avanca mais devagar (velReto x isto): vai corrigir, nao precisa de pressa (e nao passa da curva).
@@ -63,7 +64,7 @@ struct Ajustes {
   unsigned long buscaAvancoMs = 500;
   int buscaAvancoMaxFator = 3;
   unsigned long buscaEspiralMs = 0;     // espiral entre o giro e o trecho reto (0 = sem). No simulador a espiral PIORA a busca: o trecho reto cresce a partir do rumo do giro, e a espiral o desvia  // depois abre em espiral por esse tempo; ai recomeca o giro
-  int velBuscaExterna = 70;             // roda de fora na busca (constante). Com o MPU a calibracao a troca por uma velocidade maior (AjustesCalibracao::velMedida) e mede os graus por segundo nela
+  int velBuscaExterna = 70;             // roda de fora na busca (constante).
   float barraAFrenteMm = 30.0f;         // distancia do eixo das rodas ate a barra de sensores (no carro e no simulador vem de params::kAxleToSensorMm: perfil_carro.h)
   float bitolaMm = 140.0f;              // CHUTE: distancia entre as rodas esquerda e direita; meca e corrija
   float raioMaxEspiralMm = 125.0f;      // a espiral NUNCA passa desse raio de curva (folga entre a rua e os cubos marrons dos quarteiroes)
