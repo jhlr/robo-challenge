@@ -27,3 +27,15 @@ Causa: `observarRaio` marca qualquer eco longo como CUBO (`observeStreet(..., tr
 Experimento (eco longo sem cor NAO vira cubo): 15/20 contra 17/20. Revertido. O eco longo e a principal fonte de descoberta de cubos, entao o problema nao se resolve removendo-o.
 
 Proximo passo (nao testado): distinguir marrom e outro robo do cubo no eco longo. Isso precisa de dado de sensor, nao de regra de simulacao.
+
+## Limiar de eco longo (aplicado)
+- A simulacao de coleta NAO tem adversario (`configurarMissao(..., oponente=false)`). Os ecos que eu atribuia ao outro robo eram marrons ou cubos; a minha chave de rua tambem ignorava a orientacao do marrom. Correcao da leitura anterior.
+- Nosso sensor nao le cor a distancia (TCS so a ~5 cm). Por isso eco longo nao pode ser evidencia de cubo.
+- `kEcoCuboAteMm = kPassoMm + kBecoMm` (427 mm): eco de cubo so conta ate a rua seguinte. Eco alem dele nao marca cubo nem vazio na rua do eco; as ruas antes dele continuam vazias (VAZIA-ECO-LONGE).
+
+Resultado (20 sementes, 18 cubos):
+- Completas: 17/20, igual a linha de base.
+- Media nas completas: 491 s (antes 460 s). A maioria das sementes ficou mais lenta (ex.: seed 7 669 -> 683 s, seed 9 610 -> 682 s, seed 19 419 -> 498 s).
+- Erro de atribuicao (ECO-CUBO sem cubo real): 2,9% (34 de 1175), medido sem pose.
+
+Leitura: o limiar remove a crenca falsa de cubo, mas o carro perde a evidencia de cubos a distancia que ajudava a explorar. O ganho esperado em completas nao apareceu; o custo em tempo apareceu. Mantido porque e a regra correta para o sensor real; o proximo passo e a exploracao usar a ausencia de eco longo como informacao (hoje ela nao e).

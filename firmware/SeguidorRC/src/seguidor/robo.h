@@ -172,7 +172,8 @@ struct Navegador {
       core::Node a, b;
       if (rua(k, &a, &b)) {
         if (ruaVaziaCerta(a, b)) oponenteVisto++;   // rua que ja era vazia de certeza: o eco so pode ser o outro robo
-        else { ROBO_DBG("    ECO-CUBO rua (%d,%d)-(%d,%d) usMm %.0f andado %.0f\n", a.c, a.r, b.c, b.r, usMm, andadoMm); core::observeStreet(cubos, a, b, true, bm); ecosLongeVistos++; }
+        else if (usMm <= seguidor::kEcoCuboAteMm) { ROBO_DBG("    ECO-CUBO rua (%d,%d)-(%d,%d) usMm %.0f andado %.0f\n", a.c, a.r, b.c, b.r, usMm, andadoMm); core::observeStreet(cubos, a, b, true, bm); ecosLongeVistos++; }
+        else { ROBO_DBG("    ECO-LONGE-SEM-CUBO rua (%d,%d)-(%d,%d) usMm %.0f andado %.0f\n", a.c, a.r, b.c, b.r, usMm, andadoMm); }   // eco alem da rua seguinte: nao e cubo
       }
     } else if (comSemEco) {
       // Leitura DE LADO na varredura: o carro gira em torno do eixo, que fica ~38 mm fora da linha da rua do lado, e o cone do ultrassom e estreito (+-10 graus): um cubo no meio da rua
