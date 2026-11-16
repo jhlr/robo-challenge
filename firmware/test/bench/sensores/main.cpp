@@ -4,6 +4,7 @@
 #include <Wire.h>
 
 #include "core/color.h"
+#include "core/color_table.h"
 #include "hal/sensors.h"
 #include "params.h"
 #include "pins.h"
@@ -39,7 +40,7 @@ void printColor(const char* label, hal::ColorSensor& sensor, bool& ok, TwoWire& 
     return;
   }
   const core::Hsv h = core::toHsv(c.r, c.g, c.b);
-  Serial.printf(" | %s r%u g%u b%u c%u hue %.0f -> %s", label, c.r, c.g, c.b, c.c, h.h, core::name(c.floor));
+  Serial.printf(" | %s r%u g%u b%u c%u hue %.0f -> %s", label, c.r, c.g, c.b, c.c, h.h, core::nomeCor(core::classificarCor(c.r, c.g, c.b, c.c)));
 }
 
 void printIdle(const char* name, int sda, int scl) {

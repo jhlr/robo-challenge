@@ -20,8 +20,6 @@
 
 namespace core {
 
-constexpr int kHeadings = 4;  // 0 = +c, 1 = +r, 2 = -c, 3 = -r (a left turn adds 1)
-constexpr int8_t kDirs[kHeadings][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
 
 struct PoseBelief {
   float p[kMapCols][kMapRows][kHeadings];

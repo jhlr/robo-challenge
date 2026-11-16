@@ -4,7 +4,6 @@
 #include <ESP32Servo.h>
 #include <Wire.h>
 
-#include "core/color.h"
 #include "pins.h"
 // One thin wrapper per sensor. All hardware access in the firmware goes through here.
 namespace hal {
@@ -22,7 +21,7 @@ class Ultrasonic {
   uint16_t readMm(uint32_t timeoutUs = 25000);  // 0xFFFF = no echo. Blocks up to timeoutUs (25 ms is ~4.3 m one way).
 };
 
-struct ColorSample { uint16_t r, g, b, c; core::Floor floor; };
+struct ColorSample { uint16_t r, g, b, c; };
 
 // TCS34725, fixed address 0x29: two instances (front, floor) so each lives on its own I2C bus (Wire / Wire1).
 class ColorSensor {

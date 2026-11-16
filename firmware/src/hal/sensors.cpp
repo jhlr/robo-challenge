@@ -59,7 +59,6 @@ bool ColorSensor::read(ColorSample& out) {
   out.g = buf[4] | (buf[5] << 8);
   out.b = buf[6] | (buf[7] << 8);
   if (out.r == 0 && out.g == 0 && out.b == 0 && out.c == 0) { ok_ = false; return false; }   // all zeros = the bus did not answer: report a failed read and re-init on the next one
-  out.floor = core::classify(out.r, out.g, out.b, out.c);
   return true;
 }
 

@@ -9,7 +9,6 @@
 //   cruzamento.h   detecta o cruzamento (S1 e S8 no preto)     (so conta, nao usa pinos nem millis())
 //   saude.h        marca sensor preto por tempo demais           (so conta, nao usa pinos nem millis())
 //   segurar_rumo.h segura o rumo (pelos encoders) enquanto a linha some por pouco tempo (so conta)
-//   ponte_h.h      (legado do carro TT) velocidade para a ponte TB6612FNG; o carro STS usa hal/drive.h do firmware
 // Cada peca funciona sozinha; o sketch liga uma na outra (veja examples/SeguidorBasico).
 #include "seguidor/alvo.h"
 #include "seguidor/borda.h"
@@ -18,6 +17,5 @@
 #include "seguidor/exploracao.h"
 #include "seguidor/giro_cruzamento.h"
 #include "seguidor/segurar_rumo.h"
-#include "seguidor/ponte_h.h"
 #include "seguidor/saude.h"
 #include "seguidor/sensores_rc.h"

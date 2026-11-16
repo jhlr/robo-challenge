@@ -1,6 +1,9 @@
 #pragma once
 #include <stdint.h>
 // Every number here is an ASSUMPTION until measured on the real robot.
+#ifndef SEG_TELEMETRIA
+#define SEG_TELEMETRIA 1
+#endif
 namespace params {
 // STS3215 bus IDs: one servo per lateral (2 wheels each) and one on the tower. Factory id is 1: set the others one servo at a time (bringup 'i').
 constexpr uint8_t kIdLeft = 1;

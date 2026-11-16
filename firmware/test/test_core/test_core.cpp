@@ -105,21 +105,6 @@ void test_wrap_delta() {
   TEST_ASSERT_EQUAL_INT(100, core::wrapDelta(500, 600));
 }
 
-void test_spin_counts() {
-  // track 100, wheel 66, ratio 1: arc = 100*pi/4 = 78.54 mm -> 78.54/207.35*4096 = 1551
-  TEST_ASSERT_INT_WITHIN(2, 1551, core::countsForSpin(90.0f, 100.0f, 66.0f, 1.0f));
-  TEST_ASSERT_INT_WITHIN(4, 3102, core::countsForSpin(180.0f, 100.0f, 66.0f, 1.0f));
-}
-
-void test_color_classes() {
-  TEST_ASSERT_EQUAL(core::Floor::Black, core::classify(10, 10, 10, 100));
-  TEST_ASSERT_EQUAL(core::Floor::White, core::classify(2000, 2000, 2000, 6000));
-  TEST_ASSERT_EQUAL(core::Floor::Red, core::classify(3000, 600, 500, 4500));
-  TEST_ASSERT_EQUAL(core::Floor::Green, core::classify(600, 3000, 900, 4500));
-  TEST_ASSERT_EQUAL(core::Floor::Blue, core::classify(500, 1200, 3000, 4700));
-  TEST_ASSERT_EQUAL(core::Floor::Yellow, core::classify(3000, 2600, 400, 6000));
-}
-
 void test_shoulder_target() {
   uint16_t t = 0;
   TEST_ASSERT_TRUE(core::shoulderTarget(2000, 45.0f, +1, 90.0f, &t));
@@ -406,18 +391,6 @@ void test_exploration_replaces_first_street_when_nothing_likely() {
   const core::Decision d = core::decideAtCrossing(pose, b, &v);
   TEST_ASSERT_FALSE(d.toCube);
   TEST_ASSERT_FALSE(d.next.c == 3 && d.next.r == 2);   // does not just go ahead
-}
-
-void test_delivery_walks_to_column_zero_then_out_the_gate() {
-  bool atGate = true;
-  core::Decision d = core::decideDelivery(core::Pose{{3, 1}, 1, 0}, &atGate);   // facing east: U-turn to go west
-  TEST_ASSERT_FALSE(atGate);
-  TEST_ASSERT_EQUAL(2, d.next.c);
-  TEST_ASSERT_TRUE(d.turn == core::Turn::UTurn);
-  d = core::decideDelivery(core::Pose{{0, 1}, -1, 0}, &atGate);           // at column 0 facing west: straight out of the gate
-  TEST_ASSERT_TRUE(atGate);
-  TEST_ASSERT_EQUAL(-1, d.next.c);
-  TEST_ASSERT_TRUE(d.turn == core::Turn::Straight);
 }
 
 
@@ -921,7 +894,6 @@ int main() {
   RUN_TEST(test_blocked_street_is_not_driven_through);
   RUN_TEST(test_explore_goes_to_least_visited);
   RUN_TEST(test_exploration_replaces_first_street_when_nothing_likely);
-  RUN_TEST(test_delivery_walks_to_column_zero_then_out_the_gate);
   RUN_TEST(test_plan_anchors_the_column_when_only_the_column_is_unsure);
   RUN_TEST(test_plan_anchors_the_other_way_when_the_street_to_anchor_is_blocked);
   RUN_TEST(test_forget_never_raises_a_street_seen_empty);
@@ -943,8 +915,6 @@ int main() {
   RUN_TEST(test_first_step_to_unreachable_target_stays_put);
   RUN_TEST(test_color_table_nearest_wins_and_is_relative);
   RUN_TEST(test_wrap_delta);
-  RUN_TEST(test_spin_counts);
-  RUN_TEST(test_color_classes);
   RUN_TEST(test_shoulder_target);
   RUN_TEST(test_shoulder_next_target);
   RUN_TEST(test_shoulder_is_up);

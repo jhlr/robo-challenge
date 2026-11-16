@@ -2,6 +2,7 @@
 // STS car measures advance and turns with the servo encoders; the DC car has none (advance and turns by time).
 #include <Arduino.h>
 
+#include "core/color_table.h"
 #include "core/line.h"
 #include "core/pid.h"
 #include "core/turn.h"
@@ -126,7 +127,7 @@ void loop() {
     case State::Settle:
       if (now - stateSince >= 300) {
         hal::ColorSample c;
-        if (floorColor.read(c)) Serial.printf("junction %u: floor %s, action %c\n", (unsigned)routeIdx, core::name(c.floor), action);
+        if (floorColor.read(c)) Serial.printf("junction %u: floor %s, action %c\n", (unsigned)routeIdx, core::nomeCor(core::classificarCor(c.r, c.g, c.b, c.c)), action);
         float deg = 0.0f;
         if (action == 'L') { deg = 90.0f; turnDir = -1; }
         else if (action == 'R') { deg = 90.0f; turnDir = +1; }

@@ -83,6 +83,8 @@ inline Pose moveTo(const Pose& pose, Node next) {
 constexpr float kMinBelief = 0.5f;   // "provavelmente tem cubo": tem de ficar ACIMA do prior (belief.h, 0,4). Com 0,3 toda rua nunca medida virava alvo de cubo antes de explorar (exploracao 28 de 58 alvos na semente 7)
 // A cube we really SAW (P clearly above the prior of 0.4, before it drifts back) is a known cube: the robot is greedy for those, nearest first, and only wanders to unvisited streets
 // when none is known. 0.5 = a seen cube still counts for about 2.5 half-lives (150 s) before it is just another unvisited street.
+constexpr int kHeadings = 4;  // 0 = +c, 1 = +r, 2 = -c, 3 = -r (a left turn adds 1)
+constexpr int8_t kDirs[kHeadings][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
 constexpr float kKnownCube = 0.5f;
 
 // A street already seen EMPTY can never hold a cube, so there is no point INSISTING on it (it is never a target), but it is a perfectly good WAY: routes treat it like any other street
@@ -106,14 +108,13 @@ inline void routesFrom(Node start, const CubeBelief* belief, const Blocked* bloc
     for (int rr = 0; rr < kMapRows; ++rr) { r.dist[c][rr] = 1e9f; r.from[c][rr] = Node{-1, -1}; }
   if (!inMap(start.c, start.r)) return;   // e.g. the gate junction (-1, r): nowhere to route from, everything stays unreachable
   r.dist[start.c][start.r] = 0.0f;
-  static const int8_t kStep[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
   for (int pass = 0; pass < kMapNodes; ++pass) {
     bool changed = false;
     for (int c = 0; c < kMapCols; ++c)
       for (int rr = 0; rr < kMapRows; ++rr) {
         if (r.dist[c][rr] >= 1e8f) continue;
         const Node n{static_cast<int8_t>(c), static_cast<int8_t>(rr)};
-        for (const auto& s : kStep) {
+        for (const auto& s : kDirs) {
           const int c2 = c + s[0], r2 = rr + s[1];
           if (!inMap(c2, r2)) continue;
           const Node m{static_cast<int8_t>(c2), static_cast<int8_t>(r2)};

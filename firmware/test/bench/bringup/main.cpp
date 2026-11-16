@@ -1,6 +1,8 @@
 // M1 bring-up: serial menu (115200) to exercise every part one at a time.
 #include <Arduino.h>
 #include "core/arm.h"
+#include "core/color.h"
+#include "core/color_table.h"
 #include "hal/drive.h"
 #include "hal/sensors.h"
 #include "hal/shoulder.h"
@@ -46,7 +48,7 @@ void printColor(const char* label, hal::ColorSensor& sensor) {
   }
   const core::Hsv h = core::toHsv(c.r, c.g, c.b);
   Serial.printf(" | %s rgbc %u %u %u %u hue %.0f sat %.2f -> %s", label, c.r, c.g, c.b, c.c, h.h, h.s,
-                core::name(c.floor));
+                core::nomeCor(core::classificarCor(c.r, c.g, c.b, c.c)));
 }
 
 void dumpSensors() {

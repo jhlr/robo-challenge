@@ -7,7 +7,6 @@
 using namespace seguidor;
 
 int main() {
-  assert(ruaTemCubo(100.0f) && ruaTemCubo(200.0f) && !ruaTemCubo(327.0f) && !ruaTemCubo(500.0f) && !ruaTemCubo(-1.0f) && !ruaTemCubo(0.0f));   // 327 mm = cubo da rua DEPOIS da esquina
   // o eco diz EM QUAL rua da linha reta esta o cubo (ate ~3 ruas a frente)
   assert(ruaDoEco(60.0f, 0.0f) == 0);                      // cubo na rua logo a frente
   // Os numeros saem do passo da rua (kPassoMm, 300 mm): o cubo da rua k fica de kCuboMinMm a kCuboMaxMm depois do cruzamento k, e o eco = distancia ate ele menos a ponta do sensor.

@@ -16,8 +16,7 @@ struct Decision {
 inline Node explorationStep(const Pose& pose) {
   const Node ahead{static_cast<int8_t>(pose.at.c + pose.dc), static_cast<int8_t>(pose.at.r + pose.dr)};
   if (inMap(ahead.c, ahead.r)) return ahead;
-  static const int8_t kStep[4][2] = {{1, 0}, {0, 1}, {-1, 0}, {0, -1}};
-  for (const auto& s : kStep) {
+  for (const auto& s : kDirs) {
     const int c = pose.at.c + s[0], r = pose.at.r + s[1];
     if (inMap(c, r)) return Node{static_cast<int8_t>(c), static_cast<int8_t>(r)};
   }
@@ -38,19 +37,6 @@ inline Decision decideAtCrossing(const Pose& pose, const CubeBelief& belief, con
   if (visits != nullptr && stepToLeastVisited(pose, *visits, &next, blocked, &belief)) return {next, turnToward(pose, next), false};     // everything seen: wander toward the least visited junction
   next = explorationStep(pose);
   return {next, turnToward(pose, next), false};
-}
-
-// Carrying a cube: head for our gate (column 0, then out through the blue line to the green). While c > 0 each step is one junction toward c = 0; at c = 0 the
-// step is the "junction" c = -1, i.e. out of the map through the gate: the turn says how to face the gate. atGate = true then.
-inline Decision decideDelivery(const Pose& pose, bool* atGate) {
-  if (pose.at.c > 0) {
-    if (atGate) *atGate = false;
-    const Node next{static_cast<int8_t>(pose.at.c - 1), pose.at.r};
-    return {next, turnToward(pose, next), false};
-  }
-  if (atGate) *atGate = true;
-  const Node gate{-1, pose.at.r};
-  return {gate, turnToward(pose, gate), false};
 }
 
 // What to do at a crossing when we may not know where we are. Each coordinate is trusted only above `minCoordBelief`; otherwise the map is NOT

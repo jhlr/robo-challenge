@@ -1,8 +1,6 @@
 #pragma once
 // Alvos do ultrassom (e do TCS da frente): o que o eco e. Puro, so conta. Tudo CONFIGURAVEL e desligado por padrao no robo real ate o sensor existir;
 // o simulador ja modela os dois (alcance, cone, ruido) para testar a logica antes.
-//   - ruaTemCubo: na varredura do cruzamento o ultrassom olha ao longo de cada rua; eco mais perto que o comprimento da rua = ha algo nela. Os cubos so ficam nas
-//     ruas (nunca no cruzamento), entao um eco ali e um cubo (ou o oponente: veja ecoMovel).
 //   - ecoMovel: DISTINGUE O OPONENTE DE UM CUBO DE LONGE. Um cubo e parado: andando a v mm/s para ele, a distancia cai v*dt. Se o eco muda de outro jeito (cai mais
 //     rapido, sobe, ou some e volta), o alvo se mexe: e o oponente, e se o robo esta parado qualquer variacao e movimento.
 //   - classificarCuboFrente: o TCS da frente (a ~5 cm) diz a cor do cubo; branco ou cor sem plataforma = nao mexer (rua bloqueada).
@@ -20,7 +18,6 @@ struct AjustesAlvo {
   float cuboParaDePertoMm = 60.0f;      // distancia em que o robo para e olha a cor do cubo
 };
 
-inline bool ruaTemCubo(float usMm, const AjustesAlvo& aj = {}) { return usMm > 0.0f && usMm < aj.ruaMm; }
 
 // ---- O ultrassom NAO ve so a rua da frente: com alcance de ~900 mm, em linha reta ele alcanca ate 3 ruas (o cone e estreito: so cubos NO EIXO da rua). O eco vale como
 // informacao e como objetivo: um cubo a 2 ruas de distancia ja entra na memoria. Geometria (mm): o eixo para 38 antes do centro do cruzamento, a ponta do sensor fica 100 a frente do
