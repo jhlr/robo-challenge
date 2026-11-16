@@ -1175,10 +1175,8 @@ static std::vector<double> coletaDeN(int n, unsigned long semente) {
   Firmware fw;
   configurarMissao(m, fw, c, 0, false, false);
   fw.nav.verdade = &m;
-  const CorCubo cores[4] = {CorCubo::Azul, CorCubo::Vermelho, CorCubo::Amarelo, CorCubo::Preto};
-  std::vector<CorCubo> lista;
-  for (int i = 0; i < n; i++) lista.push_back(cores[i % 4]);
-  m.semearCubos(n, lista);
+  // A arena tem TODOS os cubos da regra (36: 5 de cada cor + 6 brancos, com marrons); o tempo de referencia e pegar e entregar os PRIMEIROS n.
+  m.semearRegras(36);
   if (getenv("SIM_DEBUG")) for (const Cubo& q : m.cubos) fprintf(stderr, "CUBO-INI %s (%d,%d)%s cor %d x %.0f y %.0f\n", q.obstaculo ? "MARROM" : "rua", q.c, q.r, q.obstaculo ? "" : (q.leste ? "-E" : "-N"), static_cast<int>(q.cor), q.x, q.y);
   std::vector<double> entregas;
   constexpr unsigned long kPartidaMs = 720000;   // 12 min (regras)
