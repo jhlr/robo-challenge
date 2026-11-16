@@ -364,6 +364,7 @@ struct Robo {
   unsigned long ultimaMetaMs = 0;
   bool tentarLados = true;
   bool portaoAteAzulAcabar = true;   // a travessia do portao so termina quando o TCS deixou o azul (antes: branco numa ponta + qualquer preto da propria faixa ja bastava)
+  bool zerarSaindoNoFim = true;
   bool portaoSoMeio = true;
   bool portaoSoMeio2 = true;   // so os 2 sensores do centro: a rua 20-30 mm ao lado (entrada com erro de y) nao encerra a travessia e o seguidor nao gira no eixo
   bool ancorarSemRepetir = true;
@@ -586,6 +587,11 @@ struct Robo {
           });
           esquecerUltimoComando(memoria);
           memoria.perdeuEm = 0;
+          // Se a travessia acabou justamente em cima de uma rua que cruza (as 2 pontas pretas), esse E o 1o cruzamento: o "saindo" armado antes de andar o engolia (ficava ligado
+          // enquanto a barra estava no preto) e o carro passava direto pela coluna 0, contando a seguinte como a primeira (pose uma coluna adiante pelo resto da partida).
+          bool fim[kSensores];
+          lerBarra(c, fim);
+          if (zerarSaindoNoFim && pontasJuntas(fim)) cruz = MemoriaCruzamento{};
         }
       }
       return;

@@ -196,3 +196,11 @@ Reentrada a y=1004 (36 mm fora da rua, rumo 5 graus torto): na faixa azul o bran
 (`algumPreto`) disparava com o carro AINDA em cima da faixa; a barra toda preta virava "cruzamento", a cor azul sem `portaoPendente` virava "BORDA azul do outro lado" e a
 meia-volta levava o carro de volta ao verde, onde ele seguia a moldura vermelha do ecoponto (x=-640) por mais de 150 s. A travessia agora so termina com o TCS fora do azul
 (`portaoAteAzulAcabar`; o teto de 1,3 s continua). Sementes ruins (7,13,22,30,38,53): 9 -> 20; sementes 0-4: 23 -> 22 (ruido); testes ok.
+
+### Semente 13 (e 22, 38): 1o cruzamento depois do portao engolido
+
+Na travessia do portao (pararNoCruzamento, ramo Portao) o "saindo" do detector de cruzamentos era armado ANTES de andar e a travessia terminava no 1o preto
+do meio da barra, que na entrada pelo beco e justamente a coluna 0 (rua cruzando, pontas pretas). O "saindo" so desarma com a barra FORA do preto, entao o
+cruzamento nunca era confirmado: o carro passava a coluna 0, contava a coluna 1 como a primeira, e a pose ficava 1 coluna (e depois 1,5 passo de y nas plataformas)
+errada pelo resto da partida (ecos "de certeza vazia" errados, leitura de plataforma em y inexistente, ate sair da arena). Agora, se a barra termina a travessia
+com as 2 pontas pretas, o detector e zerado e o cruzamento vale (`zerarSaindoNoFim`). Sementes ruins (13,22,38,58): 4 -> 14; sementes 0-4: 22 -> 22; testes ok.
