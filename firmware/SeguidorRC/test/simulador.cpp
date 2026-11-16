@@ -1480,7 +1480,7 @@ static void prepararMpu(Firmware& fw, Carro& c, const Estado& origem) {
 static bool buscar(double dist, double rumoGraus, bool comMpu, unsigned long& ms, int& ciclos, const Pista& p, Carro** saida = nullptr) {
   // `dist` = distancia do CENTRO DA BARRA (nao do eixo) ate a linha: assim a barra nunca comeca em cima dela, qualquer que seja o rumo
   const double th = rumoGraus * M_PI / 180.0;
-  const Estado origem = {dist - 30.0 * cos(th), 500 - 30.0 * sin(th), th};
+  const Estado origem = {dist - gFis.barraAFrenteMm * cos(th), 500 - gFis.barraAFrenteMm * sin(th), th};
   static Carro* ultimo = nullptr;
   delete ultimo;
   Carro* c = ultimo = new Carro(p, origem);
@@ -1584,7 +1584,7 @@ static std::vector<Receita> receitas() {
         Pista p;
         p.reta(0, -400, 0, 1400);
         const double th = rumo * M_PI / 180.0;
-        const Estado origem = {dist - 30.0 * cos(th), 500 - 30.0 * sin(th), th};
+        const Estado origem = {dist - gFis.barraAFrenteMm * cos(th), 500 - gFis.barraAFrenteMm * sin(th), th};
         auto s = sessaoSimples(nome, std::move(p), origem, false, rumo);
         prepararMpu(*s->fw, *s->carro, origem);
         return s;
@@ -1957,8 +1957,8 @@ int main(int argc, char** argv) {
     else if (k == "grausbusca") gAjustes.grausPorSegundoBusca = static_cast<float>(v);
     else if (k == "maxfator") gAjustes.buscaAvancoMaxFator = static_cast<int>(v);
     else if (k == "lacuna") gAjustes.lacunaMs = static_cast<unsigned long>(v);
-    else if (k == "velbusca") gAjustes.velBuscaExterna = static_cast<int>(v);
-    else if (k == "velreto") gAjustes.velReto = static_cast<int>(v);
+    else if (k == "velbusca") { gAjustes.velBuscaExterna = static_cast<int>(v); recalcularDerivados(gAjustes); }
+    else if (k == "velreto") { gAjustes.velReto = static_cast<int>(v); recalcularDerivados(gAjustes); }
     else if (k == "mortos") { gFis.barraMortos = static_cast<uint8_t>(v); gAjustes.sensoresMortos = gFis.barraMortos; }   // mortos=0: barra saudavel
     else { fprintf(stderr, "parametro desconhecido: %s\n", k.c_str()); return 2; }
   }

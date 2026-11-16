@@ -6,7 +6,7 @@ O simulador rodava a logica do carro com numeros proprios, diferentes dos do car
 ## O que divergia (simulador antigo x carro real)
 | Numero | Simulador antigo | Carro real |
 |---|---|---|
-| Barra a frente do eixo | 30 mm | 60 mm (`kAxleToSensorMm`, a MEDIR) |
+| Barra a frente do eixo | 30 mm | 15 mm (`kAxleToSensorMm`, medido com regua em 2026-11-16; o chute inicial no params.h era 60) |
 | Velocidade de reta (PWM 110) | ~254 mm/s | ~160 mm/s (`kStsFullSpeedMmS / kPwmFullSts`) |
 | Giro da busca (sem MPU) | chute 110 graus/s | ~66 graus/s (`w = 2 v / bitola`) |
 | Bitola | 140 supoe, 150 real | 185 efetiva |
@@ -16,13 +16,14 @@ O simulador rodava a logica do carro com numeros proprios, diferentes dos do car
 
 ## Causas de "se perde e nao volta" achadas no simulador
 1. A busca mede o giro por TEMPO com `grausPorSegundoBusca`; o chute (110) era 1,7x o giro real, entao a "volta inteira" girava ~215 graus e a linha atras do carro nunca era vista.
-   Sem MPU (o carro nao tem), a busca achava a linha em 4 de 12 casos; com o valor da fisica acha em 11 de 12.
+   Sem MPU (o carro nao tem), a busca achava a linha em 4 de 12 casos no simulador antigo; com o valor da fisica e a barra a 60 mm (suposicao de entao) acha em 11 de 12.
+   Com a barra medida (15 mm) a varredura de 360 graus alcanca so ~52 mm do eixo e a busca sem MPU acha 8 de 12 (falha nos de 60-100 mm de distancia), em 7 a 17 s.
 2. A lacuna de 120 ms cobria ~19 mm no carro real: uma emenda de 60 mm virava busca, o carro girava e voltava pela linha que acabara de deixar, em laco (lacuna de 60 mm: NAO chegou em 600 s; agora chega).
 3. `AjustesCruzamento::velMmS` (250) tambem era chute do carro antigo.
 
 ## Em aberto
-- Com a barra a 60 mm o tratamento de cruzamento/borda/"perdido de lado" falha no simulador (44 de 61 cenarios; com a barra a 30 mm, 54 de 61). Essa logica (parar, andar, girar 90 graus) foi feita
-  para a barra a ~30 mm. Antes de mexer: MEDIR a distancia real eixo-barra e conferir `kAxleToSensorMm`.
+- Busca longe da linha (60-100 mm) sem MPU: 8 de 12 no simulador, lenta (media ~8 s). Variar velocidade/trecho reto nao resolve (`velbusca`, `avancobusca`, `maxfator` testados): e o desenho da busca.
+- Cenarios do simulador que ainda falham com os numeros reais: `reta off-25 ang+20`, `perdido de lado na linha` (com e sem MPU), `tabuleiro inteiro`; mais `rumo ancorado`/`assimetria` (dependem de MPU, que o carro nao tem).
 - `teste_alvo.cpp` falha desde antes (`ruaDoEco(330, 0)`), sem relacao com isto.
 - S7/S8 (GPIO35/34, so de entrada) seguem mortos: a barra RC precisa de pino com saida para carregar o capacitor. Mover para GPIO13/GPIO4 e zerar `kLineDeadMask`.
 

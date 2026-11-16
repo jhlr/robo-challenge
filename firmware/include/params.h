@@ -53,7 +53,7 @@ constexpr float kSoundMmPerUs = 0.343f;
 constexpr float kWheelDiaMm = 210.0f / 3.14159265f;  // 66,85 mm: circunferencia medida de 21 cm
 constexpr float kTrackMm = 185.0f;  // medido com regua entre os centros das rodas (18,5 cm); a bitola EFETIVA (com derrapagem) sai do env `bitola`
 constexpr float kGearRatio = 1.0f;  // servo revs per wheel rev
-constexpr float kAxleToSensorMm = 60.0f;  // QRE8D ahead of the wheel axle
+constexpr float kAxleToSensorMm = 15.0f;  // QRE8D ahead of the wheel axle, measured with a ruler 2026-11-16 (the old simulator assumed 30, an earlier guess here was 60)
 
 // QRE8D polarity: set true if a channel reads HIGH over the black line.
 constexpr bool kLineIsHigh = false;
