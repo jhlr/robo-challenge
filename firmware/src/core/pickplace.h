@@ -15,7 +15,7 @@
 //   backUp(mm)               straight back by mm (encoders)
 //   clawOpen() / clawClose() move the claw
 //   shoulderTo(Level)        small checked steps to a calibrated height; false = blocked, the shoulder holds where it stopped
-//   holding()                the claw is gripping something
+//   holding()                with the shoulder up: the cube has left the front (sonar). Sem cubo na garra, ele continua na frente
 //   reposition()             after a failed grip, with the shoulder up: re-aim at the cube (sonar) and adjust the distance
 //   frontClear()             sonar sees no cube in front
 //   platformPositionOk()     sonar confirms the platform is where it should be

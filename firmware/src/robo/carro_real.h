@@ -65,12 +65,12 @@ class CarroReal {
   void parar() { comandar(0, 0); }
   double roda(bool esquerda) const { return esquerda ? alvoE_ : alvoD_; }
   // Pegar e largar o cubo: a maquina de core/pickplace.h sobre o ombro real (hal/shoulder), o recuo por encoders, o sonar e o TCS da frente.
-  // A garra (hal/claw) nao tem retorno: a pegada e SUPOSTA (hal::Claw::kPegadaAssumida) e o log diz isso. O ombro e o recuo se mexem de verdade.
+  // A garra (hal/claw) nao tem retorno de forca: a pegada e confirmada pelo sonar, com o ombro no topo (o cubo sai da frente do sonar). O ombro e o recuo se mexem de verdade.
   bool coletar(int) {
     Manipulador io{*this};
     auto pp = core::PickPlace::pick();
     pp.run(io);
-    evento(pp.done() ? "COLETAR: sequencia completa, PEGADA NAO VERIFICADA (garra sem retorno)" : "COLETAR falhou na etapa " + std::to_string(static_cast<int>(pp.state)) + ", motivo " + std::to_string(static_cast<int>(pp.fail)));
+    evento(pp.done() ? "COLETAR: sequencia completa, pegada confirmada pelo sonar (cubo saiu da frente com o ombro no topo)" : "COLETAR falhou na etapa " + std::to_string(static_cast<int>(pp.state)) + ", motivo " + std::to_string(static_cast<int>(pp.fail)));
     return pp.done();
   }
   bool soltar(seguidor::CorCubo cor) {
@@ -180,7 +180,8 @@ class CarroReal {
     bool clawOpen() { return c.garra_.open(); }
     bool clawClose() { return c.garra_.close(); }
     bool shoulderTo(core::Level l) { return shoulderGoTo(l == core::Level::Up ? ShoulderLevel::Up : l == core::Level::Place ? ShoulderLevel::Place : ShoulderLevel::Pick); }
-    bool holding() { return c.garra_.holding(); }
+    // Pegada: com o ombro no topo, o cubo preso na garra sai da frente do sonar. Sem garra (pino nao ligado) o cubo fica na frente e a sequencia para em NoGrip.
+    bool holding() { return !c.algoPerto(kAlcanceCorFrenteMm); }
     // Reapontar ao cubo pelo sonar e acertar a distancia: NAO IMPLEMENTADO. Falso = a sequencia para na etapa de reposicionar (sem chutar que deu certo).
     bool reposition() { c.evento("[reposicionar] NAO IMPLEMENTADO: sequencia para"); return false; }
     bool frontClear() { return !c.algoPerto(kAlcanceCorFrenteMm); }   // ombro no topo: a garra nao esta na frente do sonar

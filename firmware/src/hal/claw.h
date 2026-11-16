@@ -2,8 +2,8 @@
 #include "hal/sensors.h"
 
 // Claw (jaw) SG90. The only code that commands it.
-// STUB until the jaw is built and calibrated (user, 2026-11-09): with pins::kClaw < 0 nothing is attached, open()/close() only log and succeed, and holding() answers true.
-// Even with a pin the SG90 gives no force or position feedback (the user closed it hard and the reading did not change), so holding() has no real source yet.
+// Sem pino (pins::kClaw < 0) nada e comandado: open()/close() so respondem sim. Com pino, o SG90 nao tem retorno de forca nem de posicao: a pegada NAO e lida aqui,
+// quem decide e a sequencia (robo/carro_real.h, Manipulador::holding), pelo sonar com o ombro no topo.
 namespace hal {
 
 class Claw {
@@ -11,9 +11,6 @@ class Claw {
   void begin(int pin);          // pin < 0: stub mode
   bool open();                  // true when the command was sent (waits params::kClawMoveMs)
   bool close();
-  // Sem sensor de pegada: devolve a SUPOSICAO kPegadaAssumida (nao uma leitura). Quem chama deve registrar que nao foi verificada.
-  bool holding() const;
-  static constexpr bool kPegadaAssumida = true;
   bool isStub() const { return pin_ < 0; }
 
  private:
