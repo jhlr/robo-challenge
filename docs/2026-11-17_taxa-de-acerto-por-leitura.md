@@ -19,3 +19,11 @@ Leitura: a taxa quase nao sobe com o numero de leituras. Na maioria das passagen
 Ou seja: o gargalo esta em quantas leituras a logica transforma em evidencia, nao so no sensor.
 
 Limites da medida: a janela de 2 s e a associacao passagem -> rua sao aproximadas; 10 sementes.
+
+## Teste: crenca consome cada leitura (cadencia de observacao 30 ms em vez de 300 ms)
+
+Velbusca 110, 20 sementes, sonar a 30 ms:
+- Antes (300 ms): 15/20 completas, media 451 s. Falhas: 1, 4, 5, 11, 17.
+- Depois (30 ms): 14/20 completas, media 454 s. Falhas: 1, 4, 5, 6, 11, 17.
+
+Resultado: nao melhora. A semente 6 passa de completa para falha; o resto empata. Consumir cada leitura nao aumenta o acerto na prática com a logica atual. Revertido (repo em d88e51f). A causa das leituras nao usadas pode estar em como a observacao e feita (uma direcao por vez, eco so na rua de origem), nao so na cadencia.
