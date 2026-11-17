@@ -15,7 +15,8 @@ bool irPara(int alvo) {
   int pos = sts.ReadPos(cfg::kIdOmbro);
   if (pos < 0) return false;                                    // posicao ilegivel: nao se mexe
   if (abs(alvo - pos) > 90.0f * 4096 / 360) return false;      // regra: nunca mais de 90 graus de uma vez
-  while (abs(pos - alvo) > 12) {                                // ~1 grau de tolerancia
+  // No maximo 40 passos de comando (90 graus em passos de ~5,6 graus ja sao 16): se o ombro assentar longe do alvo (peso, atrito) nao fica mandando o mesmo comando para sempre.
+  for (int i = 0; i < 40 && abs(pos - alvo) > 12; i++) {        // ~1 grau de tolerancia
     const int passo = abs(alvo - pos) <= cfg::kOmbroPasso ? alvo : pos + (alvo > pos ? cfg::kOmbroPasso : -cfg::kOmbroPasso);
     if (sts.WritePosEx(cfg::kIdOmbro, passo, cfg::kOmbroVelocidade, cfg::kOmbroAceleracao) == 0) return false;
     delay(400);
@@ -27,7 +28,7 @@ bool irPara(int alvo) {
       return false;
     }
   }
-  return true;
+  return abs(pos - alvo) <= 40;   // ate ~3,5 graus de folga conta como chegou
 }
 }  // namespace
 
@@ -44,6 +45,9 @@ bool bracoIniciar() {
   }
   garra.setPeriodHertz(50);
   garra.attach(pinos::kGarra, 500, 2400);
+  // Antes de ligar o torque, o alvo do servo vira a posicao ATUAL: assim ele nao pula para um alvo antigo.
+  const int agora = sts.ReadPos(cfg::kIdOmbro);
+  if (agora >= 0) sts.WritePosEx(cfg::kIdOmbro, agora, cfg::kOmbroVelocidade, cfg::kOmbroAceleracao);
   return sts.EnableTorque(cfg::kIdOmbro, 1) != 0;
 }
 

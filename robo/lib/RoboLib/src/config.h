@@ -13,6 +13,7 @@ constexpr int kChaoSda = 32, kChaoScl = 4;      // Wire  : cor do CHAO
 constexpr int kFrenteSda = 25, kFrenteScl = 33;  // Wire1 : cor da FRENTE (cubo / plataforma)
 
 // Sonar HC-SR04 (o ECHO precisa de divisor 5 V -> 3,3 V).
+// ATENCAO: GPIO 12 (ECHO) e GPIO 5 (buzzer) sao pinos de boot do ESP32. Se o ECHO estiver em nivel ALTO ao ligar, a placa nao liga: mantenha o sonar sem energia ate o ESP32 subir ou o ECHO em LOW.
 constexpr int kTrig = 14;
 constexpr int kEcho = 12;
 
@@ -44,13 +45,16 @@ constexpr float kLarguraLinhaMm = 20.0f;     // largura da linha preta da pista
 // ---- rodas ----
 constexpr int kVelMaximaSts = 3400;          // passos/s com comando 1.0
 constexpr float kVelPlenaMmS = kVelMaximaSts / 4096.0f * 3.14159265f * kDiametroRodaMm;   // ~174 mm/s com comando 1.0
-constexpr uint8_t kTensaoMax = 140;         // janela de tensao gravada no STS (x0,1 V); de fabrica 8 V e a de 12 V dá erro
+constexpr uint8_t kAceleracaoRodas = 50;     // rampa de aceleracao do STS (0 = aceleracao maxima: o robo arranca e freia de supetao)
+constexpr uint8_t kTensaoMax = 140;        // janela de tensao gravada no STS (x0,1 V); de fabrica 8 V e a de 12 V dá erro
 constexpr uint8_t kTensaoMin = 40;
 
 // ---- seguir linha ----
 constexpr float kVelBase = 0.45f;            // fracao do comando maximo
 constexpr float kGanhoLinha = 0.18f;         // quanto virar por unidade de erro (erro vai de -3,5 a +3,5)
 constexpr uint32_t kLinhaPerdidaMs = 400;    // sem ver a linha por este tempo = perdida
+constexpr float kFracaoGiroPorEncoder = 0.85f;  // virar(): gira esta parte do angulo pelos encoders e termina procurando a linha
+constexpr int kVermelhoLeituras = 2;         // leituras seguidas de VERMELHO para parar (evita parar por um reflexo)
 
 // ---- ombro (STS3215 direto na torre, 4096 passos = 360 graus) ----
 // Medido na bancada: posicao crescente DESCE a garra.

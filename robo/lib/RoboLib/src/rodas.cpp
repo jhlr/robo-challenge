@@ -37,7 +37,8 @@ void atualizarOdometria() {
 }
 
 float distanciaMm() { return 0.5f * (mmEsq + mmDir); }
-float giroGraus() { return (mmEsq - mmDir) / (cfg::kBitolaMm * cfg::kDerrapagem) * 180.0f / kPi; }  // + = girou para a direita
+// Os encoders medem o que as rodas giraram (giro ideal); com derrapagem o robo gira so kDerrapagem desse valor.
+float giroGraus() { return (mmEsq - mmDir) / cfg::kBitolaMm * 180.0f / kPi * cfg::kDerrapagem; }  // + = girou para a direita
 
 // A janela de tensao do STS vem de fabrica em 8 V: com bateria de 12 V todo comando volta com erro. So grava se estiver diferente (a EEPROM tem vida limitada).
 void ajustarJanelaDeTensao(uint8_t id) {
@@ -65,8 +66,8 @@ void rodasIniciar() {
 void rodasVelocidade(float esq, float dir) {
   const int e = constrain(esq, -1.0f, 1.0f) * cfg::kVelMaximaSts;
   const int d = constrain(dir, -1.0f, 1.0f) * cfg::kVelMaximaSts;
-  sts.WriteSpe(cfg::kIdEsquerda, cfg::kSinalEsquerda * e);
-  sts.WriteSpe(cfg::kIdDireita, cfg::kSinalDireita * d);
+  sts.WriteSpe(cfg::kIdEsquerda, cfg::kSinalEsquerda * e, cfg::kAceleracaoRodas);
+  sts.WriteSpe(cfg::kIdDireita, cfg::kSinalDireita * d, cfg::kAceleracaoRodas);
 }
 
 void rodasParar() { rodasVelocidade(0, 0); }
