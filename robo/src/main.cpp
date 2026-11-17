@@ -31,14 +31,24 @@ bool temTempo() {
   return !parado && millis() - inicioPartida < TEMPO_PARTIDA_MS;
 }
 
+void bancada();
+
+// Proximo comando: letra do monitor serial (USB) ou do BLE; 0 se nao veio nada.
+char lerComando() {
+  bleAtualizar();
+  if (Serial.available()) return Serial.read();
+  return bleComando();
+}
+
 // ======================= PARTIDA =======================
-// O robo comeca parado na area verde. Parte quando o chao le VERDE por 5 leituras seguidas (um verde so, de reflexo, nao conta). Ou 'g' no monitor serial ou pelo BLE.
+// O robo comeca parado na area verde. Parte quando o chao le VERDE por 5 leituras seguidas (um verde so, de reflexo, nao conta). Ou 'g' (monitor serial ou BLE). 'm' abre a bancada.
 void esperarPartida() {
-  saida().println("Pronto. Esperando o verde (ou 'g')...");
+  saida().println("Pronto. Esperando o verde (ou 'g'; 'm' = bancada)...");
   int verdes = 0;
   while (verdes < 5) {
-    bleAtualizar();
-    if ((Serial.available() && Serial.read() == 'g') || bleComando() == 'g') break;
+    const char c = lerComando();
+    if (c == 'g') break;
+    if (c == 'm') { bancada(); saida().println("Esperando o verde (ou 'g')..."); }
     verdes = (corChao() == VERDE) ? verdes + 1 : 0;
     delay(100);
   }
@@ -195,13 +205,13 @@ void missao() {
 }
 
 // ======================= BANCADA =======================
-// Compile com `pio run -e bancada -t upload` e use o monitor serial para testar cada parte isolada, sem a missao.
-#ifdef BANCADA
+// Testa cada peca isolada, sem a missao. Entra com 'm' enquanto o robo espera a partida (monitor serial OU BLE); 'q' volta a esperar.
+// Comandos: s sensores | c cor crua | l barra | f seguir linha ate parar | p telemetria da linha (4 s) | r reta aberta (mede o desvio) | v rodas | g garra | b braco | q sair
 void bancada() {
-  saida().println("\nBANCADA: s=sensores  l=linha  f=seguir linha  v=rodas  g=garra  b=braco  c=cor(crua)");
+  saida().println("\nBANCADA: s c l f p r v g b | q = sair");
   while (true) {
-    while (!Serial.available()) delay(10);
-    const char c = Serial.read();
+    const char c = lerComando();
+    if (c == 'q') break;
     if (c == 's') {
       for (int i = 0; i < 10; i++) {
         saida().printf("linha=%02X sonar=%d chao=%s frente=%s\n", linhaLer(), distanciaMm(), nomeCor(corChao()), nomeCor(corFrente()));
@@ -216,6 +226,24 @@ void bancada() {
       saida().printf("barra=%02X posicao=%.2f cruzamento=%d\n", m, linhaPosicao(m), eCruzamento(m));
     } else if (c == 'f') {
       saida().printf("seguindo ate parar: %s\n", nomeParada(seguirAteParar(VELOCIDADE, DIST_CUBO_MM, 15000)));
+    } else if (c == 'p') {   // segue a linha 4 s e imprime a barra e a posicao a cada 100 ms: mostra se oscila ou deriva
+      const uint32_t t0 = millis();
+      uint32_t ultimo = 0;
+      while (millis() - t0 < 4000) {
+        const uint8_t m = linhaLer();
+        const bool viu = seguirLinhaPasso(m, VELOCIDADE);
+        if (millis() - ultimo >= 100) {
+          ultimo = millis();
+          saida().printf("barra=%02X pos=%.2f %s\n", m, linhaPosicao(m), viu ? "" : "SEM LINHA");
+        }
+      }
+      rodasParar();
+    } else if (c == 'r') {   // 1 s para a frente com as duas rodas iguais, sem linha: o giro medido e o desvio das rodas
+      rodasZerarDistancia();
+      rodasVelocidade(0.35f, 0.35f);
+      delay(2000);
+      rodasParar();
+      saida().printf("reta aberta: andou %.0f mm, girou %.1f graus (+ = puxou para a direita)\n", rodasDistanciaMm(), rodasGiroGraus());
     } else if (c == 'v') {
       andarMm(100); delay(500); andarMm(-100); delay(500); girarGraus(90); delay(500); girarGraus(-90);
     } else if (c == 'g') {
@@ -225,9 +253,10 @@ void bancada() {
       saida().println(bracoPlataforma() ? "plataforma ok" : "plataforma FALHOU");
       saida().println(bracoSubir() ? "topo ok" : "topo FALHOU");
     }
+    delay(10);
   }
+  saida().println("saiu da bancada");
 }
-#endif
 
 // ======================= LIGAR =======================
 void setup() {
@@ -236,9 +265,6 @@ void setup() {
   sensoresIniciar();
   rodasIniciar();
   if (!bracoIniciar()) saida().println("AVISO: o ombro (STS id 3) nao respondeu");
-#ifdef BANCADA
-  bancada();
-#endif
   esperarPartida();
   bracoSubir();   // so mexe o ombro depois da partida
   missao();

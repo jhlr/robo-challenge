@@ -55,6 +55,11 @@ SMS_STS& barramentoSts() { return sts; }
 
 void rodasZerarDistancia() { zerarOdometria(); }
 
+float rodasGiroGraus() {
+  atualizarOdometria();
+  return giroGraus();
+}
+
 float rodasDistanciaMm() {
   atualizarOdometria();
   return distanciaMm();

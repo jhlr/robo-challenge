@@ -13,5 +13,6 @@ void girarGraus(float graus, float vel = 0.35f);  // + = direita, - = esquerda
 // Distancia andada medindo pelos encoders: zere, ande (rodasVelocidade) e leia. Serve para medir algo andando, ex.: a largura de uma linha.
 void rodasZerarDistancia();
 float rodasDistanciaMm();   // media das duas rodas desde rodasZerarDistancia(), frente positivo
+float rodasGiroGraus();     // quanto o robo girou desde rodasZerarDistancia(): + = direita. Numa reta com rodas iguais deve dar ~0
 
 SMS_STS& barramentoSts();                     // o barramento compartilhado (o braco usa o mesmo)

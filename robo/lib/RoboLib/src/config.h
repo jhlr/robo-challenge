@@ -32,8 +32,8 @@ constexpr uint8_t kIdDireita = 2;
 constexpr uint8_t kIdOmbro = 3;
 
 // Sinal de cada lado (montagem + engrenagem invertida). Se o robo andar de re, inverta os dois.
-constexpr int kSinalEsquerda = +1;
-constexpr int kSinalDireita = -1;
+constexpr int kSinalEsquerda = -1;   // invertidos em 2026-11-17: o carro ia de re com os sinais antigos (+1 / -1)
+constexpr int kSinalDireita = +1;
 
 // ---- geometria (mm) ----
 constexpr float kDiametroRodaMm = 66.85f;
