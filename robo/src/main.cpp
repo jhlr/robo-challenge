@@ -19,20 +19,31 @@ constexpr float PASSO_PLATAFORMA_MM = 260;       // plataformas de 160 mm de com
 constexpr int CUBOS_POR_VIAGEM = 1;              // a garra segura 1 cubo (a regra permite ate 2)
 
 uint32_t inicioPartida = 0;
-bool temTempo() { return millis() - inicioPartida < TEMPO_PARTIDA_MS; }
+bool parado = false;   // 'x' pelo BLE: para tudo e termina a missao
+
+// Usada em todos os lacos da missao: atende o BLE (comando 'x', firmware novo chegando) e diz se ainda ha tempo.
+bool temTempo() {
+  bleAtualizar();
+  const char c = bleComando();
+  if (c == 'x') parado = true;
+  if (parado) rodasParar();
+  while (bleAtualizando()) { rodasParar(); bleAtualizar(); delay(10); }   // firmware novo chegando: fica parado ate reiniciar
+  return !parado && millis() - inicioPartida < TEMPO_PARTIDA_MS;
+}
 
 // ======================= PARTIDA =======================
-// O robo comeca parado na area verde. Parte quando o chao le VERDE por 5 leituras seguidas (um verde so, de reflexo, nao conta). Ou digite 'g' no monitor serial.
+// O robo comeca parado na area verde. Parte quando o chao le VERDE por 5 leituras seguidas (um verde so, de reflexo, nao conta). Ou 'g' no monitor serial ou pelo BLE.
 void esperarPartida() {
-  Serial.println("Pronto. Esperando o verde (ou 'g')...");
+  saida().println("Pronto. Esperando o verde (ou 'g')...");
   int verdes = 0;
   while (verdes < 5) {
-    if (Serial.available() && Serial.read() == 'g') break;
+    bleAtualizar();
+    if ((Serial.available() && Serial.read() == 'g') || bleComando() == 'g') break;
     verdes = (corChao() == VERDE) ? verdes + 1 : 0;
     delay(100);
   }
   inicioPartida = millis();
-  Serial.println("PARTIDA!");
+  saida().println("PARTIDA!");
 }
 
 // ======================= PEQUENAS AJUDAS =======================
@@ -95,7 +106,7 @@ int coletar(Cor carga[]) {
   int cubos = 0, cruzamento = 0;
   while (cubos < CUBOS_POR_VIAGEM && temTempo()) {
     const Parada p = seguirAteParar(VELOCIDADE, DIST_CUBO_MM, 20000);
-    Serial.printf("parou: %s\n", nomeParada(p));
+    saida().printf("parou: %s\n", nomeParada(p));
     if (p == Parada::Cruzamento) {
       centrarNoCruzamento();
       const char letra = ROTA[cruzamento++ % (sizeof(ROTA) - 1)];
@@ -105,7 +116,7 @@ int coletar(Cor carga[]) {
     } else if (p == Parada::Obstaculo) {
       aproximarAte(DIST_LER_COR_MM, 1500);   // chega perto: o sensor de cor so le bem de perto
       const Cor cor = corFrente();
-      Serial.printf("achei: %s\n", nomeCor(cor));
+      saida().printf("achei: %s\n", nomeCor(cor));
       if (eCuboColetavel(cor) && pegarCubo()) {
         carga[cubos++] = cor;
       } else if (cor == BRANCO) {
@@ -187,32 +198,32 @@ void missao() {
 // Compile com `pio run -e bancada -t upload` e use o monitor serial para testar cada parte isolada, sem a missao.
 #ifdef BANCADA
 void bancada() {
-  Serial.println("\nBANCADA: s=sensores  l=linha  f=seguir linha  v=rodas  g=garra  b=braco  c=cor(crua)");
+  saida().println("\nBANCADA: s=sensores  l=linha  f=seguir linha  v=rodas  g=garra  b=braco  c=cor(crua)");
   while (true) {
     while (!Serial.available()) delay(10);
     const char c = Serial.read();
     if (c == 's') {
       for (int i = 0; i < 10; i++) {
-        Serial.printf("linha=%02X sonar=%d chao=%s frente=%s\n", linhaLer(), distanciaMm(), nomeCor(corChao()), nomeCor(corFrente()));
+        saida().printf("linha=%02X sonar=%d chao=%s frente=%s\n", linhaLer(), distanciaMm(), nomeCor(corChao()), nomeCor(corFrente()));
         delay(300);
       }
     } else if (c == 'c') {
       uint16_t r, g, b, cl;
-      if (corChaoCrua(r, g, b, cl)) Serial.printf("chao   r=%u g=%u b=%u c=%u\n", r, g, b, cl);
-      if (corFrenteCrua(r, g, b, cl)) Serial.printf("frente r=%u g=%u b=%u c=%u\n", r, g, b, cl);
+      if (corChaoCrua(r, g, b, cl)) saida().printf("chao   r=%u g=%u b=%u c=%u\n", r, g, b, cl);
+      if (corFrenteCrua(r, g, b, cl)) saida().printf("frente r=%u g=%u b=%u c=%u\n", r, g, b, cl);
     } else if (c == 'l') {
       const uint8_t m = linhaLer();
-      Serial.printf("barra=%02X posicao=%.2f cruzamento=%d\n", m, linhaPosicao(m), eCruzamento(m));
+      saida().printf("barra=%02X posicao=%.2f cruzamento=%d\n", m, linhaPosicao(m), eCruzamento(m));
     } else if (c == 'f') {
-      Serial.printf("seguindo ate parar: %s\n", nomeParada(seguirAteParar(VELOCIDADE, DIST_CUBO_MM, 15000)));
+      saida().printf("seguindo ate parar: %s\n", nomeParada(seguirAteParar(VELOCIDADE, DIST_CUBO_MM, 15000)));
     } else if (c == 'v') {
       andarMm(100); delay(500); andarMm(-100); delay(500); girarGraus(90); delay(500); girarGraus(-90);
     } else if (c == 'g') {
       garraAbrir(); delay(500); garraFechar();
     } else if (c == 'b') {
-      Serial.println(bracoSubir() ? "topo ok" : "topo FALHOU");
-      Serial.println(bracoPlataforma() ? "plataforma ok" : "plataforma FALHOU");
-      Serial.println(bracoSubir() ? "topo ok" : "topo FALHOU");
+      saida().println(bracoSubir() ? "topo ok" : "topo FALHOU");
+      saida().println(bracoPlataforma() ? "plataforma ok" : "plataforma FALHOU");
+      saida().println(bracoSubir() ? "topo ok" : "topo FALHOU");
     }
   }
 }
@@ -221,16 +232,17 @@ void bancada() {
 // ======================= LIGAR =======================
 void setup() {
   Serial.begin(115200);
+  bleIniciar();   // primeiro: um firmware que chega aqui ainda pode ser atualizado por BLE
   sensoresIniciar();
   rodasIniciar();
-  if (!bracoIniciar()) Serial.println("AVISO: o ombro (STS id 3) nao respondeu");
+  if (!bracoIniciar()) saida().println("AVISO: o ombro (STS id 3) nao respondeu");
 #ifdef BANCADA
   bancada();
 #endif
   esperarPartida();
   bracoSubir();   // so mexe o ombro depois da partida
   missao();
-  Serial.println("Fim da missao.");
+  saida().println("Fim da missao.");
 }
 
 void loop() { delay(1000); }

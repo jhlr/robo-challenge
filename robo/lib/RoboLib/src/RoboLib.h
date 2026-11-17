@@ -6,6 +6,8 @@
 //   braco.h     ombro e garra
 //   linha.h     seguir linha, cruzamentos, virar
 //   cores.h     tabela de cores (calibre aqui)
+//   ble.h       console e atualizacao por Bluetooth (sem cabo)
+#include "ble.h"
 #include "braco.h"
 #include "config.h"
 #include "cores.h"
