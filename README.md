@@ -1,19 +1,32 @@
 # Robo Challenge 2026
 
-Robo autonomo para o desafio (regras: 300 x 300 mm com tudo estendido, totalmente autonomo). Chassi com 2 conveses, braco paralelogramo em MDF com ombro STS3215 ligado direto na torre e garra rotativa, sensores de linha, cor e ultrassom.
+Robo autonomo da RCB Challenge (regras: `Regras_Challenge_2026_Portugues-V1.0.pdf`). Limite 300 x 300 mm, totalmente autonomo.
+
+## Onde esta o codigo da competicao
 
 ```
-firmware/                 codigo que roda no robo
-  src/ include/ test/       ESP32 DevKit (PlatformIO): apps em src/, ferramentas de bancada em test/bench/, testes de src/core no PC (veja firmware/README.md)
-  SeguidorRC/               biblioteca Arduino do seguidor de linha (ESP32-S3 + TB6612 + 8 sensores RC): sensores, decisao, ponte H; exemplo em examples/
-cad/                      modelos e pecas
-  braco/                    braco em OpenSCAD: params.json -> cinematica.py -> params_gen.scad; pecas de MDF (mdf/*.dxf) e STL impressos
-  chassi/                   conves de cima alargado (script + DXF)
-  modelo_robo/              modelo do robo completo, garra de mastro, lista de materiais
-sim/                      simulador da pista e das estrategias
-docs/                     decisoes, estado atual, checklist de bancada, imagens
-old/                      versoes descartadas (ombro SG90, MG996R direto e 4:1, conves baixo) e pecas soltas do plotter
+robo/
+  platformio.ini            gravar: pio run -e robo -t upload   |   testar pecas: pio run -e bancada -t upload
+  src/main.cpp              A MISSAO, lida de cima para baixo (comece por aqui)
+  lib/RoboLib/src/          a biblioteca: funcoes simples, uma por assunto
+    config.h                pinos e medidas (o unico lugar para ajustar numeros)
+    rodas.h                 andarMm, girarGraus, rodasVelocidade
+    sensores.h              linhaLer, distanciaMm, corChao, corFrente
+    braco.h                 bracoSubir/Pegar/Plataforma, garraAbrir/Fechar
+    linha.h                 seguirAteParar, centrarNoCruzamento, virar
+    cores.h                 tabela de cores (calibrar aqui)
+  lib/SCServo/              driver dos servos STS3215 (de terceiros, nao mexer)
+extras/                     tudo que nao e codigo da competicao (CAD, simulador, versoes antigas)
+docs/                       decisoes, estado e checklists
 ```
 
-Comecar por `docs/2026-11-06_ombro-sts3215.md` (ombro atual), `docs/2026-11-09_fluxo-pegar-cubo.md` (fluxo e alturas) e `2026-11-09_bancada-carro-no-mapa.md` (carro na arena: calibracao, gatilho do verde, ferramentas BLE) e `firmware/README.md`. O estado do chassi e da pinca ainda esta em `docs/2026-10-24_braco-opcao2-estado-atual.md`.
-O plotter de desenho e outro projeto (`jhlr/plotter`). Os scripts Python de `cad/` rodam da raiz do repo (ex.: `python3 cad/braco/mdf_nest.py ombro`).
+Para mexer: ajuste numeros em `config.h`, a rota e as distancias no topo de `main.cpp`, ou escreva uma funcao nova na biblioteca.
+A missao nao foi testada na pista: use `-e bancada` para validar cada peca antes.
+
+## extras/
+- `cad/` modelos e pecas (OpenSCAD, DXF, STL); `old/` versoes de CAD descartadas
+- `sim/` simulador Python da pista
+- `ferramentas/` scripts de console BLE, ponte, gravacao
+- `legado/robo_antigo/` firmware anterior (mapa + localizador, 1700 linhas em `logica/robo.h`), mantido so para consulta
+
+O plotter de desenho e outro projeto (`jhlr/plotter`).

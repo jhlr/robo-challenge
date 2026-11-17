@@ -1,0 +1,82 @@
+#include "linha.h"
+
+#include <Arduino.h>
+
+#include "config.h"
+#include "rodas.h"
+#include "sensores.h"
+
+namespace {
+int contarBits(uint8_t m) {
+  int n = 0;
+  for (; m; m >>= 1) n += m & 1;
+  return n;
+}
+constexpr uint8_t kCentro = (1 << 3) | (1 << 4);  // S4 e S5
+}  // namespace
+
+const char* nomeParada(Parada p) {
+  switch (p) {
+    case Parada::Cruzamento: return "cruzamento";
+    case Parada::PerdeuLinha: return "perdeu a linha";
+    case Parada::Vermelho: return "vermelho";
+    case Parada::Obstaculo: return "obstaculo";
+    case Parada::Tempo: return "tempo";
+  }
+  return "?";
+}
+
+float linhaPosicao(uint8_t mascara) {
+  if (mascara == 0) return kSemLinha;
+  float soma = 0;
+  for (int i = 0; i < 8; i++)
+    if (mascara & (1 << i)) soma += i - 3.5f;   // S1 = -3,5 ... S8 = +3,5
+  return soma / contarBits(mascara);
+}
+
+bool eCruzamento(uint8_t mascara) {
+  const bool pontas = (mascara & 0x01) && (mascara & 0x80);
+  return contarBits(mascara) >= 6 || pontas;
+}
+
+bool seguirLinhaPasso(float vel) {
+  const float pos = linhaPosicao(linhaLer());
+  if (pos == kSemLinha) return false;
+  const float giro = cfg::kGanhoLinha * pos;   // linha a direita (pos > 0): roda esquerda mais rapida, o robo vira para a direita
+  rodasVelocidade(vel + giro, vel - giro);
+  return true;
+}
+
+Parada seguirAteParar(float vel, int obstaculoMm, uint32_t tempoMaxMs) {
+  const uint32_t inicio = millis();
+  uint32_t ultimaVez = millis();   // ultima vez que a linha estava embaixo
+  Parada motivo = Parada::Tempo;
+  while (millis() - inicio < tempoMaxMs) {
+    const uint8_t m = linhaLer();
+    if (eCruzamento(m)) { motivo = Parada::Cruzamento; break; }
+    if (corChao() == VERMELHO) { motivo = Parada::Vermelho; break; }
+    if (obstaculoMm > 0) {
+      const int d = distanciaMm();
+      if (d > 0 && d < obstaculoMm) { motivo = Parada::Obstaculo; break; }
+    }
+    if (seguirLinhaPasso(vel)) ultimaVez = millis();
+    else if (millis() - ultimaVez > cfg::kLinhaPerdidaMs) { motivo = Parada::PerdeuLinha; break; }
+  }
+  rodasParar();
+  return motivo;
+}
+
+void centrarNoCruzamento() { andarMm(cfg::kEixoAteBarraMm, 0.3f); }
+
+void virar(int graus) {
+  // Gira a maior parte do angulo pelos encoders e termina girando devagar ate o centro da barra pegar a linha.
+  // Assim um erro de odometria nao deixa o robo torto sobre a rua.
+  const float sinal = graus >= 0 ? 1.0f : -1.0f;
+  if (abs(graus) > 20) girarGraus(graus * 0.7f, 0.4f);
+  const uint32_t inicio = millis();
+  while (millis() - inicio < 3000) {
+    if (linhaLer() & kCentro) break;
+    rodasVelocidade(sinal * 0.25f, -sinal * 0.25f);
+  }
+  rodasParar();
+}
