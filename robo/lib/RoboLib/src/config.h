@@ -40,8 +40,6 @@ constexpr float kDiametroRodaMm = 66.85f;
 constexpr float kBitolaMm = 185.0f;          // distancia entre as rodas, medida com regua
 constexpr float kDerrapagem = 0.8f;          // com 4 rodas derrapando o giro real e ~80% do ideal
 constexpr float kEixoAteBarraMm = 15.0f;     // da linha do eixo das rodas ate a barra de linha
-constexpr float kLarguraLinhaMm = 20.0f;     // largura da linha preta da pista
-
 // ---- rodas ----
 constexpr int kVelMaximaSts = 3400;          // passos/s com comando 1.0
 constexpr float kVelPlenaMmS = kVelMaximaSts / 4096.0f * 3.14159265f * kDiametroRodaMm;   // ~174 mm/s com comando 1.0

@@ -53,6 +53,13 @@ void ajustarJanelaDeTensao(uint8_t id) {
 
 SMS_STS& barramentoSts() { return sts; }
 
+void rodasZerarDistancia() { zerarOdometria(); }
+
+float rodasDistanciaMm() {
+  atualizarOdometria();
+  return distanciaMm();
+}
+
 void rodasIniciar() {
   Serial2.begin(1000000, SERIAL_8N1, pinos::kStsRx, pinos::kStsTx);
   sts.pSerial = &Serial2;

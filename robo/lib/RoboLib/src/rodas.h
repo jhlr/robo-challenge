@@ -10,4 +10,8 @@ void rodasParar();
 void andarMm(float mm, float vel = 0.35f);    // mm negativo = re
 void girarGraus(float graus, float vel = 0.35f);  // + = direita, - = esquerda
 
+// Distancia andada medindo pelos encoders: zere, ande (rodasVelocidade) e leia. Serve para medir algo andando, ex.: a largura de uma linha.
+void rodasZerarDistancia();
+float rodasDistanciaMm();   // media das duas rodas desde rodasZerarDistancia(), frente positivo
+
 SMS_STS& barramentoSts();                     // o barramento compartilhado (o braco usa o mesmo)

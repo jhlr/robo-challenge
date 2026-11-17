@@ -65,7 +65,7 @@ void entrarNaCidade() {
   while (temTempo() && millis() - t0 < TEMPO_FASE_MS && linhaLer() == 0 && corChao() != VERMELHO) delay(2);   // ate uma linha preta aparecer
   rodasParar();
   if (linhaLer() == 0) return;   // nao achou a linha: nao gira no vazio
-  centrarNoCruzamento();         // eixo em cima da linha (a barra a ve 15 mm antes do eixo)
+  centrarNoCruzamento();         // mede a largura da linha andando e poe o eixo no centro dela
   virar(90);                     // segue a rua da borda. Sempre a direita: a arena e espelhada, os dois lados sao iguais
 }
 

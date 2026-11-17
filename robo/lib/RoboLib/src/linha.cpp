@@ -70,8 +70,19 @@ Parada seguirAteParar(float vel, int obstaculoMm, uint32_t tempoMaxMs) {
   return motivo;
 }
 
-// A barra enxerga o cruzamento na borda da linha larga; o eixo esta kEixoAteBarraMm atras da barra, e o centro fica meia linha adiante.
-void centrarNoCruzamento() { andarMm(cfg::kEixoAteBarraMm + cfg::kLarguraLinhaMm / 2, 0.3f); }
+// Poe o eixo no centro do cruzamento SEM supor a largura da linha: a barra anda ate sair da linha larga e a distancia andada e a largura medida.
+// A barra entra na linha pela borda; o eixo esta kEixoAteBarraMm atras da barra, entao o centro fica (eixo + largura/2) adiante do ponto de entrada.
+// Ja andou `largura`, falta (eixo - largura/2) (negativo = recua).
+void centrarNoCruzamento() {
+  const uint32_t inicio = millis();
+  rodasVelocidade(0.3f, 0.3f);
+  while (!eCruzamento(linhaLer()) && millis() - inicio < 600) {}   // ainda nao chegou na linha larga (ex.: parou na primeira ponta que viu)
+  rodasZerarDistancia();                                           // daqui em diante mede a largura
+  while (eCruzamento(linhaLer()) && millis() - inicio < 3000) {}   // anda enquanto a barra esta sobre a linha
+  rodasParar();
+  const float largura = rodasDistanciaMm();
+  andarMm(cfg::kEixoAteBarraMm - largura / 2, 0.3f);
+}
 
 namespace {
 int rumo = 0;
