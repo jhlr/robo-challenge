@@ -24,4 +24,11 @@ Parada seguirAteParar(float vel, int obstaculoMm, uint32_t tempoMaxMs);
 void centrarNoCruzamento();
 
 // Vira no lugar em cima do cruzamento: +90 direita, -90 esquerda, 180 meia-volta. Termina com a linha de novo embaixo do centro da barra.
+// Se nao houver linha no destino, desiste da busca depois de ~40 graus extras (nao fica rodando).
 void virar(int graus);
+
+// Rumo: para onde o robo esta virado. 0 = para a cidade (como ele e posicionado na partida), 90 = direita, -90 = esquerda, 180 = para casa (ecoponto).
+// virar() atualiza sozinho. Quem girar por outro meio (girarGraus) e quiser manter o rumo certo chama rumoDefinir().
+int rumoGraus();
+void rumoDefinir(int graus);
+int giroParaRumo(int alvoGraus);   // quanto virar (-90, 0, +90 ou 180) para ficar olhando para `alvoGraus`

@@ -1,6 +1,7 @@
 // Missao do robo, lida de cima para baixo. Cada passo e uma funcao da RoboLib (veja lib/RoboLib/src/RoboLib.h).
 // ESTE CODIGO AINDA NAO FOI TESTADO NA PISTA: os numeros marcados com (AJUSTAR) sao chutes.
-// Limites conhecidos: o robo nao sabe para que lado fica "casa" (nao guarda o rumo) e nao ha tabela de cor MARROM (cubo marrom e obstaculo).
+// O robo e sempre posicionado virado para a cidade (rumo 0). A RoboLib guarda o rumo a cada virar(): 180 = casa (ecoponto).
+// Limite conhecido: nao ha tabela de cor MARROM (cubo marrom e obstaculo).
 #include <Arduino.h>
 #include <RoboLib.h>
 
@@ -52,14 +53,20 @@ bool aproximarAte(int mm, uint32_t tempoMs) {
 }
 
 // ======================= PASSOS DA MISSAO =======================
-// Anda ate a rua e entra na cidade: segue reto pela area verde ate a linha azul e depois ate a primeira linha preta. Cada fase tem limite de tempo.
+// Anda ate a rua e entra na cidade: segue reto pela area verde ate a linha azul e depois ate a primeira linha preta.
+// Essa linha e a rua da borda da cidade, atravessada: o robo centra nela e vira a direita para segui-la. Cada fase tem limite de tempo.
+// Supoe que o robo esta virado para a cidade (partida, ou depois de voltar do ecoponto).
 void entrarNaCidade() {
+  rumoDefinir(0);
   rodasVelocidade(VELOCIDADE, VELOCIDADE);
   uint32_t t0 = millis();
   while (temTempo() && millis() - t0 < TEMPO_FASE_MS && corChao() != AZUL) delay(2);   // cruza a linha azul (inicio da cidade)
   t0 = millis();
   while (temTempo() && millis() - t0 < TEMPO_FASE_MS && linhaLer() == 0 && corChao() != VERMELHO) delay(2);   // ate uma linha preta aparecer
   rodasParar();
+  if (linhaLer() == 0) return;   // nao achou a linha: nao gira no vazio
+  centrarNoCruzamento();         // eixo em cima da linha (a barra a ve 15 mm antes do eixo)
+  virar(90);                     // segue a rua da borda (para baixo na pista)
 }
 
 // Pega o cubo que esta na frente. Devolve false se o ombro nao chegou (nao fecha a garra no ar).
@@ -118,12 +125,16 @@ int coletar(Cor carga[]) {
 
 // Volta ao ecoponto: segue a rua ate o fim e atravessa a area verde ate a faixa amarela.
 void irParaEcoponto() {
-  virar(180);   // (AJUSTAR) supoe que a rua atual leva para casa; o robo ainda nao sabe o rumo
+  constexpr int CASA = 180;
+  if (abs(giroParaRumo(CASA)) == 180) virar(180);   // de frente para a cidade: meia-volta ja, no meio da rua
   Parada p;
   do {
     p = seguirAteParar(VELOCIDADE, 0, 30000);
-    if (p == Parada::Cruzamento) centrarNoCruzamento();   // cruzamento no caminho: segue reto
-  } while (p == Parada::Cruzamento && temTempo());        // termina quando a linha acaba (borda da cidade)
+    if (p != Parada::Cruzamento) break;   // a linha acabou: borda da cidade
+    centrarNoCruzamento();
+    const int giro = giroParaRumo(CASA);  // em rua transversal, vira para o lado de casa no primeiro cruzamento
+    if (giro != 0) virar(giro);
+  } while (temTempo());
   andarMm(DIST_ATE_ECOPONTO_MM, 0.4f);
 }
 

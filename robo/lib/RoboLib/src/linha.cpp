@@ -73,13 +73,26 @@ Parada seguirAteParar(float vel, int obstaculoMm, uint32_t tempoMaxMs) {
 // A barra enxerga o cruzamento na borda da linha larga; o eixo esta kEixoAteBarraMm atras da barra, e o centro fica meia linha adiante.
 void centrarNoCruzamento() { andarMm(cfg::kEixoAteBarraMm + cfg::kLarguraLinhaMm / 2, 0.3f); }
 
+namespace {
+int rumo = 0;
+int normalizar(int graus) {   // para o intervalo (-180, 180]
+  graus = ((graus % 360) + 360) % 360;
+  return graus > 180 ? graus - 360 : graus;
+}
+}  // namespace
+
+int rumoGraus() { return rumo; }
+void rumoDefinir(int graus) { rumo = normalizar(graus); }
+int giroParaRumo(int alvoGraus) { return normalizar(alvoGraus - rumo); }
+
 void virar(int graus) {
+  rumo = normalizar(rumo + graus);
   // Gira a maior parte do angulo pelos encoders e termina girando devagar ate o centro da barra pegar a linha.
   // Assim um erro de odometria nao deixa o robo torto sobre a rua.
   const float sinal = graus >= 0 ? 1.0f : -1.0f;
   if (abs(graus) > 20) girarGraus(graus * cfg::kFracaoGiroPorEncoder, 0.4f);
   const uint32_t inicio = millis();
-  while (millis() - inicio < 3000) {
+  while (millis() - inicio < cfg::kBuscaLinhaMs) {
     if (linhaLer() & kCentro) break;
     rodasVelocidade(sinal * 0.25f, -sinal * 0.25f);
   }

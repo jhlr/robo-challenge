@@ -54,6 +54,7 @@ constexpr float kVelBase = 0.45f;            // fracao do comando maximo
 constexpr float kGanhoLinha = 0.18f;         // quanto virar por unidade de erro (erro vai de -3,5 a +3,5)
 constexpr uint32_t kLinhaPerdidaMs = 400;    // sem ver a linha por este tempo = perdida
 constexpr float kFracaoGiroPorEncoder = 0.85f;  // virar(): gira esta parte do angulo pelos encoders e termina procurando a linha
+constexpr uint32_t kBuscaLinhaMs = 1500;     // virar(): quanto tempo gira devagar procurando a linha (~40 graus)
 constexpr int kVermelhoLeituras = 2;         // leituras seguidas de VERMELHO para parar (evita parar por um reflexo)
 
 // ---- ombro (STS3215 direto na torre, 4096 passos = 360 graus) ----
