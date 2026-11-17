@@ -66,7 +66,7 @@ void entrarNaCidade() {
   rodasParar();
   if (linhaLer() == 0) return;   // nao achou a linha: nao gira no vazio
   centrarNoCruzamento();         // eixo em cima da linha (a barra a ve 15 mm antes do eixo)
-  virar(90);                     // segue a rua da borda (para baixo na pista)
+  virar(90);                     // segue a rua da borda. Sempre a direita: a arena e espelhada, os dois lados sao iguais
 }
 
 // Pega o cubo que esta na frente. Devolve false se o ombro nao chegou (nao fecha a garra no ar).
