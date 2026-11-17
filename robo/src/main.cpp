@@ -93,8 +93,12 @@ int coletar(Cor carga[2]) {
 
 // Volta ao ecoponto: segue a rua ate o fim e atravessa a area verde ate a faixa amarela.
 void irParaEcoponto() {
-  virar(180);   // (AJUSTAR) supoe que a ultima rua da coleta leva para casa; senao escolha o rumo antes
-  seguirAteParar(VELOCIDADE, 0, 30000);   // ate a linha acabar (borda da cidade)
+  virar(180);   // (AJUSTAR) supoe que a rua atual leva para casa; o robo ainda nao sabe o rumo (veja a revisao)
+  Parada p;
+  do {
+    p = seguirAteParar(VELOCIDADE, 0, 30000);
+    if (p == Parada::Cruzamento) centrarNoCruzamento();   // cruzamento no caminho: segue reto
+  } while (p == Parada::Cruzamento && temTempo());        // termina quando a linha acaba (borda da cidade)
   andarMm(DIST_ATE_ECOPONTO_MM, 0.4f);
 }
 
@@ -107,9 +111,9 @@ bool entregar(Cor cor) {
       return true;
     }
     // nao e esta: desloca para a proxima plataforma
-    virar(90);
+    girarGraus(90);   // fora da cidade nao ha linha: gira so pelos encoders (virar() procura linha)
     andarMm(PASSO_LATERAL_MM, 0.3f);
-    virar(-90);
+    girarGraus(-90);
     rodasVelocidade(0.25f, 0.25f);   // anda ate o sonar ver a plataforma (limite de 1,5 s)
     const uint32_t t0 = millis();
     while (millis() - t0 < 1500) {
@@ -122,7 +126,7 @@ bool entregar(Cor cor) {
 }
 
 void voltarParaCidade() {
-  virar(180);
+  girarGraus(180);   // no ecoponto nao ha linha
   andarMm(DIST_ATE_ECOPONTO_MM, 0.4f);
   entrarNaCidade();
 }
@@ -181,11 +185,11 @@ void setup() {
   sensoresIniciar();
   rodasIniciar();
   if (!bracoIniciar()) Serial.println("AVISO: o ombro (STS id 3) nao respondeu");
-  bracoSubir();
 #ifdef BANCADA
   bancada();
 #endif
   esperarPartida();
+  bracoSubir();   // so mexe o ombro depois da partida
   missao();
   Serial.println("Fim da missao.");
 }

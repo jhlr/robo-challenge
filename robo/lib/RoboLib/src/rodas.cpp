@@ -74,7 +74,7 @@ void rodasParar() { rodasVelocidade(0, 0); }
 void andarMm(float mm, float vel) {
   const float sinal = mm >= 0 ? 1.0f : -1.0f;
   const float alvo = fabsf(mm);
-  const uint32_t limite = 1000 + static_cast<uint32_t>(alvo / 50.0f / vel * 1000.0f) * 3;  // folga de 3x o tempo esperado
+  const uint32_t limite = 1000 + static_cast<uint32_t>(alvo / (cfg::kVelPlenaMmS * vel) * 1000.0f) * 3;  // folga de 3x o tempo esperado
   zerarOdometria();
   const uint32_t inicio = millis();
   while (millis() - inicio < limite) {

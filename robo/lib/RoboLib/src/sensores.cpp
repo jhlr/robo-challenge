@@ -67,7 +67,7 @@ int distanciaMm() {
   digitalWrite(pinos::kTrig, HIGH);
   delayMicroseconds(10);
   digitalWrite(pinos::kTrig, LOW);
-  const unsigned long ecoUs = pulseIn(pinos::kEcho, HIGH, 25000);   // 0 = sem eco em 25 ms (~4 m)
+  const unsigned long ecoUs = pulseIn(pinos::kEcho, HIGH, 10000);   // 0 = sem eco em 10 ms (~1,7 m); sem eco nao trava o seguidor por 25 ms
   if (ecoUs == 0) return -1;
   return static_cast<int>(ecoUs * cfg::kSomMmPorUs / 2.0f + 0.5f);   // ida e volta: metade do caminho
 }

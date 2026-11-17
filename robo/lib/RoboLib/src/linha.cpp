@@ -13,6 +13,7 @@ int contarBits(uint8_t m) {
   return n;
 }
 constexpr uint8_t kCentro = (1 << 3) | (1 << 4);  // S4 e S5
+constexpr uint32_t kIgnorarCruzamentoMs = 900;
 }  // namespace
 
 const char* nomeParada(Parada p) {
@@ -53,7 +54,8 @@ Parada seguirAteParar(float vel, int obstaculoMm, uint32_t tempoMaxMs) {
   Parada motivo = Parada::Tempo;
   while (millis() - inicio < tempoMaxMs) {
     const uint8_t m = linhaLer();
-    if (eCruzamento(m)) { motivo = Parada::Cruzamento; break; }
+    // Logo apos sair de um cruzamento a barra ainda ve a linha larga: so olha cruzamento depois de andar ~70 mm.
+    if (millis() - inicio > kIgnorarCruzamentoMs && eCruzamento(m)) { motivo = Parada::Cruzamento; break; }
     if (corChao() == VERMELHO) { motivo = Parada::Vermelho; break; }
     if (obstaculoMm > 0) {
       const int d = distanciaMm();
@@ -66,7 +68,8 @@ Parada seguirAteParar(float vel, int obstaculoMm, uint32_t tempoMaxMs) {
   return motivo;
 }
 
-void centrarNoCruzamento() { andarMm(cfg::kEixoAteBarraMm, 0.3f); }
+// A barra enxerga o cruzamento na borda da linha larga; o eixo esta kEixoAteBarraMm atras da barra, e o centro fica meia linha adiante.
+void centrarNoCruzamento() { andarMm(cfg::kEixoAteBarraMm + cfg::kLarguraLinhaMm / 2, 0.3f); }
 
 void virar(int graus) {
   // Gira a maior parte do angulo pelos encoders e termina girando devagar ate o centro da barra pegar a linha.
