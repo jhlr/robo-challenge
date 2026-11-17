@@ -27,3 +27,15 @@ Velbusca 110, 20 sementes, sonar a 30 ms:
 - Depois (30 ms): 14/20 completas, media 454 s. Falhas: 1, 4, 5, 6, 11, 17.
 
 Resultado: nao melhora. A semente 6 passa de completa para falha; o resto empata. Consumir cada leitura nao aumenta o acerto na prática com a logica atual. Revertido (repo em d88e51f). A causa das leituras nao usadas pode estar em como a observacao e feita (uma direcao por vez, eco so na rua de origem), nao so na cadencia.
+
+## Teste: leituras ambiguas valem para as duas ruas candidatas
+
+Diagnostico: 45% das leituras de cubo caem em `ruaDoEco` = -1 (resto fora de [72, 230] mm da rua de 300 mm), entao sao descartadas (medido com andado = 0; nas passagens de andar o resto pode mudar).
+
+Variante: leitura ambigua faz `observeStreet(..., true)` nas duas ruas candidatas, com a mesma evidencia.
+
+Velbusca 110, 20 sementes:
+- Base: 15/20, media 451 s. Falhas: 1, 4, 5, 11, 17.
+- Variante: 15/20, media 456 s. Falhas: 1, 4, 5, 9, 17.
+
+Resultado: empata. Usar as leituras ambiguas nao muda o desfecho. O gargalo parece nao ser o descarte. Revertido (repo em e873534 + esta doc).
